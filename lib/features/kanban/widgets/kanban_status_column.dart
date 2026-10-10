@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import '../../../core/constants/app_constants.dart';
@@ -12,11 +13,12 @@ class KanbanStatusColumn extends StatefulWidget {
     required this.tasks,
     required this.scrollController,
     required this.viewportKey,
+    required this.boardViewportKey,
     required this.draggedTaskId,
     required this.draggedCardHeight,
     required this.accentTaskIds,
     required this.departingTaskId,
-    required this.dragPosition,
+    required this.dragPointer,
     required this.hoverStatus,
     required this.hoverIndex,
     required this.onTaskTap,
@@ -33,11 +35,12 @@ class KanbanStatusColumn extends StatefulWidget {
   final List<KanbanTask> tasks;
   final ScrollController scrollController;
   final GlobalKey viewportKey;
+  final GlobalKey boardViewportKey;
   final String? draggedTaskId;
   final double? draggedCardHeight;
   final Set<String> accentTaskIds;
   final String? departingTaskId;
-  final Offset? dragPosition;
+  final ValueListenable<Offset?> dragPointer;
   final KanbanStatus? hoverStatus;
   final int? hoverIndex;
   final ValueChanged<KanbanTask> onTaskTap;
@@ -57,6 +60,13 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
     with AutomaticKeepAliveClientMixin {
   final Map<String, GlobalKey> _cardKeys = {};
   final _placeholderKey = GlobalKey();
+  final ValueNotifier<Offset> _feedbackPointer = ValueNotifier(Offset.zero);
+
+  @override
+  void dispose() {
+    _feedbackPointer.dispose();
+    super.dispose();
+  }
 
   Rect? _placeholderRect() {
     final box = _placeholderKey.currentContext?.findRenderObject();
@@ -68,22 +78,33 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
   bool get wantKeepAlive => true;
 
   int _insertionIndex(Offset globalPosition) {
+    final viewport = widget.viewportKey.currentContext?.findRenderObject();
+    if (viewport is! RenderBox || !viewport.hasSize) return 0;
+    final pointerY = viewport.globalToLocal(globalPosition).dy;
+    final sourceColumn = widget.tasks.any(
+      (task) => task.id == widget.draggedTaskId,
+    );
     var index = 0;
+    var lastVisibleIndex = -1;
     for (final task in widget.tasks) {
       if (task.id == widget.draggedTaskId) continue;
       final box = _cardKeys[task.id]?.currentContext?.findRenderObject();
       if (box is RenderBox && box.hasSize) {
-        var midpoint = box.localToGlobal(Offset(0, box.size.height / 2)).dy;
-        if (widget.hoverStatus == widget.status &&
+        var midpoint = viewport
+            .globalToLocal(box.localToGlobal(Offset(0, box.size.height / 2)))
+            .dy;
+        if (sourceColumn &&
+            widget.hoverStatus == widget.status &&
             widget.hoverIndex != null &&
             widget.hoverIndex! <= index) {
           midpoint -= (widget.draggedCardHeight ?? 76) + 12;
         }
-        if (globalPosition.dy < midpoint) return index;
+        if (pointerY < midpoint) return index;
+        lastVisibleIndex = index;
       }
       index++;
     }
-    return index;
+    return lastVisibleIndex < 0 ? 0 : lastVisibleIndex + 1;
   }
 
   @override
@@ -108,7 +129,8 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
     void addSlot() {
       final slotIndex = insertionIndex;
       items.add(() {
-        final child = hovering && widget.hoverIndex == slotIndex
+        final active = hovering && widget.hoverIndex == slotIndex;
+        final child = active
             ? _placeholder()
             : const SizedBox(width: double.infinity);
         final key = ValueKey('slot-${widget.status.value}-$slotIndex');
@@ -116,7 +138,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
             ? KeyedSubtree(key: key, child: child)
             : AnimatedSize(
                 key: key,
-                duration: const Duration(milliseconds: 260),
+                duration: const Duration(milliseconds: 200),
                 curve: Curves.easeInOutCubic,
                 alignment: Alignment.topCenter,
                 child: child,
@@ -147,112 +169,162 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
             child: IgnorePointer(
               ignoring: widget.departingTaskId == task.id,
               child: LayoutBuilder(
-                builder: (context, constraints) => LongPressDraggable<String>(
-                  data: task.id,
-                  dragAnchorStrategy: pointerDragAnchorStrategy,
-                  onDragStarted: () {
-                    final box = _cardKeys[task.id]?.currentContext
-                        ?.findRenderObject();
-                    widget.onDragStart(
-                      task,
-                      box is RenderBox
-                          ? box.localToGlobal(Offset.zero) & box.size
-                          : Rect.fromLTWH(0, 0, constraints.maxWidth, 76),
-                    );
-                  },
-                  onDragUpdate: (details) =>
-                      widget.onDragUpdate(details.globalPosition),
-                  onDragEnd: widget.onDragEnd,
-                  feedback: Builder(
-                    builder: (context) {
-                      final source = _cardKeys[task.id]?.currentContext
+                builder: (context, constraints) => Listener(
+                  onPointerDown: (event) =>
+                      _feedbackPointer.value = event.position,
+                  child: LongPressDraggable<String>(
+                    data: task.id,
+                    dragAnchorStrategy: pointerDragAnchorStrategy,
+                    onDragStarted: () {
+                      final box = _cardKeys[task.id]?.currentContext
                           ?.findRenderObject();
-                      final height = source is RenderBox
-                          ? source.size.height
-                          : 80.0;
-                      return Transform.translate(
-                        offset: Offset(-constraints.maxWidth / 2, -height / 2),
-                        child: Material(
-                          color: Colors.transparent,
-                          elevation: 12,
-                          shadowColor: Colors.black45,
-                          borderRadius: BorderRadius.circular(16),
-                          child: SizedBox(
-                            key: Key('drag-feedback-${task.id}'),
-                            width: constraints.maxWidth,
-                            child: TweenAnimationBuilder<double>(
-                              tween: Tween(begin: 1, end: 1.03),
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 140),
-                              curve: Curves.easeOutCubic,
-                              builder: (context, scale, child) =>
-                                  Transform.rotate(
-                                    angle:
-                                        MediaQuery.disableAnimationsOf(context)
-                                        ? 0
-                                        : .012 * (scale - 1) / .03,
-                                    child: Transform.scale(
-                                      scale: scale,
-                                      child: child,
-                                    ),
+                      final origin = box is RenderBox
+                          ? box.localToGlobal(Offset.zero) & box.size
+                          : Rect.fromLTWH(0, 0, constraints.maxWidth, 76);
+                      widget.onDragStart(task, origin);
+                    },
+                    onDragUpdate: (details) {
+                      _feedbackPointer.value = details.globalPosition;
+                      widget.onDragUpdate(details.globalPosition);
+                    },
+                    onDragEnd: widget.onDragEnd,
+                    feedback: Builder(
+                      builder: (context) {
+                        final source = _cardKeys[task.id]?.currentContext
+                            ?.findRenderObject();
+                        final height = source is RenderBox
+                            ? source.size.height
+                            : 80.0;
+                        final screen = MediaQuery.sizeOf(context);
+                        final safe = MediaQuery.paddingOf(context);
+                        final width = constraints.maxWidth
+                            .clamp(0, screen.width - 144)
+                            .toDouble();
+                        final board = widget.boardViewportKey.currentContext
+                            ?.findRenderObject();
+                        final boardRect = board is RenderBox && board.hasSize
+                            ? board.localToGlobal(Offset.zero) & board.size
+                            : Rect.fromLTWH(
+                                0,
+                                safe.top,
+                                screen.width,
+                                screen.height - safe.top - safe.bottom,
+                              );
+                        final minTop = boardRect.top.clamp(
+                          safe.top + 8,
+                          screen.height,
+                        );
+                        final maxTop = (boardRect.bottom - height).clamp(
+                          minTop,
+                          screen.height - safe.bottom - height,
+                        );
+                        return ValueListenableBuilder<Offset>(
+                          valueListenable: _feedbackPointer,
+                          child: Semantics(
+                            label: 'Dragging ${task.title}',
+                            child: Material(
+                              color: Colors.transparent,
+                              elevation: 12,
+                              shadowColor: Colors.black45,
+                              borderRadius: BorderRadius.circular(16),
+                              child: SizedBox(
+                                key: Key('drag-feedback-${task.id}'),
+                                width: width,
+                                child: TweenAnimationBuilder<double>(
+                                  tween: Tween(begin: 1, end: 1.03),
+                                  duration:
+                                      MediaQuery.disableAnimationsOf(context)
+                                      ? Duration.zero
+                                      : const Duration(milliseconds: 140),
+                                  curve: Curves.easeOutCubic,
+                                  builder: (context, scale, child) =>
+                                      Transform.rotate(
+                                        angle:
+                                            MediaQuery.disableAnimationsOf(
+                                              context,
+                                            )
+                                            ? 0
+                                            : .012 * (scale - 1) / .03,
+                                        child: Transform.scale(
+                                          scale: scale,
+                                          child: child,
+                                        ),
+                                      ),
+                                  child: KanbanTaskCard(
+                                    task: task,
+                                    onTap: () {},
+                                    onAction: (_) {},
                                   ),
-                              child: KanbanTaskCard(
-                                task: task,
-                                onTap: () {},
-                                onAction: (_) {},
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                      );
-                    },
-                  ),
-                  child: Stack(
-                    children: [
-                      AnimatedOpacity(
-                        duration: MediaQuery.disableAnimationsOf(context)
-                            ? Duration.zero
-                            : const Duration(milliseconds: 180),
-                        opacity: widget.draggedTaskId == task.id ? .22 : 1,
-                        child: _CardMotion(
-                          active: widget.accentTaskIds.contains(task.id),
-                          completed: task.status == KanbanStatus.completed,
-                          child: KanbanTaskCard(
-                            task: task,
-                            onTap: () => widget.onTaskTap(task),
-                            onAction: (action) =>
-                                widget.onTaskAction(task, action),
+                          builder: (context, pointer, child) {
+                            final left = (pointer.dx - width / 2).clamp(
+                              8.0,
+                              screen.width - width - 8.0,
+                            );
+                            final top = (pointer.dy - height / 2).clamp(
+                              minTop,
+                              maxTop,
+                            );
+                            return Transform.translate(
+                              offset: Offset(
+                                left - pointer.dx,
+                                top - pointer.dy,
+                              ),
+                              child: child,
+                            );
+                          },
+                        );
+                      },
+                    ),
+                    child: Stack(
+                      children: [
+                        AnimatedOpacity(
+                          duration: MediaQuery.disableAnimationsOf(context)
+                              ? Duration.zero
+                              : const Duration(milliseconds: 180),
+                          opacity: widget.draggedTaskId == task.id ? .22 : 1,
+                          child: _CardMotion(
+                            active: widget.accentTaskIds.contains(task.id),
+                            completed: task.status == KanbanStatus.completed,
+                            child: KanbanTaskCard(
+                              task: task,
+                              onTap: () => widget.onTaskTap(task),
+                              onAction: (action) =>
+                                  widget.onTaskAction(task, action),
+                            ),
                           ),
                         ),
-                      ),
-                      if (widget.draggedTaskId == task.id)
-                        Positioned.fill(
-                          child: IgnorePointer(
-                            child: Container(
-                              key: Key('drag-origin-${task.id}'),
-                              margin: const EdgeInsets.only(bottom: 12),
-                              alignment: Alignment.center,
-                              decoration: BoxDecoration(
-                                color: AppColors.status(
-                                  widget.status,
-                                ).withValues(alpha: .06),
-                                border: Border.all(
+                        if (widget.draggedTaskId == task.id)
+                          Positioned.fill(
+                            child: IgnorePointer(
+                              child: Container(
+                                key: Key('drag-origin-${task.id}'),
+                                margin: const EdgeInsets.only(bottom: 12),
+                                alignment: Alignment.center,
+                                decoration: BoxDecoration(
                                   color: AppColors.status(
                                     widget.status,
-                                  ).withValues(alpha: .55),
+                                  ).withValues(alpha: .06),
+                                  border: Border.all(
+                                    color: AppColors.status(
+                                      widget.status,
+                                    ).withValues(alpha: .55),
+                                  ),
+                                  borderRadius: BorderRadius.circular(16),
                                 ),
-                                borderRadius: BorderRadius.circular(16),
-                              ),
-                              child: Text(
-                                'Moving ${task.title}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
+                                child: Text(
+                                  'Moving ${task.title}',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
                               ),
                             ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
                 ),
               ),
@@ -267,15 +339,15 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
     }
 
     return DragTarget<String>(
-      onMove: (details) => widget.onHover(
-        widget.status,
-        _insertionIndex(widget.dragPosition ?? details.offset),
-      ),
+      onMove: (details) =>
+          widget.onHover(widget.status, _insertionIndex(details.offset)),
       onLeave: (_) => widget.onLeave(widget.status),
       onAcceptWithDetails: (details) => widget.onDrop(
         details.data,
         widget.status,
-        _insertionIndex(widget.dragPosition ?? details.offset),
+        widget.hoverStatus == widget.status && widget.hoverIndex != null
+            ? widget.hoverIndex!
+            : _insertionIndex(details.offset),
         _placeholderRect(),
       ),
       builder: (context, candidates, rejected) => AnimatedContainer(
@@ -284,19 +356,32 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
             ? Duration.zero
             : const Duration(milliseconds: 200),
         curve: Curves.easeInOutCubic,
-        margin: const EdgeInsets.only(left: 16, right: 4, bottom: 8),
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
         decoration: BoxDecoration(
-          color: hovering
-              ? AppColors.status(widget.status).withValues(alpha: .12)
-              : const Color(0xFFF0F2F7),
+          color: Color.alphaBlend(
+            AppColors.status(
+              widget.status,
+            ).withValues(alpha: hovering ? .12 : .05),
+            const Color(0xFFF0F2F7),
+          ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: hovering
-                ? AppColors.status(widget.status)
-                : const Color(0xFFE3E6EE),
-            width: hovering ? 2 : 1,
+            color: AppColors.status(
+              widget.status,
+            ).withValues(alpha: hovering ? .9 : .5),
+            width: hovering ? 1.5 : 1,
           ),
+          boxShadow: hovering
+              ? [
+                  BoxShadow(
+                    color: AppColors.status(
+                      widget.status,
+                    ).withValues(alpha: .10),
+                    blurRadius: 8,
+                    offset: const Offset(0, 2),
+                  ),
+                ]
+              : null,
         ),
         child: Column(
           children: [
@@ -346,23 +431,49 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                   ),
             const SizedBox(height: 14),
             Expanded(
-              child: ListView.builder(
-                key: widget.viewportKey,
-                controller: widget.scrollController,
-                padding: const EdgeInsets.only(bottom: 96),
-                itemCount: widget.tasks.isEmpty && !hovering ? 1 : items.length,
-                itemBuilder: (context, index) =>
-                    widget.tasks.isEmpty && !hovering
-                    ? SizedBox(
-                        height: 160,
-                        child: Center(
-                          child: Text(
-                            'No ${widget.status.label.toLowerCase()} tasks',
-                            textAlign: TextAlign.center,
-                          ),
-                        ),
-                      )
-                    : items[index](),
+              child: LayoutBuilder(
+                builder: (context, constraints) =>
+                    NotificationListener<ScrollNotification>(
+                      onNotification: (notification) {
+                        final pointer = widget.dragPointer.value;
+                        if (hovering && pointer != null) {
+                          WidgetsBinding.instance.addPostFrameCallback((_) {
+                            final currentPointer = widget.dragPointer.value;
+                            if (mounted && currentPointer != null) {
+                              widget.onHover(
+                                widget.status,
+                                _insertionIndex(currentPointer),
+                              );
+                            }
+                          });
+                        }
+                        return false;
+                      },
+                      child: ListView.builder(
+                        key: widget.viewportKey,
+                        controller: widget.scrollController,
+                        padding: const EdgeInsets.only(bottom: 96),
+                        itemCount: widget.tasks.isEmpty ? 1 : items.length,
+                        itemBuilder: (context, index) => widget.tasks.isEmpty
+                            ? SizedBox(
+                                height: hovering
+                                    ? (constraints.maxHeight - 96).clamp(
+                                        160,
+                                        double.infinity,
+                                      )
+                                    : 160,
+                                child: Center(
+                                  child: hovering
+                                      ? _placeholder()
+                                      : Text(
+                                          'No ${widget.status.label.toLowerCase()} tasks',
+                                          textAlign: TextAlign.center,
+                                        ),
+                                ),
+                              )
+                            : items[index](),
+                      ),
+                    ),
               ),
             ),
           ],
@@ -375,7 +486,10 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
     key: _placeholderKey,
     child: Container(
       key: Key('drop-placeholder-${widget.status.value}'),
-      height: widget.draggedCardHeight ?? 76,
+      height: ((widget.draggedCardHeight ?? 76) - 12).clamp(
+        64,
+        double.infinity,
+      ),
       margin: const EdgeInsets.only(bottom: 12),
       alignment: Alignment.center,
       decoration: BoxDecoration(
@@ -383,7 +497,11 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
         border: Border.all(color: AppColors.status(widget.status), width: 2),
         borderRadius: BorderRadius.circular(16),
       ),
-      child: Text('Move to ${widget.status.label}'),
+      child: Text(
+        widget.tasks.isEmpty
+            ? 'Drop task here'
+            : 'Move to ${widget.status.label}',
+      ),
     ),
   );
 }

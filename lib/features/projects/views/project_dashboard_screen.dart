@@ -6,15 +6,18 @@ import '../../kanban/widgets/skilltrack_bottom_navigation.dart';
 import '../models/project_with_progress.dart';
 import '../repositories/project_repository.dart';
 import '../viewmodels/project_dashboard_view_model.dart';
+import '../../notifications/viewmodels/notification_badge_controller.dart';
 
 class ProjectDashboardScreen extends StatefulWidget {
   const ProjectDashboardScreen({
     super.key,
     required this.projectRepository,
     required this.kanbanRepository,
+    this.badgeController,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
+  final NotificationBadgeController? badgeController;
 
   @override
   State<ProjectDashboardScreen> createState() => _ProjectDashboardScreenState();
@@ -22,6 +25,8 @@ class ProjectDashboardScreen extends StatefulWidget {
 
 class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   late final ProjectDashboardViewModel _model;
+  late final NotificationBadgeController _fallbackBadge =
+      NotificationBadgeController(null);
   final _search = TextEditingController();
   bool _showSearch = false;
 
@@ -37,6 +42,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   @override
   void dispose() {
     _model.dispose();
+    _fallbackBadge.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -282,6 +288,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       context: context,
       builder: (_) => _SignInDialog(viewModel: _model),
     );
+    await widget.badgeController?.refresh();
   }
 
   @override
@@ -401,6 +408,9 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
               )
             : null,
         bottomNavigationBar: SkillTrackBottomNavigation(
+          badgeController: widget.badgeController ?? _fallbackBadge,
+          onProject: () {},
+          onNotifications: () => AppRouter.notifications(context),
           onUnavailable: (name) =>
               _snack('$name is not available in this prototype.'),
         ),

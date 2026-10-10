@@ -212,29 +212,23 @@ class SupabaseKanbanRepository implements KanbanRepository {
   });
 
   @override
-  Future<void> moveTask(KanbanTask task, KanbanStatus status, int order) =>
-      _guard(() async {
-        await _client
-            .from('kanban_tasks')
-            .update({
-              'status': status.value,
-              'sort_order': order,
-              'completed_at': status == KanbanStatus.completed
-                  ? DateTime.now().toUtc().toIso8601String()
-                  : null,
-            })
-            .eq('id', task.id);
-        await addActivity(
-          task.id,
-          status == KanbanStatus.completed
-              ? 'completed'
-              : task.status == KanbanStatus.completed
-              ? 'reopened'
-              : 'moved',
-          oldValues: {'status': task.status.value},
-          newValues: {'status': status.value},
-        );
-      });
+  Future<void> moveTask(
+    KanbanTask task,
+    KanbanStatus status,
+    int order, {
+    DateTime? completedAt,
+  }) => _guard(() async {
+    await _client
+        .from('kanban_tasks')
+        .update({
+          'status': status.value,
+          'sort_order': order,
+          'completed_at': status == KanbanStatus.completed
+              ? (completedAt ?? DateTime.now().toUtc()).toIso8601String()
+              : null,
+        })
+        .eq('id', task.id);
+  });
 
   @override
   Future<void> reorderTasks(List<KanbanTask> tasks) => _guard(() async {

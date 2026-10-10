@@ -13,6 +13,12 @@ import '../../features/projects/models/project_with_progress.dart';
 import '../../features/projects/repositories/project_repository.dart';
 import '../../features/projects/views/create_project_screen.dart';
 import '../../features/projects/views/project_dashboard_screen.dart';
+import '../../features/notifications/repositories/notification_repository.dart';
+import '../../features/notifications/viewmodels/notification_badge_controller.dart';
+import '../../features/notifications/viewmodels/notification_list_view_model.dart';
+import '../../features/notifications/viewmodels/notification_preferences_view_model.dart';
+import '../../features/notifications/views/notification_screen.dart';
+import '../../features/notifications/views/notification_preferences_screen.dart';
 
 class AppRoutes {
   static const projectDashboard = '/projects';
@@ -22,6 +28,8 @@ class AppRoutes {
   static const createTask = '/projects/board/tasks/create';
   static const taskDetails = '/projects/board/tasks/details';
   static const archivedTasks = '/projects/board/tasks/archived';
+  static const notifications = '/notifications';
+  static const notificationPreferences = '/notifications/preferences';
 }
 
 class BoardRouteArgs {
@@ -61,11 +69,18 @@ class TaskDetailsRouteArgs {
     required this.boardId,
     required this.projectName,
     required this.taskId,
+    this.showStalledWarning = false,
+    this.openRecommendations = false,
+    this.resourceTitles = const [],
+    this.resourceCount = 0,
   });
   final String projectId;
   final String boardId;
   final String projectName;
   final String taskId;
+  final bool showStalledWarning, openRecommendations;
+  final List<String> resourceTitles;
+  final int resourceCount;
   bool get isValid =>
       projectId.trim().isNotEmpty &&
       boardId.trim().isNotEmpty &&
@@ -76,9 +91,13 @@ class AppRouter {
   const AppRouter({
     required this.projectRepository,
     required this.kanbanRepository,
+    this.notificationRepository,
+    this.badgeController,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
+  final NotificationRepository? notificationRepository;
+  final NotificationBadgeController? badgeController;
 
   Route<dynamic> onGenerateRoute(RouteSettings settings) {
     final arguments = settings.arguments;
@@ -88,7 +107,23 @@ class AppRouter {
         page = ProjectDashboardScreen(
           projectRepository: projectRepository,
           kanbanRepository: kanbanRepository,
+          badgeController: badgeController,
         );
+      case AppRoutes.notifications:
+        page = notificationRepository == null || badgeController == null
+            ? const _RouteUnavailable()
+            : _NotificationsRoute(
+                repository: notificationRepository!,
+                projects: projectRepository,
+                kanban: kanbanRepository,
+                badge: badgeController!,
+              );
+      case AppRoutes.notificationPreferences:
+        page = notificationRepository == null
+            ? const _RouteUnavailable()
+            : _NotificationPreferencesRoute(
+                repository: notificationRepository!,
+              );
       case AppRoutes.createProject:
         page = CreateProjectScreen(repository: projectRepository);
       case AppRoutes.editProject:
@@ -174,6 +209,72 @@ class AppRouter {
 
   static void back<T extends Object?>(BuildContext context, [T? result]) =>
       Navigator.of(context).pop<T>(result);
+
+  static Future<void> notifications(BuildContext context) =>
+      Navigator.of(context).pushNamed<void>(AppRoutes.notifications);
+
+  static Future<void> notificationPreferences(BuildContext context) =>
+      Navigator.of(context).pushNamed<void>(AppRoutes.notificationPreferences);
+
+  static void projectDashboard(BuildContext context) => Navigator.of(
+    context,
+  ).popUntil((route) => route.settings.name == AppRoutes.projectDashboard);
+}
+
+class _NotificationsRoute extends StatefulWidget {
+  const _NotificationsRoute({
+    required this.repository,
+    required this.projects,
+    required this.kanban,
+    required this.badge,
+  });
+  final NotificationRepository repository;
+  final ProjectRepository projects;
+  final KanbanRepository kanban;
+  final NotificationBadgeController badge;
+  @override
+  State<_NotificationsRoute> createState() => _NotificationsRouteState();
+}
+
+class _NotificationsRouteState extends State<_NotificationsRoute> {
+  late final NotificationListViewModel _model = NotificationListViewModel(
+    widget.repository,
+    widget.projects,
+    widget.kanban,
+    widget.badge,
+  );
+  @override
+  void dispose() {
+    _model.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      NotificationScreen(viewModel: _model, badgeController: widget.badge);
+}
+
+class _NotificationPreferencesRoute extends StatefulWidget {
+  const _NotificationPreferencesRoute({required this.repository});
+  final NotificationRepository repository;
+  @override
+  State<_NotificationPreferencesRoute> createState() =>
+      _NotificationPreferencesRouteState();
+}
+
+class _NotificationPreferencesRouteState
+    extends State<_NotificationPreferencesRoute> {
+  late final NotificationPreferencesViewModel _model =
+      NotificationPreferencesViewModel(widget.repository);
+  @override
+  void dispose() {
+    _model.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) =>
+      NotificationPreferencesScreen(viewModel: _model);
 }
 
 class _ArchivedTasksRoute extends StatefulWidget {
@@ -391,6 +492,18 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           viewModel: _model,
           onEdit: _edit,
           fullScreen: true,
+          showStalledWarning: widget.args.showStalledWarning,
+          showRecommendations: widget.args.openRecommendations,
+          resourceTitles: widget.args.resourceTitles,
+          resourceCount: widget.args.resourceCount,
+          onResume: (task) => _model.updateTask(
+            task,
+            title: task.title,
+            description: task.description,
+            status: task.status,
+            priority: task.priority,
+            deadline: task.deadline,
+          ),
         ),
       );
     },

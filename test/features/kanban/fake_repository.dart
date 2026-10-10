@@ -23,11 +23,21 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   bool failLoad;
   bool noBoard;
   bool failMove = false;
+  bool failReorderOnce = false;
   bool failArchive = false;
   final Set<String> failArchiveIds = {};
   bool failDelete = false;
   int moveCalls = 0;
   int reorderCalls = 0;
+  final activityEvents =
+      <
+        ({
+          String taskId,
+          String action,
+          Map<String, dynamic> oldValues,
+          Map<String, dynamic> newValues,
+        })
+      >[];
   bool failTagAttach = false;
   bool failTagCreate = false;
   bool failTagUpdate = false;
@@ -80,7 +90,12 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   }
 
   @override
-  Future<void> moveTask(KanbanTask task, KanbanStatus status, int order) async {
+  Future<void> moveTask(
+    KanbanTask task,
+    KanbanStatus status,
+    int order, {
+    DateTime? completedAt,
+  }) async {
     moveCalls++;
     if (failMove) throw StateError('move failed');
     stored = stored
@@ -90,7 +105,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
                   status: status,
                   sortOrder: order,
                   completedAt: status == KanbanStatus.completed
-                      ? DateTime(2026, 10, 5)
+                      ? (completedAt ?? DateTime(2026, 10, 5))
                       : null,
                   clearCompletedAt: status != KanbanStatus.completed,
                 )
@@ -104,6 +119,10 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
     reorderCalls++;
     final byId = {for (final task in tasks) task.id: task};
     stored = stored.map((item) => byId[item.id] ?? item).toList();
+    if (failReorderOnce) {
+      failReorderOnce = false;
+      throw StateError('reorder failed after partial persistence');
+    }
   }
 
   @override
@@ -296,7 +315,14 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
     String action, {
     Map<String, dynamic> oldValues = const {},
     Map<String, dynamic> newValues = const {},
-  }) async {}
+  }) async {
+    activityEvents.add((
+      taskId: taskId,
+      action: action,
+      oldValues: oldValues,
+      newValues: newValues,
+    ));
+  }
 }
 
 KanbanTask sampleTask(

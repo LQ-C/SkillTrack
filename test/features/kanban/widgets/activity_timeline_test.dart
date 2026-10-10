@@ -45,6 +45,19 @@ void main() {
     expect(find.byKey(const Key('activity-toggle')), findsNothing);
   });
 
+  testWidgets('cross-status activity names both statuses', (tester) async {
+    await showTimeline(tester, [
+      record(
+        'move-1',
+        1,
+        'moved',
+        oldValues: {'status': 'todo', 'position': 1},
+        newValues: {'status': 'in_progress', 'position': 1},
+      ),
+    ]);
+    expect(find.text('Task moved from To-Do to In Progress'), findsOneWidget);
+  });
+
   testWidgets('one to three activities show all without a toggle', (
     tester,
   ) async {

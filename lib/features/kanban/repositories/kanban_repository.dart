@@ -18,7 +18,12 @@ abstract class KanbanRepository {
   Future<KanbanTask> updateTask(KanbanTask task);
   Future<void> archiveTask(String taskId, bool archived);
   Future<void> deleteTask(String taskId);
-  Future<void> moveTask(KanbanTask task, KanbanStatus status, int order);
+  Future<void> moveTask(
+    KanbanTask task,
+    KanbanStatus status,
+    int order, {
+    DateTime? completedAt,
+  });
   Future<void> reorderTasks(List<KanbanTask> tasks);
   Future<List<TaskTag>> getUserTags(String userId);
   Future<TaskTag> createTag(String userId, String name, String colorHex);

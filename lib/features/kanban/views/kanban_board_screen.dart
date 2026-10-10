@@ -5,6 +5,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/router/app_router.dart';
+import '../../../core/constants/app_constants.dart';
 import '../models/kanban_filter.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
@@ -37,10 +38,9 @@ class KanbanBoardScreen extends StatefulWidget {
 }
 
 class _KanbanBoardScreenState extends State<KanbanBoardScreen>
-    with SingleTickerProviderStateMixin {
+    with TickerProviderStateMixin {
+  static const _columnGap = 12.0;
   final _search = TextEditingController();
-  final _pages = PageController(viewportFraction: .9);
-  final _boardKey = GlobalKey();
   final _overviewKey = GlobalKey();
   final _listKeys = List.generate(
     KanbanStatus.values.length,
@@ -51,6 +51,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     (_) => ScrollController(),
   );
   late final AnimationController _settleController;
+  late final AnimationController _boardController;
+  Animation<double> _boardScale = const AlwaysStoppedAnimation(1);
+  Animation<double> _boardFocus = const AlwaysStoppedAnimation(0);
+  double _swipeDistance = 0;
   OverlayEntry? _settleEntry;
   KanbanTask? _dragSnapshot;
   Rect? _dragOriginRect;
@@ -67,7 +71,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   KanbanStatus? _hoverStatus;
   int? _hoverIndex;
   Offset? _dragPosition;
+  final ValueNotifier<Offset?> _dragPointer = ValueNotifier(null);
   int _pageIndex = 0;
+  int _dragStartIndex = 0;
   int _edgeDirection = 0;
   bool _pageAnimating = false;
   bool _showSearch = false;
@@ -77,6 +83,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     _settleController = AnimationController(
       vsync: this,
       duration: const Duration(milliseconds: 220),
+    );
+    _boardController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 290),
     );
     widget.viewModel.addListener(_onModelChanged);
     WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -88,6 +98,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   void dispose() {
     widget.viewModel.removeListener(_onModelChanged);
     _search.dispose();
+    _dragPointer.dispose();
     _edgeTimer?.cancel();
     _verticalTimer?.cancel();
     _accentTimer?.cancel();
@@ -98,11 +109,56 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     settleEntry?.remove();
     settleEntry?.dispose();
     _settleController.dispose();
+    _boardController.dispose();
     for (final controller in _listControllers) {
       controller.dispose();
     }
-    _pages.dispose();
     super.dispose();
+  }
+
+  Future<void> _animateBoard(int index, double scale) async {
+    if (!mounted) return;
+    final reduced = MediaQuery.disableAnimationsOf(context);
+    final currentScale = _boardScale.value;
+    final currentFocus = _boardFocus.value;
+    _boardController.stop();
+    if (reduced) {
+      _boardScale = AlwaysStoppedAnimation(scale);
+      _boardFocus = AlwaysStoppedAnimation(index.toDouble());
+      setState(() {});
+      return;
+    }
+    final curve = _boardController.drive(
+      CurveTween(curve: Curves.easeInOutCubic),
+    );
+    _boardScale = Tween(begin: currentScale, end: scale).animate(curve);
+    _boardFocus = Tween(
+      begin: currentFocus,
+      end: index.toDouble(),
+    ).animate(curve);
+    try {
+      await _boardController.forward(from: 0).orCancel;
+    } on TickerCanceled {
+      // A newer drag or page selection superseded this transition.
+    }
+  }
+
+  void _onSwipeEnd(DragEndDetails details) {
+    if (_draggedTaskId != null) return;
+    final velocity = details.primaryVelocity ?? 0;
+    final direction = velocity.abs() > 300
+        ? (velocity < 0 ? 1 : -1)
+        : _swipeDistance.abs() > 60
+        ? (_swipeDistance < 0 ? 1 : -1)
+        : 0;
+    _swipeDistance = 0;
+    final target = (_pageIndex + direction).clamp(
+      0,
+      KanbanStatus.values.length - 1,
+    );
+    if (target == _pageIndex) return;
+    setState(() => _pageIndex = target);
+    _animateBoard(target, 1);
   }
 
   void _startTaskDrag(KanbanTask task, Rect origin) {
@@ -111,6 +167,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     _dragSnapshot = task;
     _dragOriginRect = origin;
     _dropRect = null;
+    _dragStartIndex = _pageIndex;
+    _dragPosition = origin.center;
+    _dragPointer.value = origin.center;
     HapticFeedback.lightImpact();
     setState(() {
       _draggedTaskId = task.id;
@@ -118,10 +177,12 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       _hoverStatus = null;
       _hoverIndex = null;
     });
+    _animateBoard(_pageIndex, .90);
   }
 
   void _updateTaskDrag(Offset position) {
     _dragPosition = position;
+    _dragPointer.value = position;
     _checkEdge();
     _updateVerticalScroll();
   }
@@ -157,17 +218,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       if (target < 0 || target >= KanbanStatus.values.length) return;
       _pageAnimating = true;
       setState(() => _edgeDirection = 0);
-      if (MediaQuery.disableAnimationsOf(context)) {
-        _pages.jumpToPage(target);
-      } else {
-        await _pages.animateToPage(
-          target,
-          duration: const Duration(milliseconds: 290),
-          curve: Curves.easeInOutCubic,
-        );
-      }
+      setState(() => _pageIndex = target);
+      await _animateBoard(target, .90);
       if (!mounted) return;
-      _pageIndex = target;
       _pageAnimating = false;
       if (_draggedTaskId != null) {
         final status = KanbanStatus.values[target];
@@ -246,6 +299,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     _edgeTimer?.cancel();
     _verticalTimer?.cancel();
     _dragPosition = null;
+    _dragPointer.value = null;
     if (!mounted || _draggedTaskId == null) return;
     setState(() {
       _draggedTaskId = null;
@@ -254,69 +308,94 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       _hoverIndex = null;
       _edgeDirection = 0;
     });
+    _animateBoard(_pageIndex, 1);
   }
 
   Widget _edgeGuide(BuildContext context, int direction) {
     final target = _pageIndex + direction;
-    if (_draggedTaskId == null ||
-        target < 0 ||
-        target >= KanbanStatus.values.length) {
+    if (_draggedTaskId == null) {
       return const SizedBox.shrink();
     }
-    final color = Theme.of(context).colorScheme.primary;
+    final available = target >= 0 && target < KanbanStatus.values.length;
+    final color = available
+        ? AppColors.status(KanbanStatus.values[target])
+        : Theme.of(context).disabledColor;
     final active = _edgeDirection == direction;
     return Positioned(
       key: Key(direction < 0 ? 'drag-edge-left' : 'drag-edge-right'),
       top: 0,
       bottom: 0,
-      left: direction < 0 ? 0 : null,
-      right: direction > 0 ? 0 : null,
-      width: 68,
+      left: direction < 0 ? 4 : null,
+      right: direction > 0 ? 4 : null,
+      width: 64,
       child: IgnorePointer(
-        child: AnimatedContainer(
-          duration: MediaQuery.disableAnimationsOf(context)
-              ? Duration.zero
-              : const Duration(milliseconds: 160),
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              colors: direction < 0
-                  ? [
-                      color.withValues(alpha: active ? .24 : .13),
-                      Colors.transparent,
-                    ]
-                  : [
-                      Colors.transparent,
-                      color.withValues(alpha: active ? .24 : .13),
-                    ],
-            ),
-          ),
-          child: Center(
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 10),
-              decoration: BoxDecoration(
-                color: Theme.of(context).colorScheme.surface,
-                borderRadius: BorderRadius.circular(14),
-                border: Border.all(
-                  color: color.withValues(alpha: active ? .8 : .35),
+        child: Center(
+          child: Semantics(
+            label: available
+                ? '${KanbanStatus.values[target].label}, drop target'
+                : 'No ${direction < 0 ? 'previous' : 'next'} status available',
+            child: Opacity(
+              opacity: available ? 1 : .38,
+              child: SizedBox(
+                key: Key(
+                  direction < 0 ? 'drag-arrow-left' : 'drag-arrow-right',
                 ),
-              ),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    direction < 0 ? Icons.chevron_left : Icons.chevron_right,
-                    color: color,
+                width: 64,
+                height: 72,
+                child: AnimatedContainer(
+                  duration: MediaQuery.disableAnimationsOf(context)
+                      ? Duration.zero
+                      : const Duration(milliseconds: 180),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 8,
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    KanbanStatus.values[target].label,
-                    textAlign: TextAlign.center,
-                    style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                      color: color,
-                      fontWeight: FontWeight.w700,
+                  decoration: BoxDecoration(
+                    color: Theme.of(
+                      context,
+                    ).colorScheme.surface.withValues(alpha: .94),
+                    borderRadius: BorderRadius.circular(14),
+                    border: Border.all(
+                      color: color.withValues(alpha: active ? 1 : .55),
+                      width: 1.5,
                     ),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withValues(alpha: .10),
+                        blurRadius: 8,
+                        offset: const Offset(0, 3),
+                      ),
+                    ],
                   ),
-                ],
+                  child: Column(
+                    children: [
+                      Icon(
+                        direction < 0
+                            ? Icons.chevron_left
+                            : Icons.chevron_right,
+                        size: 22,
+                        color: color,
+                      ),
+                      const SizedBox(height: 3),
+                      Expanded(
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(
+                            available ? KanbanStatus.values[target].label : '—',
+                            maxLines: 1,
+                            softWrap: false,
+                            textAlign: TextAlign.center,
+                            style: Theme.of(context).textTheme.labelSmall
+                                ?.copyWith(
+                                  color: color,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
               ),
             ),
           ),
@@ -325,26 +404,96 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     );
   }
 
+  Widget _boardTrack(double columnWidth) => SizedBox(
+    key: const Key('kanban-board-track'),
+    width:
+        columnWidth * KanbanStatus.values.length +
+        _columnGap * (KanbanStatus.values.length - 1),
+    child: ColoredBox(
+      color: Theme.of(context).scaffoldBackgroundColor,
+      child: Row(
+        children: [
+          for (var index = 0; index < KanbanStatus.values.length; index++) ...[
+            if (index > 0)
+              SizedBox(key: Key('column-gap-${index - 1}'), width: _columnGap),
+            SizedBox(
+              width: columnWidth,
+              child: KanbanStatusColumn(
+                key: ValueKey(KanbanStatus.values[index]),
+                status: KanbanStatus.values[index],
+                tasks: _columnTasks(KanbanStatus.values[index]),
+                scrollController: _listControllers[index],
+                viewportKey: _listKeys[index],
+                boardViewportKey: _overviewKey,
+                draggedTaskId: _draggedTaskId,
+                draggedCardHeight: _draggedCardHeight,
+                accentTaskIds: _accentTaskIds,
+                departingTaskId: _departureStarted ? _departingTask?.id : null,
+                dragPointer: _dragPointer,
+                hoverStatus: _hoverStatus,
+                hoverIndex: _hoverIndex,
+                onTaskTap: _openDetails,
+                onTaskAction: _taskAction,
+                onDragStart: _startTaskDrag,
+                onDragUpdate: _updateTaskDrag,
+                onDragEnd: _finishTaskDrag,
+                onHover: _hoverTask,
+                onLeave: _leaveTask,
+                onDrop: _dropTask,
+              ),
+            ),
+          ],
+        ],
+      ),
+    ),
+  );
+
   void _finishTaskDrag(DraggableDetails details) {
     if (!mounted) return;
     final task = _dragSnapshot;
     final origin = _dragOriginRect;
     final destination = details.wasAccepted ? _dropRect : origin;
+    final pointer = _dragPosition ?? details.offset;
+    if (!details.wasAccepted) _pageIndex = _dragStartIndex;
     _endTaskDrag();
     _dragSnapshot = null;
     _dragOriginRect = null;
     _dropRect = null;
-    if (task == null ||
-        origin == null ||
-        MediaQuery.disableAnimationsOf(context)) {
-      return;
-    }
+    if (task == null || origin == null) return;
+    _animateTaskSettlement(
+      task,
+      origin,
+      pointer,
+      destination?.center ?? pointer,
+    );
+  }
+
+  void _animateTaskSettlement(
+    KanbanTask task,
+    Rect origin,
+    Offset fromCenter,
+    Offset toCenter,
+  ) {
+    if (!mounted || MediaQuery.disableAnimationsOf(context)) return;
     _settleController.stop();
     _settleEntry?.remove();
     _settleEntry?.dispose();
     _settleController.reset();
-    final start = details.offset - Offset(origin.width / 2, origin.height / 2);
-    final target = destination?.topLeft ?? start;
+    final screen = MediaQuery.sizeOf(context);
+    final width = origin.width.clamp(0, screen.width - 144).toDouble();
+    final board = _overviewKey.currentContext?.findRenderObject();
+    final boardRect = board is RenderBox && board.hasSize
+        ? board.localToGlobal(Offset.zero) & board.size
+        : Rect.fromLTWH(0, 0, screen.width, screen.height);
+    Offset positionFor(Offset center) => Offset(
+      (center.dx - width / 2).clamp(8, screen.width - width - 8),
+      (center.dy - origin.height / 2).clamp(
+        boardRect.top,
+        boardRect.bottom - origin.height,
+      ),
+    );
+    final start = positionFor(fromCenter);
+    final target = positionFor(toCenter);
     final entry = OverlayEntry(
       builder: (overlayContext) => AnimatedBuilder(
         animation: _settleController,
@@ -357,7 +506,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             key: const Key('drag-settle-overlay'),
             left: position.dx,
             top: position.dy,
-            width: origin.width,
+            width: width,
             child: IgnorePointer(
               child: Opacity(
                 opacity: 1 - progress,
@@ -399,14 +548,25 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   ) async {
     if (_draggedTaskId != id) return;
     _dropRect = target;
+    final draggedTask = _dragSnapshot;
+    final origin = _dragOriginRect;
+    final failedFrom = target?.center ?? _dragPosition;
     final previous = widget.viewModel.allTasks
         .where((task) => task.id == id)
         .firstOrNull
         ?.status;
+    setState(() => _pageIndex = status.index);
     _endTaskDrag();
     HapticFeedback.selectionClick();
     _accentTasks({id});
     final moved = await widget.viewModel.moveTask(id, status, newIndex: index);
+    if (!moved && mounted) {
+      setState(() => _pageIndex = _dragStartIndex);
+      _animateBoard(_pageIndex, 1);
+      if (draggedTask != null && origin != null && failedFrom != null) {
+        _animateTaskSettlement(draggedTask, origin, failedFrom, origin.center);
+      }
+    }
     if (moved && mounted && previous != status) {
       SemanticsService.sendAnnouncement(
         View.of(context),
@@ -951,108 +1111,146 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                       if (model.hasActiveFilters)
                         _filterChips(model.activeFilter),
                       Expanded(
-                        child: Stack(
-                          key: _overviewKey,
-                          fit: StackFit.expand,
-                          children: [
-                            AnimatedScale(
-                              key: const Key('drag-overview-scale'),
-                              scale:
-                                  _draggedTaskId != null &&
-                                      !MediaQuery.disableAnimationsOf(context)
-                                  ? .90
-                                  : 1,
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 220),
-                              curve: Curves.easeOutCubic,
-                              child: IgnorePointer(
-                                ignoring: noResults,
-                                child: PageView.builder(
-                                  key: _boardKey,
-                                  controller: _pages,
-                                  physics: _draggedTaskId == null
-                                      ? const PageScrollPhysics()
-                                      : const NeverScrollableScrollPhysics(),
-                                  onPageChanged: (index) {
-                                    _pageIndex = index;
-                                    if (_draggedTaskId != null) setState(() {});
-                                  },
-                                  itemCount: KanbanStatus.values.length,
-                                  itemBuilder: (context, index) {
-                                    final status = KanbanStatus.values[index];
-                                    return KanbanStatusColumn(
-                                      key: ValueKey(status),
-                                      status: status,
-                                      tasks: _columnTasks(status),
-                                      scrollController: _listControllers[index],
-                                      viewportKey: _listKeys[index],
-                                      draggedTaskId: _draggedTaskId,
-                                      draggedCardHeight: _draggedCardHeight,
-                                      accentTaskIds: _accentTaskIds,
-                                      departingTaskId: _departureStarted
-                                          ? _departingTask?.id
+                        child: LayoutBuilder(
+                          builder: (context, constraints) {
+                            final viewportWidth = constraints.maxWidth;
+                            final largeText =
+                                MediaQuery.textScalerOf(context).scale(1) > 1.6;
+                            final columnWidth = largeText
+                                ? viewportWidth * .9
+                                : (viewportWidth - 96).clamp(
+                                    220.0,
+                                    viewportWidth,
+                                  );
+                            final trackWidth =
+                                columnWidth * KanbanStatus.values.length +
+                                _columnGap * (KanbanStatus.values.length - 1);
+                            return Stack(
+                              key: _overviewKey,
+                              fit: StackFit.expand,
+                              children: [
+                                ClipRect(
+                                  child: IgnorePointer(
+                                    ignoring: noResults,
+                                    child: GestureDetector(
+                                      key: const Key('board-swipe-area'),
+                                      behavior: HitTestBehavior.translucent,
+                                      onHorizontalDragStart:
+                                          _draggedTaskId == null
+                                          ? (_) => _swipeDistance = 0
                                           : null,
-                                      dragPosition: _dragPosition,
-                                      hoverStatus: _hoverStatus,
-                                      hoverIndex: _hoverIndex,
-                                      onTaskTap: _openDetails,
-                                      onTaskAction: _taskAction,
-                                      onDragStart: _startTaskDrag,
-                                      onDragUpdate: _updateTaskDrag,
-                                      onDragEnd: _finishTaskDrag,
-                                      onHover: _hoverTask,
-                                      onLeave: _leaveTask,
-                                      onDrop: _dropTask,
-                                    );
-                                  },
+                                      onHorizontalDragUpdate:
+                                          _draggedTaskId == null
+                                          ? (details) => _swipeDistance +=
+                                                details.primaryDelta ?? 0
+                                          : null,
+                                      onHorizontalDragEnd:
+                                          _draggedTaskId == null
+                                          ? _onSwipeEnd
+                                          : null,
+                                      child: AnimatedBuilder(
+                                        animation: _boardController,
+                                        child: _boardTrack(columnWidth),
+                                        builder: (context, child) {
+                                          final scale = _boardScale.value;
+                                          final selectedCenter =
+                                              _boardFocus.value *
+                                                  (columnWidth + _columnGap) +
+                                              columnWidth / 2;
+                                          final offset =
+                                              viewportWidth / 2 -
+                                              selectedCenter * scale;
+                                          return Stack(
+                                            fit: StackFit.expand,
+                                            clipBehavior: Clip.none,
+                                            children: [
+                                              Positioned(
+                                                left: 0,
+                                                top: 0,
+                                                width: trackWidth,
+                                                height:
+                                                    constraints.maxHeight /
+                                                    scale,
+                                                child: Transform.translate(
+                                                  key: const Key(
+                                                    'board-track-offset',
+                                                  ),
+                                                  offset: Offset(offset, 0),
+                                                  child: Transform.scale(
+                                                    key: const Key(
+                                                      'drag-overview-scale',
+                                                    ),
+                                                    scale: scale,
+                                                    alignment:
+                                                        Alignment.topLeft,
+                                                    child: child,
+                                                  ),
+                                                ),
+                                              ),
+                                            ],
+                                          );
+                                        },
+                                      ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                            _edgeGuide(context, -1),
-                            _edgeGuide(context, 1),
-                            Positioned.fill(
-                              child: IgnorePointer(
-                                ignoring: !noResults,
-                                child: AnimatedSwitcher(
-                                  duration:
-                                      MediaQuery.disableAnimationsOf(context)
-                                      ? Duration.zero
-                                      : const Duration(milliseconds: 200),
-                                  switchInCurve: Curves.easeOutCubic,
-                                  switchOutCurve: Curves.easeInCubic,
-                                  child: noResults
-                                      ? ColoredBox(
-                                          key: const ValueKey('no-results'),
-                                          color: Theme.of(
+                                _edgeGuide(context, -1),
+                                _edgeGuide(context, 1),
+                                Positioned.fill(
+                                  child: IgnorePointer(
+                                    ignoring: !noResults,
+                                    child: AnimatedSwitcher(
+                                      duration:
+                                          MediaQuery.disableAnimationsOf(
                                             context,
-                                          ).scaffoldBackgroundColor,
-                                          child: BoardEmptyState(
-                                            onAction: () {
-                                              model.clearFilters();
-                                              _search.clear();
-                                              model.setSearchQuery('');
-                                            },
-                                          ),
-                                        )
-                                      : const SizedBox.shrink(
-                                          key: ValueKey('results-visible'),
-                                        ),
+                                          )
+                                          ? Duration.zero
+                                          : const Duration(milliseconds: 200),
+                                      switchInCurve: Curves.easeOutCubic,
+                                      switchOutCurve: Curves.easeInCubic,
+                                      child: noResults
+                                          ? ColoredBox(
+                                              key: const ValueKey('no-results'),
+                                              color: Theme.of(
+                                                context,
+                                              ).scaffoldBackgroundColor,
+                                              child: BoardEmptyState(
+                                                onAction: () {
+                                                  model.clearFilters();
+                                                  _search.clear();
+                                                  model.setSearchQuery('');
+                                                },
+                                              ),
+                                            )
+                                          : const SizedBox.shrink(
+                                              key: ValueKey('results-visible'),
+                                            ),
+                                    ),
+                                  ),
                                 ),
-                              ),
-                            ),
-                          ],
+                              ],
+                            );
+                          },
                         ),
                       ),
                     ],
                   ),
           ),
         ),
-        floatingActionButton: FloatingActionButton.extended(
-          key: const Key('new-task-button'),
-          onPressed: () => _openForm(),
-          icon: const Icon(Icons.add),
-          label: const Text('New Task'),
+        floatingActionButton: IgnorePointer(
+          ignoring: _draggedTaskId != null,
+          child: AnimatedOpacity(
+            opacity: _draggedTaskId == null ? 1 : 0,
+            duration: MediaQuery.disableAnimationsOf(context)
+                ? Duration.zero
+                : const Duration(milliseconds: 150),
+            child: FloatingActionButton.extended(
+              key: const Key('new-task-button'),
+              onPressed: () => _openForm(),
+              icon: const Icon(Icons.add),
+              label: const Text('New Task'),
+            ),
+          ),
         ),
       );
     },

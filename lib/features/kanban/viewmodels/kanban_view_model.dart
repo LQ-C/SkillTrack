@@ -339,7 +339,7 @@ class KanbanViewModel extends ChangeNotifier {
       status: status,
       priority: priority,
       deadline: deadline,
-      sortOrder: tasks(status).length,
+      sortOrder: (tasks(status).lastOrNull?.sortOrder ?? 0) + 1000,
       completedAt: status == KanbanStatus.completed ? now : null,
       createdAt: now,
       updatedAt: now,
@@ -434,42 +434,78 @@ class KanbanViewModel extends ChangeNotifier {
     if (task == null) return false;
     final original = task.status;
     if (original == destination && newIndex == null) return true;
-    final target = tasks(
-      destination,
-    ).where((item) => item.id != taskId).toList();
+    final originalTasks = tasks(original);
+    final originalIndex = originalTasks.indexWhere((item) => item.id == taskId);
+    final previousTarget = tasks(destination);
+    final target = previousTarget.where((item) => item.id != taskId).toList();
     final index = (newIndex ?? target.length).clamp(0, target.length);
-    target.insert(
-      index,
-      task.copyWith(
-        status: destination,
-        completedAt: destination == KanbanStatus.completed
-            ? (task.completedAt ?? DateTime.now().toUtc())
-            : null,
-        clearCompletedAt: destination != KanbanStatus.completed,
-      ),
+    if (original == destination && index == originalIndex) return true;
+    final candidateOrder = _insertionOrder(target, index);
+    final moved = task.copyWith(
+      status: destination,
+      sortOrder: candidateOrder ?? (index + 1) * 1000,
+      completedAt: destination == KanbanStatus.completed
+          ? (task.completedAt ?? DateTime.now().toUtc())
+          : null,
+      clearCompletedAt: destination != KanbanStatus.completed,
     );
-    final targetOrdered = [
-      for (var i = 0; i < target.length; i++) target[i].copyWith(sortOrder: i),
-    ];
-    if (original == destination &&
-        targetOrdered[index].sortOrder == task.sortOrder) {
-      return true;
-    }
-    final source = original == destination
-        ? <KanbanTask>[]
-        : tasks(original).where((item) => item.id != taskId).toList();
-    final sourceOrdered = [
-      for (var i = 0; i < source.length; i++) source[i].copyWith(sortOrder: i),
-    ];
-    final reordered = [...targetOrdered, ...sourceOrdered];
-    final byId = {for (final item in reordered) item.id: item};
+    target.insert(index, moved);
+    final normalized = candidateOrder == null;
+    final targetOrdered = normalized
+        ? [
+            for (var i = 0; i < target.length; i++)
+              target[i].copyWith(sortOrder: (i + 1) * 1000),
+          ]
+        : target;
+    final updated = targetOrdered[index];
+    final byId = {for (final item in targetOrdered) item.id: item};
     final optimistic = _tasks.map((item) => byId[item.id] ?? item).toList();
     final ok = await _save(
       () async {
-        if (original != destination) {
-          await _repository.moveTask(task, destination, index);
+        try {
+          if (original != destination) {
+            await _repository.moveTask(
+              task,
+              destination,
+              updated.sortOrder,
+              completedAt: updated.completedAt,
+            );
+          }
+          if (normalized) {
+            await _repository.reorderTasks(targetOrdered);
+          } else if (original == destination) {
+            await _repository.reorderTasks([updated]);
+          }
+          if (original != destination) {
+            await _repository.addActivity(
+              task.id,
+              destination == KanbanStatus.completed
+                  ? 'completed'
+                  : original == KanbanStatus.completed
+                  ? 'reopened'
+                  : 'moved',
+              oldValues: {'status': original.value, 'position': originalIndex},
+              newValues: {'status': destination.value, 'position': index},
+            );
+          }
+        } catch (_) {
+          try {
+            if (original != destination) {
+              await _repository.moveTask(
+                updated,
+                original,
+                task.sortOrder,
+                completedAt: task.completedAt,
+              );
+            }
+            if (normalized || original == destination) {
+              await _repository.reorderTasks(previousTarget);
+            }
+          } catch (_) {
+            // Keep the original failure; the in-memory state is rolled back by _save.
+          }
+          rethrow;
         }
-        await _repository.reorderTasks(reordered);
       },
       original == destination
           ? 'Task reordered'
@@ -482,9 +518,21 @@ class KanbanViewModel extends ChangeNotifier {
       failureMessage: 'Unable to move the task. Please try again.',
     );
     if (ok && original != destination) {
-      _undo = _UndoAction(task.id, original, task.sortOrder, false);
+      _undo = _UndoAction(task.id, original, originalIndex, false);
     }
     return ok;
+  }
+
+  int? _insertionOrder(List<KanbanTask> tasks, int index) {
+    if (tasks.isEmpty) return 1000;
+    if (index == 0) {
+      final first = tasks.first.sortOrder;
+      return first > 1 ? first ~/ 2 : null;
+    }
+    if (index == tasks.length) return tasks.last.sortOrder + 1000;
+    final before = tasks[index - 1].sortOrder;
+    final after = tasks[index].sortOrder;
+    return after - before > 1 ? before + (after - before) ~/ 2 : null;
   }
 
   Future<bool> reorderTask(String taskId, KanbanStatus status, int newIndex) =>

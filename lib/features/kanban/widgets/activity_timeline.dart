@@ -158,7 +158,10 @@ class _ActivityRow extends StatelessWidget {
 String _label(TaskActivity activity) => switch (activity.action) {
   'created' => 'Task created',
   'updated' => 'Task updated',
-  'moved' => 'Moved to ${_status(activity.newValues['status'])}',
+  'moved' =>
+    activity.oldValues['status'] == null
+        ? 'Moved to ${_status(activity.newValues['status'])}'
+        : 'Task moved from ${_status(activity.oldValues['status'])} to ${_status(activity.newValues['status'])}',
   'completed' => 'Task completed',
   'reopened' => 'Task reopened',
   'checklist_updated' => 'Checklist updated',

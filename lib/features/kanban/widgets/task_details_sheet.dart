@@ -16,17 +16,28 @@ class TaskDetailsSheet extends StatefulWidget {
     required this.viewModel,
     required this.onEdit,
     this.fullScreen = false,
+    this.showStalledWarning = false,
+    this.onResume,
+    this.showRecommendations = false,
+    this.resourceTitles = const [],
+    this.resourceCount = 0,
   });
   final String taskId;
   final KanbanViewModel viewModel;
   final ValueChanged<KanbanTask> onEdit;
   final bool fullScreen;
+  final bool showStalledWarning;
+  final Future<bool> Function(KanbanTask)? onResume;
+  final bool showRecommendations;
+  final List<String> resourceTitles;
+  final int resourceCount;
   @override
   State<TaskDetailsSheet> createState() => _TaskDetailsSheetState();
 }
 
 class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   late Future<List<TaskActivity>> _activity;
+  bool _resumed = false;
   @override
   void initState() {
     super.initState();
@@ -58,6 +69,60 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                 : MediaQuery.sizeOf(context).height * .78,
             child: ListView(
               children: [
+                if (widget.showStalledWarning && !_resumed)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text('This task was flagged as stalled.'),
+                          const SizedBox(height: 8),
+                          TextButton.icon(
+                            onPressed: widget.onResume == null
+                                ? null
+                                : () async {
+                                    final ok = await widget.onResume!(task);
+                                    if (mounted && ok) {
+                                      setState(() => _resumed = true);
+                                    }
+                                  },
+                            icon: const Icon(Icons.play_arrow),
+                            label: const Text('Resume Task'),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+                if (widget.showRecommendations)
+                  Card(
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            'Recommended Learning Resources',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const SizedBox(height: 8),
+                          if (widget.resourceTitles.isEmpty)
+                            Text(
+                              widget.resourceCount > 0
+                                  ? '${widget.resourceCount} resources were recommended, but their details are unavailable.'
+                                  : 'Resource details are unavailable for this alert.',
+                            )
+                          else
+                            for (final title in widget.resourceTitles)
+                              ListTile(
+                                contentPadding: EdgeInsets.zero,
+                                leading: const Icon(Icons.menu_book_outlined),
+                                title: Text(title),
+                              ),
+                        ],
+                      ),
+                    ),
+                  ),
                 Row(
                   children: [
                     Expanded(

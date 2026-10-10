@@ -104,20 +104,23 @@ void main() {
       model.dispose();
     });
 
-    test('silent refresh updates tasks without showing a loading skeleton', () async {
-      final repository = FakeKanbanRepository(
-        tasks: [sampleTask('1', 'First', KanbanStatus.todo)],
-      );
-      final model = KanbanViewModel(repository);
-      await model.initialize();
-      final loadingStates = <bool>[];
-      model.addListener(() => loadingStates.add(model.isLoading));
-      repository.stored.add(sampleTask('2', 'Restored', KanbanStatus.todo));
-      await model.refresh(showLoading: false);
-      expect(model.totalTaskCount, 2);
-      expect(loadingStates, isNot(contains(true)));
-      model.dispose();
-    });
+    test(
+      'silent refresh updates tasks without showing a loading skeleton',
+      () async {
+        final repository = FakeKanbanRepository(
+          tasks: [sampleTask('1', 'First', KanbanStatus.todo)],
+        );
+        final model = KanbanViewModel(repository);
+        await model.initialize();
+        final loadingStates = <bool>[];
+        model.addListener(() => loadingStates.add(model.isLoading));
+        repository.stored.add(sampleTask('2', 'Restored', KanbanStatus.todo));
+        await model.refresh(showLoading: false);
+        expect(model.totalTaskCount, 2);
+        expect(loadingStates, isNot(contains(true)));
+        model.dispose();
+      },
+    );
 
     test('reordering completed tasks preserves completion dates', () async {
       final model = KanbanViewModel(
@@ -314,6 +317,195 @@ void main() {
       expect(model.errorMessage, 'Unable to move the task. Please try again.');
       model.dispose();
     });
+
+    for (final (index, expectedIds, expectedOrder) in [
+      (0, ['b', 'd', 'e', 'f'], 500),
+      (1, ['d', 'b', 'e', 'f'], 1500),
+      (3, ['d', 'e', 'f', 'b'], 4000),
+    ]) {
+      test('cross-status insertion uses destination index $index', () async {
+        final repo = FakeKanbanRepository(
+          tasks: [
+            sampleTask('b', 'Task B', KanbanStatus.todo, order: 1000),
+            sampleTask('d', 'Task D', KanbanStatus.inProgress, order: 1000),
+            sampleTask('e', 'Task E', KanbanStatus.inProgress, order: 2000),
+            sampleTask('f', 'Task F', KanbanStatus.inProgress, order: 3000),
+          ],
+        );
+        final model = KanbanViewModel(repo);
+        await model.initialize();
+        expect(
+          await model.moveTask('b', KanbanStatus.inProgress, newIndex: index),
+          true,
+        );
+        expect(
+          model.tasks(KanbanStatus.inProgress).map((task) => task.id),
+          expectedIds,
+        );
+        expect(model.tasks(KanbanStatus.todo), isEmpty);
+        expect(model.allTasks.where((task) => task.id == 'b'), hasLength(1));
+        expect(
+          model.allTasks.singleWhere((task) => task.id == 'b').sortOrder,
+          expectedOrder,
+        );
+        expect(repo.reorderCalls, 0);
+        expect(repo.activityEvents, hasLength(1));
+        expect(repo.activityEvents.single.action, 'moved');
+        expect(repo.activityEvents.single.oldValues, {
+          'status': 'todo',
+          'position': 0,
+        });
+        expect(repo.activityEvents.single.newValues, {
+          'status': 'in_progress',
+          'position': index,
+        });
+        model.dispose();
+      });
+    }
+
+    test('empty destination inserts at zero with order 1000', () async {
+      final repo = FakeKanbanRepository(
+        tasks: [sampleTask('b', 'Task B', KanbanStatus.todo, order: 1000)],
+      );
+      final model = KanbanViewModel(repo);
+      await model.initialize();
+      expect(
+        await model.moveTask('b', KanbanStatus.inProgress, newIndex: 0),
+        true,
+      );
+      expect(model.tasks(KanbanStatus.inProgress).single.sortOrder, 1000);
+      expect(repo.activityEvents, hasLength(1));
+      model.dispose();
+    });
+
+    test('small insertion gap normalizes destination once', () async {
+      final repo = FakeKanbanRepository(
+        tasks: [
+          sampleTask('b', 'Task B', KanbanStatus.todo, order: 1000),
+          sampleTask('d', 'Task D', KanbanStatus.inProgress, order: 1000),
+          sampleTask('e', 'Task E', KanbanStatus.inProgress, order: 1001),
+        ],
+      );
+      final model = KanbanViewModel(repo);
+      await model.initialize();
+      expect(
+        await model.moveTask('b', KanbanStatus.inProgress, newIndex: 1),
+        true,
+      );
+      expect(model.tasks(KanbanStatus.inProgress).map((task) => task.id), [
+        'd',
+        'b',
+        'e',
+      ]);
+      expect(
+        model.tasks(KanbanStatus.inProgress).map((task) => task.sortOrder),
+        [1000, 2000, 3000],
+      );
+      expect(repo.reorderCalls, 1);
+      expect(repo.activityEvents, hasLength(1));
+      model.dispose();
+    });
+
+    test(
+      'failed normalization restores both persisted columns and activity',
+      () async {
+        final repo = FakeKanbanRepository(
+          tasks: [
+            sampleTask('b', 'Task B', KanbanStatus.todo, order: 1000),
+            sampleTask('d', 'Task D', KanbanStatus.inProgress, order: 1000),
+            sampleTask('e', 'Task E', KanbanStatus.inProgress, order: 1001),
+          ],
+        )..failReorderOnce = true;
+        final model = KanbanViewModel(repo);
+        await model.initialize();
+        expect(
+          await model.moveTask('b', KanbanStatus.inProgress, newIndex: 1),
+          false,
+        );
+        expect(model.tasks(KanbanStatus.todo).single.id, 'b');
+        expect(
+          model.tasks(KanbanStatus.inProgress).map((task) => task.sortOrder),
+          [1000, 1001],
+        );
+        expect(
+          repo.stored.singleWhere((task) => task.id == 'b').status,
+          KanbanStatus.todo,
+        );
+        expect(
+          repo.stored.singleWhere((task) => task.id == 'b').sortOrder,
+          1000,
+        );
+        expect(
+          repo.stored.singleWhere((task) => task.id == 'e').sortOrder,
+          1001,
+        );
+        expect(repo.activityEvents, isEmpty);
+        expect(
+          model.errorMessage,
+          'Unable to move the task. Please try again.',
+        );
+        model.dispose();
+      },
+    );
+
+    test('failed reopening restores completion time and progress', () async {
+      final original = sampleTask(
+        'b',
+        'Task B',
+        KanbanStatus.completed,
+        order: 1000,
+      );
+      final repo = FakeKanbanRepository(
+        tasks: [
+          original,
+          sampleTask('d', 'Task D', KanbanStatus.todo, order: 1000),
+          sampleTask('e', 'Task E', KanbanStatus.todo, order: 1001),
+        ],
+      )..failReorderOnce = true;
+      final model = KanbanViewModel(repo);
+      await model.initialize();
+      expect(await model.moveTask('b', KanbanStatus.todo, newIndex: 1), false);
+      final restored = model.tasks(KanbanStatus.completed).single;
+      expect(restored.completedAt, original.completedAt);
+      expect(
+        repo.stored.singleWhere((task) => task.id == 'b').completedAt,
+        original.completedAt,
+      );
+      expect(model.projectProgress, closeTo(1 / 3, .001));
+      expect(repo.activityEvents, isEmpty);
+      model.dispose();
+    });
+
+    test(
+      'cross-status completion and reopening keep insertion position',
+      () async {
+        final repo = FakeKanbanRepository(
+          tasks: [
+            sampleTask('b', 'Task B', KanbanStatus.todo, order: 1000),
+            sampleTask('c', 'Task C', KanbanStatus.completed, order: 1000),
+          ],
+        );
+        final model = KanbanViewModel(repo);
+        await model.initialize();
+        expect(
+          await model.moveTask('b', KanbanStatus.completed, newIndex: 0),
+          true,
+        );
+        final completed = model.tasks(KanbanStatus.completed).first;
+        expect(completed.id, 'b');
+        expect(completed.completedAt, isNotNull);
+        expect(completed.completedAt!.isUtc, true);
+        expect(model.projectProgress, 1);
+        expect(await model.moveTask('b', KanbanStatus.todo, newIndex: 0), true);
+        expect(model.tasks(KanbanStatus.todo).single.completedAt, isNull);
+        expect(model.projectProgress, .5);
+        expect(repo.activityEvents.map((event) => event.action), [
+          'completed',
+          'reopened',
+        ]);
+        model.dispose();
+      },
+    );
 
     test('failed tag attachment removes a partly created task', () async {
       final repo = FakeKanbanRepository()..failTagAttach = true;
