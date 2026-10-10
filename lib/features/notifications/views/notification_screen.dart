@@ -1,0 +1,229 @@
+import 'package:flutter/material.dart';
+
+import '../../../app/router/app_router.dart';
+import '../../kanban/widgets/skilltrack_bottom_navigation.dart';
+import '../models/app_notification.dart';
+import '../viewmodels/notification_badge_controller.dart';
+import '../viewmodels/notification_list_view_model.dart';
+import '../widgets/notification_empty_state.dart';
+import '../widgets/notification_filter_bar.dart';
+import '../widgets/notification_tile.dart';
+
+class NotificationScreen extends StatefulWidget {
+  const NotificationScreen({
+    super.key,
+    required this.viewModel,
+    required this.badgeController,
+  });
+  final NotificationListViewModel viewModel;
+  final NotificationBadgeController badgeController;
+
+  @override
+  State<NotificationScreen> createState() => _NotificationScreenState();
+}
+
+class _NotificationScreenState extends State<NotificationScreen> {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) widget.viewModel.initialize();
+    });
+  }
+
+  Future<void> _open(AppNotification item) async {
+    final destination = await widget.viewModel.openNotification(item);
+    if (!mounted) return;
+    _showFeedback();
+    if (destination == null) return;
+    if (destination.taskId == null) {
+      await AppRouter.kanbanBoard(
+        context,
+        BoardRouteArgs(
+          projectId: destination.projectId,
+          boardId: destination.boardId,
+          projectName: destination.projectName,
+        ),
+      );
+    } else {
+      await AppRouter.taskDetails(
+        context,
+        TaskDetailsRouteArgs(
+          projectId: destination.projectId,
+          boardId: destination.boardId,
+          projectName: destination.projectName,
+          taskId: destination.taskId!,
+          showStalledWarning: destination.showStalledWarning,
+          openRecommendations: destination.openRecommendations,
+          resourceTitles: destination.resourceTitles,
+          resourceCount: destination.resourceCount,
+        ),
+      );
+    }
+    if (mounted) await widget.viewModel.refresh();
+  }
+
+  void _showFeedback() {
+    final message = widget.viewModel.feedbackMessage;
+    if (message == null || !mounted) return;
+    ScaffoldMessenger.of(
+      context,
+    ).showSnackBar(SnackBar(content: Text(message)));
+    widget.viewModel.clearFeedbackMessage();
+  }
+
+  Future<void> _markAll() async {
+    await widget.viewModel.markAllAsRead();
+    _showFeedback();
+  }
+
+  String _group(DateTime date) {
+    final local = date.toLocal();
+    final today = DateUtils.dateOnly(DateTime.now());
+    final day = DateUtils.dateOnly(local);
+    if (day == today) return 'Today';
+    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    return 'Earlier';
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.viewModel,
+    builder: (context, child) {
+      final model = widget.viewModel;
+      final items = model.visibleNotifications;
+      return Scaffold(
+        appBar: AppBar(
+          title: const Text('Notifications'),
+          actions: [
+            IconButton(
+              tooltip: 'Notification preferences',
+              onPressed: () => AppRouter.notificationPreferences(context),
+              icon: const Icon(Icons.settings_outlined),
+            ),
+            PopupMenuButton<String>(
+              tooltip: 'Notification actions',
+              onSelected: (_) => _markAll(),
+              itemBuilder: (_) => [
+                PopupMenuItem(
+                  value: 'read',
+                  enabled: model.unreadCount > 0 && !model.isMarkingAllRead,
+                  child: const Text('Mark all as read'),
+                ),
+              ],
+            ),
+          ],
+        ),
+        body: Column(
+          children: [
+            NotificationFilterBar(
+              selected: model.selectedFilter,
+              unreadCount: model.unreadCount,
+              onSelected: model.setFilter,
+            ),
+            Expanded(
+              child: model.isLoading
+                  ? const Center(child: CircularProgressIndicator())
+                  : model.errorMessage != null
+                  ? Center(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(Icons.cloud_off_outlined, size: 48),
+                          const SizedBox(height: 12),
+                          const Text('Unable to load notifications'),
+                          const Text(
+                            'Please check your connection and try again.',
+                          ),
+                          const SizedBox(height: 16),
+                          FilledButton(
+                            onPressed: model.retry,
+                            child: const Text('Retry'),
+                          ),
+                        ],
+                      ),
+                    )
+                  : RefreshIndicator(
+                      onRefresh: model.refresh,
+                      child: items.isEmpty
+                          ? ListView(
+                              children: [
+                                SizedBox(
+                                  height:
+                                      MediaQuery.sizeOf(context).height * .55,
+                                  child: model.isEmpty
+                                      ? const NotificationEmptyState(
+                                          title: 'No notifications yet',
+                                          message:
+                                              'Task alerts, deadline reminders, and learning recommendations will appear here.',
+                                        )
+                                      : model.selectedFilter ==
+                                            NotificationListFilter.unread
+                                      ? const NotificationEmptyState(
+                                          title: 'You’re all caught up',
+                                          message:
+                                              'You have no unread notifications.',
+                                        )
+                                      : const NotificationEmptyState(
+                                          title: 'No matching notifications',
+                                          message:
+                                              'Try selecting another notification category.',
+                                        ),
+                                ),
+                              ],
+                            )
+                          : ListView.builder(
+                              padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
+                              itemCount: items.length,
+                              itemBuilder: (context, index) {
+                                final item = items[index];
+                                final showHeading =
+                                    index == 0 ||
+                                    _group(items[index - 1].createdAt) !=
+                                        _group(item.createdAt);
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    if (showHeading)
+                                      Padding(
+                                        padding: const EdgeInsets.fromLTRB(
+                                          4,
+                                          16,
+                                          4,
+                                          8,
+                                        ),
+                                        child: Text(
+                                          _group(item.createdAt),
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleSmall,
+                                        ),
+                                      ),
+                                    NotificationTile(
+                                      key: Key('notification-${item.id}'),
+                                      notification: item,
+                                      onTap: () => _open(item),
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                    ),
+            ),
+          ],
+        ),
+        bottomNavigationBar: SkillTrackBottomNavigation(
+          selectedIndex: 3,
+          badgeController: widget.badgeController,
+          onProject: () => AppRouter.projectDashboard(context),
+          onNotifications: () {},
+          onUnavailable: (name) => ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text('$name is not available in this prototype.'),
+            ),
+          ),
+        ),
+      );
+    },
+  );
+}
