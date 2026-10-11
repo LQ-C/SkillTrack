@@ -58,6 +58,11 @@ void main() {
     expect(find.text('Task moved from To-Do to In Progress'), findsOneWidget);
   });
 
+  testWidgets('resume activity has a readable label', (tester) async {
+    await showTimeline(tester, [record('resume', 1, 'resumed')]);
+    expect(find.text('Task resumed'), findsOneWidget);
+  });
+
   testWidgets('one to three activities show all without a toggle', (
     tester,
   ) async {

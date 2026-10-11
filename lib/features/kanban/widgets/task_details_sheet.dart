@@ -84,7 +84,11 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                                 : () async {
                                     final ok = await widget.onResume!(task);
                                     if (mounted && ok) {
-                                      setState(() => _resumed = true);
+                                      setState(() {
+                                        _resumed = true;
+                                        _activity = widget.viewModel
+                                            .getTaskActivity(widget.taskId);
+                                      });
                                     }
                                   },
                             icon: const Icon(Icons.play_arrow),

@@ -104,8 +104,13 @@ void main() {
     expect(await repo.getUnreadCount(), 0);
   });
 
-  testWidgets('project notification opens its board', (tester) async {
-    final repo = FakeNotificationRepository()..items.add(item('1'));
+  testWidgets('project notification returns to the project dashboard', (
+    tester,
+  ) async {
+    final repo = FakeNotificationRepository()
+      ..items.add(
+        AppNotification.fromMap({...item('1').toMap(), 'board_id': null}),
+      );
     final projects = FakeProjectRepository(
       items: [
         ProjectWithProgress(
@@ -124,7 +129,8 @@ void main() {
     await showApp(tester, repo, projects: projects);
     await tester.tap(find.text('Project deadline approaching'));
     await tester.pumpAndSettle();
-    expect(find.text('Demo Project'), findsWidgets);
+    expect(find.text('My Projects'), findsOneWidget);
+    expect(find.text('Demo Project'), findsOneWidget);
     expect(await repo.getUnreadCount(), 0);
   });
 
@@ -169,6 +175,53 @@ void main() {
     expect(find.text('Task Details'), findsOneWidget);
     expect(find.text('Study'), findsOneWidget);
     expect(await repo.getUnreadCount(), 0);
+  });
+
+  testWidgets('stalled alert can log a resume activity', (tester) async {
+    final stalled = AppNotification.fromMap({
+      ...item('1', context: NotificationContextType.task).toMap(),
+      'type': 'STALLED_TASK',
+      'title': 'Task may be stalled',
+    });
+    final repo = FakeNotificationRepository()..items.add(stalled);
+    final projects = FakeProjectRepository(
+      items: [
+        ProjectWithProgress(
+          project: const LearningProject(
+            id: 'project',
+            ownerId: 'user-1',
+            name: 'Demo Project',
+            status: 'active',
+          ),
+          boardId: 'board',
+          totalTaskCount: 1,
+          completedTaskCount: 0,
+        ),
+      ],
+    );
+    final now = DateTime.utc(2026, 1);
+    final kanban = FakeKanbanRepository(
+      tasks: [
+        KanbanTask(
+          id: 'task',
+          boardId: 'board',
+          title: 'Study',
+          status: KanbanStatus.inProgress,
+          priority: TaskPriority.medium,
+          sortOrder: 1000,
+          createdAt: now,
+          updatedAt: now,
+        ),
+      ],
+    );
+    await showApp(tester, repo, projects: projects, kanban: kanban);
+    await tester.tap(find.text('Task may be stalled'));
+    await tester.pumpAndSettle();
+    expect(find.text('This task was flagged as stalled.'), findsOneWidget);
+    await tester.tap(find.text('Resume Task'));
+    await tester.pumpAndSettle();
+    expect(kanban.activityEvents.single.action, 'resumed');
+    expect(find.text('This task was flagged as stalled.'), findsNothing);
   });
 
   testWidgets('recommendation opens the resource section on Task Details', (

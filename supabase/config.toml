@@ -1,0 +1,2 @@
+[functions.project-notification-generator]
+verify_jwt = false

@@ -37,14 +37,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _showFeedback();
     if (destination == null) return;
     if (destination.taskId == null) {
-      await AppRouter.kanbanBoard(
-        context,
-        BoardRouteArgs(
-          projectId: destination.projectId,
-          boardId: destination.boardId,
-          projectName: destination.projectName,
-        ),
-      );
+      AppRouter.projectDashboard(context);
     } else {
       await AppRouter.taskDetails(
         context,
@@ -85,6 +78,27 @@ class _NotificationScreenState extends State<NotificationScreen> {
     if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
     return 'Earlier';
   }
+
+  Widget _olderControl(NotificationListViewModel model) => Padding(
+    padding: const EdgeInsets.symmetric(vertical: 12),
+    child: Column(
+      children: [
+        if (model.loadMoreError != null)
+          Text(model.loadMoreError!, textAlign: TextAlign.center),
+        TextButton.icon(
+          onPressed: model.isLoadingMore ? null : model.loadMore,
+          icon: model.isLoadingMore
+              ? const SizedBox(
+                  width: 18,
+                  height: 18,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.expand_more),
+          label: const Text('Load older notifications'),
+        ),
+      ],
+    ),
+  );
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -170,12 +184,16 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                               'Try selecting another notification category.',
                                         ),
                                 ),
+                                if (model.hasMore) _olderControl(model),
                               ],
                             )
                           : ListView.builder(
                               padding: const EdgeInsets.fromLTRB(16, 4, 16, 24),
-                              itemCount: items.length,
+                              itemCount: items.length + (model.hasMore ? 1 : 0),
                               itemBuilder: (context, index) {
+                                if (index == items.length) {
+                                  return _olderControl(model);
+                                }
                                 final item = items[index];
                                 final showHeading =
                                     index == 0 ||

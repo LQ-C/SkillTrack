@@ -8,6 +8,7 @@ import 'app/skill_track_app.dart';
 import 'features/kanban/repositories/supabase_kanban_repository.dart';
 import 'features/projects/repositories/supabase_project_repository.dart';
 import 'features/notifications/repositories/supabase_notification_repository.dart';
+import 'features/notifications/services/notification_realtime_service.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,6 +28,10 @@ Future<void> main() async {
       notificationRepository: SupabaseNotificationRepository(
         Supabase.instance.client,
       ),
+      realtimeService: NotificationRealtimeService(
+        SupabaseNotificationRealtimeTransport(Supabase.instance.client),
+      ),
+      authEvents: Supabase.instance.client.auth.onAuthStateChange,
     ),
   );
 }

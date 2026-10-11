@@ -1,10 +1,98 @@
-# In-app notification boundary
+# Project Notification Generator
 
-Apply `supabase/migrations/20261010000000_in_app_notifications.sql` before using
-the module against Supabase. The Flutter app reads persisted notifications and
-updates read state/preferences. `NotificationEventCoordinator` is an event-facing
-API for a stalled-task monitor, deadline scheduler, and recommendation source.
-These sources are not present in the current app, so no production events are
-emitted yet. In particular, app startup does not schedule deadline reminders.
-Use a trusted backend scheduler for deadline windows. The unique key and database
-unique index protect against duplicate events. No push delivery is implemented.
+The Flutter inbox reads persisted rows. It does not schedule checks. The hourly
+`project-notification-generator` Edge Function handles stalled tasks and task/project
+deadlines. Its database helpers and cron job are in
+`supabase/migrations/20261010010000_project_notification_generator.sql`.
+
+## Before deployment
+
+The original schema migrations for projects, boards, tasks, activity logs, and
+profiles are not in this repository. The new migration checks every column it
+uses and aborts before installing helpers if the deployed schema differs. It
+also normalizes known lowercase notification values to the uppercase Flutter
+format. It changes the notification user foreign key to `public.profiles(id)`
+only after checking that every existing notification user has a profile. It
+does not delete notification rows.
+
+`SUPABASE_SERVICE_ROLE_KEY` is read only by the Edge Function at runtime. Keep
+it out of Flutter, `config/supabase.json`, source control, and screenshots.
+The Function also requires `PROJECT_NOTIFICATION_CRON_SECRET`, a long random string.
+Its invocation checks that secret before creating a service-role client.
+`supabase/config.toml` disables platform JWT verification for this one
+Function because pg_cron authenticates with the separate secret header.
+
+## Local or staging manual test
+
+Use a **staging database with the existing SkillTrack base tables**. An empty
+`supabase start` database cannot apply these migrations alone because this
+repository does not contain the base-table migrations. Install Supabase CLI and
+run Docker. Then:
+
+1. Apply both notification migrations to the staging database.
+2. Put `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`, and
+   `PROJECT_NOTIFICATION_CRON_SECRET` in a private environment file outside this repo.
+3. Run `supabase functions serve project-notification-generator --env-file <private-file> --no-verify-jwt`.
+4. Send a `POST` to `http://127.0.0.1:54321/functions/v1/project-notification-generator`
+   with the header `x-notification-cron-secret: <same-secret>` and body `{}`.
+   No public button or user-supplied notification payload is accepted.
+
+```powershell
+$secret = Read-Host 'Cron secret' -MaskInput
+Invoke-RestMethod -Method Post `
+  -Uri 'http://127.0.0.1:54321/functions/v1/project-notification-generator' `
+  -Headers @{ 'x-notification-cron-secret' = $secret } `
+  -ContentType 'application/json' -Body '{}'
+```
+
+5. Inspect the JSON count summary. In staging SQL, inspect
+   `select type, context_type, unique_key, created_at from public.notifications
+   order by created_at desc limit 20;` Run the request twice: the second run
+   should report duplicates rather than insert matching keys again.
+
+For sample data, use an **existing staging profile** with an active project,
+unarchived board, and unfinished task. Set a task's deadline to the UTC date
+three days, one day, or zero days from the test run. For a stalled task, use an
+existing task whose latest activity log is at least seven days old, or whose
+`updated_at`/`created_at` is that old if it has no logs. Do not use production
+records or hard-code a user's UUID in scripts. Toggle each row in
+`notification_preferences` to verify its corresponding category.
+
+Pure generator tests run without Supabase or Docker:
+
+```text
+node --experimental-strip-types --test supabase/functions/project-notification-generator/generator.test.ts
+```
+
+## Production activation
+
+1. Link the Supabase CLI to the intended project and apply the migrations with
+   `npx supabase db push`. Review the schema check and any profile-integrity error
+   before retrying. The migration schedules `project-notification-generator-hourly`
+   with `0 * * * *` (UTC); it safely does nothing until Vault secrets exist.
+2. Set the Edge Function secret with
+   `npx supabase secrets set "PROJECT_NOTIFICATION_CRON_SECRET=YOUR_LONG_RANDOM_SECRET"`.
+   Replace the placeholder with a long random secret. Do not upload
+   the local file containing `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY`;
+   Supabase injects those variables into deployed Functions.
+3. Deploy with `npx supabase functions deploy project-notification-generator`.
+4. In the Supabase SQL editor, store the project URL and the **same** random
+   secret in Vault:
+
+```sql
+select vault.create_secret('https://<project-ref>.supabase.co',
+  'project_notification_url');
+select vault.create_secret('<same-random-secret>', 'project_notification_cron_secret');
+```
+
+5. Check `cron.job` for the active `project-notification-generator-hourly` job and
+   `cron.job_run_details` for executions. Invoke the Function manually once
+   with the protected header and inspect the summary before relying on cron.
+
+## Scope
+
+There is no real recommendation/resource provider in this codebase. The
+scheduled generator does not invent resources or create recommendation
+notifications. `NotificationEventCoordinator` remains an API for a future real
+recommendation event. Push delivery is not implemented. The Flutter inbox,
+read status, unread badge, preferences, and routing remain client features.

@@ -16,6 +16,7 @@ import '../../features/projects/views/project_dashboard_screen.dart';
 import '../../features/notifications/repositories/notification_repository.dart';
 import '../../features/notifications/viewmodels/notification_badge_controller.dart';
 import '../../features/notifications/viewmodels/notification_list_view_model.dart';
+import '../../features/notifications/services/notification_realtime_service.dart';
 import '../../features/notifications/viewmodels/notification_preferences_view_model.dart';
 import '../../features/notifications/views/notification_screen.dart';
 import '../../features/notifications/views/notification_preferences_screen.dart';
@@ -93,11 +94,13 @@ class AppRouter {
     required this.kanbanRepository,
     this.notificationRepository,
     this.badgeController,
+    this.realtime,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
   final NotificationRepository? notificationRepository;
   final NotificationBadgeController? badgeController;
+  final NotificationChangeSource? realtime;
 
   Route<dynamic> onGenerateRoute(RouteSettings settings) {
     final arguments = settings.arguments;
@@ -117,6 +120,7 @@ class AppRouter {
                 projects: projectRepository,
                 kanban: kanbanRepository,
                 badge: badgeController!,
+                realtime: realtime,
               );
       case AppRoutes.notificationPreferences:
         page = notificationRepository == null
@@ -227,11 +231,13 @@ class _NotificationsRoute extends StatefulWidget {
     required this.projects,
     required this.kanban,
     required this.badge,
+    this.realtime,
   });
   final NotificationRepository repository;
   final ProjectRepository projects;
   final KanbanRepository kanban;
   final NotificationBadgeController badge;
+  final NotificationChangeSource? realtime;
   @override
   State<_NotificationsRoute> createState() => _NotificationsRouteState();
 }
@@ -242,6 +248,7 @@ class _NotificationsRouteState extends State<_NotificationsRoute> {
     widget.projects,
     widget.kanban,
     widget.badge,
+    widget.realtime,
   );
   @override
   void dispose() {
@@ -472,6 +479,22 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     if (changed == true) await _model.refresh();
   }
 
+  Future<bool> _resume(KanbanTask task) async {
+    try {
+      await widget.repository.addActivity(task.id, 'resumed');
+      return true;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Unable to resume the task. Please try again.'),
+          ),
+        );
+      }
+      return false;
+    }
+  }
+
   @override
   Widget build(BuildContext context) => FutureBuilder<void>(
     future: _ready,
@@ -496,14 +519,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           showRecommendations: widget.args.openRecommendations,
           resourceTitles: widget.args.resourceTitles,
           resourceCount: widget.args.resourceCount,
-          onResume: (task) => _model.updateTask(
-            task,
-            title: task.title,
-            description: task.description,
-            status: task.status,
-            priority: task.priority,
-            deadline: task.deadline,
-          ),
+          onResume: _resume,
         ),
       );
     },
