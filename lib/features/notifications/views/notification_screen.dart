@@ -14,9 +14,13 @@ class NotificationScreen extends StatefulWidget {
     super.key,
     required this.viewModel,
     required this.badgeController,
+    this.showBottomNavigation = true,
+    this.onOpenProjectDashboard,
   });
   final NotificationListViewModel viewModel;
   final NotificationBadgeController badgeController;
+  final bool showBottomNavigation;
+  final VoidCallback? onOpenProjectDashboard;
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -37,7 +41,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
     _showFeedback();
     if (destination == null) return;
     if (destination.taskId == null) {
-      AppRouter.projectDashboard(context);
+      final openProjects = widget.onOpenProjectDashboard;
+      if (openProjects != null) {
+        openProjects();
+        return;
+      } else {
+        AppRouter.projectDashboard(context);
+      }
     } else {
       await AppRouter.taskDetails(
         context,
@@ -230,17 +240,22 @@ class _NotificationScreenState extends State<NotificationScreen> {
             ),
           ],
         ),
-        bottomNavigationBar: SkillTrackBottomNavigation(
-          selectedIndex: 3,
-          badgeController: widget.badgeController,
-          onProject: () => AppRouter.projectDashboard(context),
-          onNotifications: () {},
-          onUnavailable: (name) => ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text('$name is not available in this prototype.'),
-            ),
-          ),
-        ),
+        bottomNavigationBar: widget.showBottomNavigation
+            ? SkillTrackBottomNavigation(
+                selectedIndex: 3,
+                badgeController: widget.badgeController,
+                onProject: () => AppRouter.projectDashboard(context),
+                onNotifications: () {},
+                onUnavailable: (name) =>
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          '$name is not available in this prototype.',
+                        ),
+                      ),
+                    ),
+              )
+            : null,
       );
     },
   );

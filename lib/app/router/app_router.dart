@@ -15,11 +15,10 @@ import '../../features/projects/views/create_project_screen.dart';
 import '../../features/projects/views/project_dashboard_screen.dart';
 import '../../features/notifications/repositories/notification_repository.dart';
 import '../../features/notifications/viewmodels/notification_badge_controller.dart';
-import '../../features/notifications/viewmodels/notification_list_view_model.dart';
 import '../../features/notifications/services/notification_realtime_service.dart';
 import '../../features/notifications/viewmodels/notification_preferences_view_model.dart';
-import '../../features/notifications/views/notification_screen.dart';
 import '../../features/notifications/views/notification_preferences_screen.dart';
+import '../views/main_module_shell.dart';
 
 class AppRoutes {
   static const projectDashboard = '/projects';
@@ -107,19 +106,23 @@ class AppRouter {
     Widget page;
     switch (settings.name) {
       case AppRoutes.projectDashboard:
-        page = ProjectDashboardScreen(
-          projectRepository: projectRepository,
-          kanbanRepository: kanbanRepository,
-          badgeController: badgeController,
-        );
       case AppRoutes.notifications:
         page = notificationRepository == null || badgeController == null
-            ? const _RouteUnavailable()
-            : _NotificationsRoute(
-                repository: notificationRepository!,
-                projects: projectRepository,
-                kanban: kanbanRepository,
-                badge: badgeController!,
+            ? settings.name == AppRoutes.projectDashboard
+                  ? ProjectDashboardScreen(
+                      projectRepository: projectRepository,
+                      kanbanRepository: kanbanRepository,
+                      badgeController: badgeController,
+                    )
+                  : const _RouteUnavailable()
+            : MainModuleShell(
+                initialPage: settings.name == AppRoutes.notifications
+                    ? MainModulePage.notifications
+                    : MainModulePage.projects,
+                projectRepository: projectRepository,
+                kanbanRepository: kanbanRepository,
+                notificationRepository: notificationRepository!,
+                badgeController: badgeController!,
                 realtime: realtime,
               );
       case AppRoutes.notificationPreferences:
@@ -223,42 +226,6 @@ class AppRouter {
   static void projectDashboard(BuildContext context) => Navigator.of(
     context,
   ).popUntil((route) => route.settings.name == AppRoutes.projectDashboard);
-}
-
-class _NotificationsRoute extends StatefulWidget {
-  const _NotificationsRoute({
-    required this.repository,
-    required this.projects,
-    required this.kanban,
-    required this.badge,
-    this.realtime,
-  });
-  final NotificationRepository repository;
-  final ProjectRepository projects;
-  final KanbanRepository kanban;
-  final NotificationBadgeController badge;
-  final NotificationChangeSource? realtime;
-  @override
-  State<_NotificationsRoute> createState() => _NotificationsRouteState();
-}
-
-class _NotificationsRouteState extends State<_NotificationsRoute> {
-  late final NotificationListViewModel _model = NotificationListViewModel(
-    widget.repository,
-    widget.projects,
-    widget.kanban,
-    widget.badge,
-    widget.realtime,
-  );
-  @override
-  void dispose() {
-    _model.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) =>
-      NotificationScreen(viewModel: _model, badgeController: widget.badge);
 }
 
 class _NotificationPreferencesRoute extends StatefulWidget {

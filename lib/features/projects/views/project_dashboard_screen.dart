@@ -14,10 +14,12 @@ class ProjectDashboardScreen extends StatefulWidget {
     required this.projectRepository,
     required this.kanbanRepository,
     this.badgeController,
+    this.showBottomNavigation = true,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
   final NotificationBadgeController? badgeController;
+  final bool showBottomNavigation;
 
   @override
   State<ProjectDashboardScreen> createState() => _ProjectDashboardScreenState();
@@ -25,8 +27,7 @@ class ProjectDashboardScreen extends StatefulWidget {
 
 class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   late final ProjectDashboardViewModel _model;
-  late final NotificationBadgeController _fallbackBadge =
-      NotificationBadgeController(null);
+  NotificationBadgeController? _fallbackBadge;
   final _search = TextEditingController();
   bool _showSearch = false;
 
@@ -42,7 +43,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   @override
   void dispose() {
     _model.dispose();
-    _fallbackBadge.dispose();
+    _fallbackBadge?.dispose();
     _search.dispose();
     super.dispose();
   }
@@ -407,13 +408,17 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 label: const Text('New Project'),
               )
             : null,
-        bottomNavigationBar: SkillTrackBottomNavigation(
-          badgeController: widget.badgeController ?? _fallbackBadge,
-          onProject: () {},
-          onNotifications: () => AppRouter.notifications(context),
-          onUnavailable: (name) =>
-              _snack('$name is not available in this prototype.'),
-        ),
+        bottomNavigationBar: widget.showBottomNavigation
+            ? SkillTrackBottomNavigation(
+                badgeController:
+                    widget.badgeController ??
+                    (_fallbackBadge ??= NotificationBadgeController(null)),
+                onProject: () {},
+                onNotifications: () => AppRouter.notifications(context),
+                onUnavailable: (name) =>
+                    _snack('$name is not available in this prototype.'),
+              )
+            : null,
       );
     },
   );
