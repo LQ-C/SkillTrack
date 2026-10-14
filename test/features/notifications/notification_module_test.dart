@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/notifications/models/app_notification.dart';
 import 'package:skilltrack/features/notifications/models/notification_context_type.dart';
 import 'package:skilltrack/features/notifications/models/notification_preferences.dart';
@@ -35,6 +36,26 @@ AppNotification alert(
 );
 
 void main() {
+  test(
+    'shared error mapping preserves app messages and hides unexpected errors',
+    () {
+      expect(
+        AppException.messageFor(const AppException('Sign in to continue.')),
+        'Sign in to continue.',
+      );
+      expect(
+        AppException.messageFor(StateError('internal database detail')),
+        AppErrorMessages.requestFailed,
+      );
+      expect(
+        AppException.messageFor(
+          Exception('raw response'),
+          fallback: AppErrorMessages.saveTagFailed,
+        ),
+        AppErrorMessages.saveTagFailed,
+      );
+    },
+  );
   test('type and context conversion is controlled', () {
     expect(
       NotificationType.parse('STALLED_TASK'),
@@ -48,7 +69,7 @@ void main() {
       NotificationContextType.parse('RECOMMENDATION'),
       NotificationContextType.recommendation,
     );
-    expect(() => NotificationType.parse('unknown'), throwsFormatException);
+    expect(NotificationType.parse('unknown'), NotificationType.unknown);
   });
 
   test('models round trip and defaults', () {

@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/kanban/models/kanban_filter.dart';
 import 'package:skilltrack/features/kanban/models/kanban_sort.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
@@ -38,6 +39,41 @@ void main() {
     });
 
     test(
+      'existing board refresh exposes the latest stored stagnation values',
+      () async {
+        final original = sampleTask('1', 'Study', KanbanStatus.inProgress);
+        final repo = FakeKanbanRepository(tasks: [original]);
+        final model = KanbanViewModel(repo);
+        await model.initialize();
+        repo.stored[0] = original.copyWith(
+          stagnationScore: 80,
+          isStalled: true,
+          stagnationCheckedAt: DateTime.utc(2026, 10, 11),
+          lastActivityAt: DateTime.utc(2026, 10, 13),
+        );
+        await model.refresh(showLoading: false);
+        expect(model.allTasks.single.stagnationScore, 80);
+        expect(model.allTasks.single.isStalled, isTrue);
+        expect(
+          model.allTasks.single.lastActivityAt,
+          DateTime.utc(2026, 10, 13),
+        );
+        await model.resumeTask('1');
+        expect(repo.activityEvents.single.action, 'resumed');
+        expect(model.allTasks.single.isStalled, isTrue);
+        expect(repo.stored.single.stagnationScore, 80);
+        repo.stored[0] = repo.stored[0].copyWith(
+          stagnationScore: 40,
+          isStalled: false,
+        );
+        await model.refresh(showLoading: false);
+        expect(model.allTasks.single.stagnationLabel, 'Low risk');
+        expect(model.allTasks.single.shouldShowStalled, isFalse);
+        model.dispose();
+      },
+    );
+
+    test(
       'no project board shows an empty board without a load error',
       () async {
         final model = KanbanViewModel(FakeKanbanRepository(noBoard: true));
@@ -54,7 +90,7 @@ void main() {
       final repo = FakeKanbanRepository(failLoad: true);
       final model = KanbanViewModel(repo);
       await model.initialize();
-      expect(model.errorMessage, contains('offline'));
+      expect(model.errorMessage, AppErrorMessages.requestFailed);
       repo.failLoad = false;
       await model.retry();
       expect(model.errorMessage, null);
@@ -82,6 +118,66 @@ void main() {
       expect(model.allTasks.single.title, 'Design');
       model.dispose();
     });
+
+    test(
+      'Edit uses the same destination append order as task creation and moves',
+      () async {
+        final source = sampleTask(
+          'source',
+          'Study',
+          KanbanStatus.todo,
+          order: 1000,
+        );
+        final repo = FakeKanbanRepository(
+          tasks: [
+            source,
+            sampleTask('first', 'First', KanbanStatus.inProgress, order: 1000),
+            sampleTask(
+              'second',
+              'Second',
+              KanbanStatus.inProgress,
+              order: 2000,
+            ),
+          ],
+        );
+        final model = KanbanViewModel(repo);
+        await model.initialize('board-1');
+        expect(
+          await model.updateTask(
+            source,
+            title: source.title,
+            description: source.description,
+            status: KanbanStatus.inProgress,
+            priority: source.priority,
+          ),
+          isTrue,
+        );
+        expect(model.tasks(KanbanStatus.inProgress).map((task) => task.id), [
+          'first',
+          'second',
+          'source',
+        ]);
+        final edited = model.tasks(KanbanStatus.inProgress).last;
+        expect(edited.sortOrder, 3000);
+        expect(
+          await model.updateTask(
+            edited,
+            title: 'Renamed',
+            description: edited.description,
+            status: edited.status,
+            priority: edited.priority,
+          ),
+          isTrue,
+        );
+        expect(model.tasks(KanbanStatus.inProgress).last.sortOrder, 3000);
+        expect(
+          await model.createTask(title: 'New', status: KanbanStatus.inProgress),
+          isTrue,
+        );
+        expect(model.tasks(KanbanStatus.inProgress).last.sortOrder, 4000);
+        model.dispose();
+      },
+    );
 
     test('completion and reopening update timestamps and progress', () async {
       final model = KanbanViewModel(

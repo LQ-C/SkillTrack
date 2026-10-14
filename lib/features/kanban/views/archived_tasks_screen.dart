@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../../../app/router/app_router.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
@@ -342,7 +343,7 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
                     _pendingExit == null
               ? _message(
                   icon: Icons.cloud_off_outlined,
-                  title: 'Unable to load archived tasks',
+                  title: AppErrorMessages.loadArchivedTasksFailed,
                   description: 'Please check your connection and try again.',
                   action: 'Retry',
                   onPressed: model.retry,

@@ -17,14 +17,10 @@ class SupabaseProjectRepository implements ProjectRepository {
       return await action();
     } on AppException {
       rethrow;
-    } on AuthException catch (error) {
-      throw AppException(error.message);
-    } on PostgrestException catch (error) {
-      throw AppException(error.message);
+    } on AuthException {
+      throw const AppException(AppErrorMessages.signInFailed);
     } catch (_) {
-      throw const AppException(
-        'Unable to complete the request. Please check your connection.',
-      );
+      throw const AppException(AppErrorMessages.requestFailed);
     }
   }
 
@@ -99,9 +95,7 @@ class SupabaseProjectRepository implements ProjectRepository {
           .delete()
           .eq('id', project.id)
           .eq('owner_id', userId);
-      throw const AppException(
-        'Unable to create the project. Please try again.',
-      );
+      throw const AppException(AppErrorMessages.createProjectFailed);
     }
   });
 
@@ -184,16 +178,24 @@ class SupabaseProjectRepository implements ProjectRepository {
                   .select('board_id,status,is_archived')
                   .inFilter('board_id', boardIds)
                   .eq('is_archived', false);
+        final counts = <String, ({int total, int completed})>{};
+        for (final task in taskRows) {
+          final boardId = task['board_id'].toString();
+          final previous = counts[boardId] ?? (total: 0, completed: 0);
+          counts[boardId] = (
+            total: previous.total + 1,
+            completed:
+                previous.completed + (task['status'] == 'completed' ? 1 : 0),
+          );
+        }
         return projects.map((project) {
           final boardId = boardByProject[project.id];
-          final tasks = taskRows.where((task) => task['board_id'] == boardId);
+          final count = counts[boardId];
           return ProjectWithProgress(
             project: project,
             boardId: boardId,
-            totalTaskCount: tasks.length,
-            completedTaskCount: tasks
-                .where((task) => task['status'] == 'completed')
-                .length,
+            totalTaskCount: count?.total ?? 0,
+            completedTaskCount: count?.completed ?? 0,
           );
         }).toList();
       });

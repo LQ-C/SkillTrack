@@ -22,9 +22,7 @@ class SupabaseNotificationRepository implements NotificationRepository {
     } on AppException {
       rethrow;
     } catch (_) {
-      throw const AppException(
-        'Unable to update notifications. Please try again.',
-      );
+      throw const AppException(AppErrorMessages.updateNotificationsFailed);
     }
   }
 

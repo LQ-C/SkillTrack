@@ -57,6 +57,75 @@ Future<void> showApp(
 }
 
 void main() {
+  testWidgets(
+    'unknown notification type displays a safe fallback alongside known types',
+    (tester) async {
+      final unknown = AppNotification.fromMap({
+        ...item('future').toMap(),
+        'type': 'FUTURE_ALERT',
+        'title': 'New notification type',
+        'message': 'Future alert message',
+      });
+      final repo = FakeNotificationRepository()
+        ..items.addAll([unknown, item('known')]);
+      await showApp(tester, repo);
+      expect(find.text('New notification type'), findsOneWidget);
+      expect(find.text('Future alert message'), findsOneWidget);
+      expect(find.byIcon(Icons.notifications_none), findsOneWidget);
+      expect(find.text('Project deadline approaching'), findsOneWidget);
+      expect(find.byKey(const Key('unread-dot')), findsNWidgets(2));
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets(
+    'stalled notification for an archived task stays on notifications',
+    (tester) async {
+      final alert = AppNotification.fromMap({
+        ...item('archived', context: NotificationContextType.task).toMap(),
+        'type': 'STALLED_TASK',
+      });
+      final repo = FakeNotificationRepository()..items.add(alert);
+      final projects = FakeProjectRepository(
+        items: [
+          ProjectWithProgress(
+            project: const LearningProject(
+              id: 'project',
+              ownerId: 'user-1',
+              name: 'Demo Project',
+              status: 'active',
+            ),
+            boardId: 'board',
+            totalTaskCount: 1,
+            completedTaskCount: 0,
+          ),
+        ],
+      );
+      final now = DateTime.utc(2026, 10, 13);
+      final kanban = FakeKanbanRepository(
+        tasks: [
+          KanbanTask(
+            id: 'task',
+            boardId: 'board',
+            title: 'Archived task',
+            status: KanbanStatus.todo,
+            priority: TaskPriority.medium,
+            sortOrder: 1000,
+            isArchived: true,
+            createdAt: now,
+            updatedAt: now,
+          ),
+        ],
+      );
+      await showApp(tester, repo, projects: projects, kanban: kanban);
+      await tester.tap(find.text('Project deadline approaching'));
+      await tester.pumpAndSettle();
+      expect(find.text('This item is no longer available.'), findsOneWidget);
+      expect(find.text('Task Details'), findsNothing);
+      expect(await repo.getUnreadCount(), 0);
+    },
+  );
+
   testWidgets('notification tab opens empty state and preferences', (
     tester,
   ) async {
@@ -211,6 +280,9 @@ void main() {
           sortOrder: 1000,
           createdAt: now,
           updatedAt: now,
+          stagnationScore: 80,
+          isStalled: true,
+          stagnationCheckedAt: now,
         ),
       ],
     );
@@ -218,10 +290,15 @@ void main() {
     await tester.tap(find.text('Task may be stalled'));
     await tester.pumpAndSettle();
     expect(find.text('This task was flagged as stalled.'), findsOneWidget);
+    expect(find.text('Stagnation'), findsOneWidget);
+    expect(find.text('80/100 · Stalled'), findsOneWidget);
     await tester.tap(find.text('Resume Task'));
     await tester.pumpAndSettle();
     expect(kanban.activityEvents.single.action, 'resumed');
     expect(find.text('This task was flagged as stalled.'), findsNothing);
+    expect(kanban.stored.single.isStalled, isTrue);
+    expect(kanban.stored.single.stagnationScore, 80);
+    expect(await repo.getUnreadCount(), 0);
   });
 
   testWidgets('recommendation opens the resource section on Task Details', (

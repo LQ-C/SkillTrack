@@ -446,22 +446,6 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     if (changed == true) await _model.refresh();
   }
 
-  Future<bool> _resume(KanbanTask task) async {
-    try {
-      await widget.repository.addActivity(task.id, 'resumed');
-      return true;
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Unable to resume the task. Please try again.'),
-          ),
-        );
-      }
-      return false;
-    }
-  }
-
   @override
   Widget build(BuildContext context) => FutureBuilder<void>(
     future: _ready,
@@ -486,7 +470,6 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           showRecommendations: widget.args.openRecommendations,
           resourceTitles: widget.args.resourceTitles,
           resourceCount: widget.args.resourceCount,
-          onResume: _resume,
         ),
       );
     },

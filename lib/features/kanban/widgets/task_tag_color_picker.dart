@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../models/task_tag.dart';
 import '../utils/task_tag_color_utils.dart';
 import '../viewmodels/kanban_view_model.dart';
@@ -86,8 +87,7 @@ class _TagEditorDialogState extends State<_TagEditorDialog> {
       setState(() {
         _saving = false;
         _error =
-            widget.viewModel.errorMessage ??
-            'Unable to save the tag. Please try again.';
+            widget.viewModel.errorMessage ?? AppErrorMessages.saveTagFailed;
       });
       widget.viewModel.clearError();
     }
@@ -309,7 +309,7 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
   void _setHex(String input) {
     final normalized = TaskTag.normalizeHex(input);
     setState(() {
-      _error = normalized == null ? 'Enter a valid 6-digit hex color.' : null;
+      _error = normalized == null ? AppErrorMessages.invalidTagColor : null;
       if (normalized != null) {
         _hsv = HSVColor.fromColor(TaskTagColorUtils.base(normalized));
       }

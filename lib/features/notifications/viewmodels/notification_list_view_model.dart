@@ -3,6 +3,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../projects/repositories/project_repository.dart';
 import '../models/app_notification.dart';
@@ -121,7 +122,7 @@ class NotificationListViewModel extends ChangeNotifier {
       }
     } catch (_) {
       if (!_disposed && version == _loadVersion) {
-        errorMessage = 'Unable to load notifications';
+        errorMessage = AppErrorMessages.loadNotificationsFailed;
       }
     } finally {
       if (!_disposed && version == _loadVersion) {
@@ -274,7 +275,7 @@ class NotificationListViewModel extends ChangeNotifier {
       final current = _items.indexWhere((item) => item.id == notificationId);
       if (current >= 0) _items[current] = previous;
       _badge.restoreUnread(notificationId);
-      feedbackMessage = 'Unable to update notifications. Please try again.';
+      feedbackMessage = AppErrorMessages.updateNotificationsFailed;
       notifyListeners();
       return false;
     }
@@ -363,7 +364,7 @@ class NotificationListViewModel extends ChangeNotifier {
       _items = [for (final item in _items) originals[item.id] ?? item];
       _badge.finishMarkAll(succeeded: false);
       await _badge.refresh();
-      feedbackMessage = 'Unable to update notifications. Please try again.';
+      feedbackMessage = AppErrorMessages.updateNotificationsFailed;
     } finally {
       if (!_disposed && version == _loadVersion) {
         isMarkingAllRead = false;

@@ -9,19 +9,24 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
         _repository.currentUserId ?? '',
       );
   final NotificationRepository _repository;
+  bool _disposed = false;
   NotificationPreferences preferences;
   bool isLoading = true, isSaving = false;
   bool hasLoaded = false;
   String? errorMessage;
 
   Future<void> initialize() async {
+    if (_disposed) return;
     isLoading = true;
     errorMessage = null;
     notifyListeners();
     try {
-      preferences = await _repository.getPreferences();
+      final loaded = await _repository.getPreferences();
+      if (_disposed) return;
+      preferences = loaded;
       hasLoaded = true;
     } catch (_) {
+      if (_disposed) return;
       errorMessage = 'Unable to load notification preferences.';
     } finally {
       isLoading = false;
@@ -32,15 +37,18 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
   Future<void> retry() => initialize();
 
   Future<void> _save(NotificationPreferences next) async {
-    if (isSaving) return;
+    if (_disposed || isSaving) return;
     final previous = preferences;
     preferences = next;
     isSaving = true;
     errorMessage = null;
     notifyListeners();
     try {
-      preferences = await _repository.updatePreferences(next);
+      final saved = await _repository.updatePreferences(next);
+      if (_disposed) return;
+      preferences = saved;
     } catch (_) {
+      if (_disposed) return;
       preferences = previous;
       errorMessage = 'Unable to save preferences. Please try again.';
     } finally {
@@ -55,4 +63,15 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
       _save(preferences.copyWith(deadlineReminderEnabled: value));
   Future<void> setRecommendationEnabled(bool value) =>
       _save(preferences.copyWith(recommendationEnabled: value));
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 }

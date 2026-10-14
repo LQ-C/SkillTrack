@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
 import '../models/task_activity.dart';
@@ -8,6 +9,7 @@ import 'activity_timeline.dart';
 import 'attachment_section.dart';
 import 'checklist_section.dart';
 import 'task_tag_chip.dart';
+import 'task_stagnation_indicator.dart';
 
 class TaskDetailsSheet extends StatefulWidget {
   const TaskDetailsSheet({
@@ -38,10 +40,42 @@ class TaskDetailsSheet extends StatefulWidget {
 class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   late Future<List<TaskActivity>> _activity;
   bool _resumed = false;
+  bool _resuming = false;
   @override
   void initState() {
     super.initState();
     _activity = widget.viewModel.getTaskActivity(widget.taskId);
+  }
+
+  Future<void> _resume(KanbanTask task) async {
+    if (_resuming) return;
+    setState(() => _resuming = true);
+    var resumed = false;
+    try {
+      final onResume = widget.onResume;
+      if (onResume != null) {
+        resumed = await onResume(task);
+      } else {
+        await widget.viewModel.resumeTask(task.id);
+        resumed = true;
+      }
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text(AppErrorMessages.resumeTaskFailed)),
+        );
+      }
+    } finally {
+      if (mounted) {
+        setState(() {
+          _resuming = false;
+          if (resumed) {
+            _resumed = true;
+            _activity = widget.viewModel.getTaskActivity(widget.taskId);
+          }
+        });
+      }
+    }
   }
 
   @override
@@ -52,6 +86,11 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
           .where((item) => item.id == widget.taskId)
           .firstOrNull;
       if (task == null) return const Center(child: Text('Task unavailable'));
+      final showStalled =
+          !task.isCompleted &&
+          !task.isArchived &&
+          (task.shouldShowStalled || widget.showStalledWarning) &&
+          !_resumed;
       return Padding(
         padding: EdgeInsets.fromLTRB(
           16,
@@ -69,7 +108,7 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                 : MediaQuery.sizeOf(context).height * .78,
             child: ListView(
               children: [
-                if (widget.showStalledWarning && !_resumed)
+                if (showStalled)
                   Card(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -79,18 +118,7 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                           const Text('This task was flagged as stalled.'),
                           const SizedBox(height: 8),
                           TextButton.icon(
-                            onPressed: widget.onResume == null
-                                ? null
-                                : () async {
-                                    final ok = await widget.onResume!(task);
-                                    if (mounted && ok) {
-                                      setState(() {
-                                        _resumed = true;
-                                        _activity = widget.viewModel
-                                            .getTaskActivity(widget.taskId);
-                                      });
-                                    }
-                                  },
+                            onPressed: _resuming ? null : () => _resume(task),
                             icon: const Icon(Icons.play_arrow),
                             label: const Text('Resume Task'),
                           ),
@@ -158,6 +186,11 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                     ),
                   ],
                 ),
+                if (!task.isCompleted && !task.isArchived)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: TaskStagnationIndicator(task: task),
+                  ),
                 if (task.tags.isNotEmpty)
                   Wrap(
                     spacing: 6,

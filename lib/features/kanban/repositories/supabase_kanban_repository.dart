@@ -29,16 +29,12 @@ class SupabaseKanbanRepository implements KanbanRepository {
       return await action();
     } on AppException {
       rethrow;
-    } on PostgrestException catch (error) {
-      throw AppException(error.message);
-    } on AuthException catch (error) {
-      throw AppException(error.message);
-    } on StorageException catch (error) {
-      throw AppException(error.message);
+    } on AuthException {
+      throw const AppException(AppErrorMessages.signInFailed);
+    } on StorageException {
+      throw const AppException(AppErrorMessages.storageFailed);
     } catch (_) {
-      throw const AppException(
-        'Unable to complete the request. Please check your connection.',
-      );
+      throw const AppException(AppErrorMessages.requestFailed);
     }
   }
 
@@ -121,26 +117,34 @@ class SupabaseKanbanRepository implements KanbanRepository {
     final tagsById = {
       for (final row in tagRows) row['id'].toString(): TaskTag.fromMap(row),
     };
+    final tagsByTask = _groupByTask(
+      links,
+      (link) => tagsById[link['tag_id'].toString()],
+    );
+    final checklistByTask = _groupByTask(results[1], TaskChecklistItem.fromMap);
+    final attachmentsByTask = _groupByTask(results[2], TaskAttachment.fromMap);
     return rows.map((row) {
       final id = row['id'].toString();
       return KanbanTask.fromMap(
         row,
-        tags: links
-            .where((link) => link['task_id'].toString() == id)
-            .map((link) => tagsById[link['tag_id'].toString()])
-            .whereType<TaskTag>()
-            .toList(),
-        checklistItems: results[1]
-            .where((item) => item['task_id'].toString() == id)
-            .map(TaskChecklistItem.fromMap)
-            .toList(),
-        attachments: results[2]
-            .where((item) => item['task_id'].toString() == id)
-            .map(TaskAttachment.fromMap)
-            .toList(),
+        tags: tagsByTask[id] ?? const [],
+        checklistItems: checklistByTask[id] ?? const [],
+        attachments: attachmentsByTask[id] ?? const [],
       );
     }).toList();
   });
+
+  Map<String, List<T>> _groupByTask<T extends Object>(
+    List<Map<String, dynamic>> rows,
+    T? Function(Map<String, dynamic>) parse,
+  ) {
+    final groups = <String, List<T>>{};
+    for (final row in rows) {
+      final item = parse(row);
+      if (item != null) (groups[row['task_id'].toString()] ??= []).add(item);
+    }
+    return groups;
+  }
 
   @override
   Future<KanbanTask> createTask(KanbanTask task) => _guard(() async {
@@ -257,7 +261,7 @@ class SupabaseKanbanRepository implements KanbanRepository {
       _guard(() async {
         final normalized = TaskTag.normalizeHex(colorHex);
         if (normalized == null) {
-          throw const AppException('Enter a valid 6-digit hex color.');
+          throw const AppException(AppErrorMessages.invalidTagColor);
         }
         final row = await _client
             .from('task_tags')
@@ -271,7 +275,7 @@ class SupabaseKanbanRepository implements KanbanRepository {
   Future<TaskTag> updateTag(TaskTag tag) => _guard(() async {
     final normalized = TaskTag.normalizeHex(tag.colorHex);
     if (normalized == null) {
-      throw const AppException('Enter a valid 6-digit hex color.');
+      throw const AppException(AppErrorMessages.invalidTagColor);
     }
     final row = await _client
         .from('task_tags')

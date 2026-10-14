@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../models/kanban_filter.dart';
 import '../models/kanban_sort.dart';
 import '../models/kanban_status.dart';
@@ -16,6 +17,8 @@ import '../repositories/kanban_repository.dart';
 class KanbanViewModel extends ChangeNotifier {
   KanbanViewModel(this._repository);
   final KanbanRepository _repository;
+  static const _sortOrderStep = 1000;
+  bool _disposed = false;
   String? _boardId;
   String? _archivedBoardId;
   List<KanbanTask> _tasks = [];
@@ -122,17 +125,20 @@ class KanbanViewModel extends ChangeNotifier {
   }
 
   Future<void> initialize([String? boardId]) async {
-    if (_isLoading) return;
+    if (_disposed || _isLoading) return;
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
     try {
-      _boardId = boardId ?? await _repository.getFirstBoardId();
+      final id = boardId ?? await _repository.getFirstBoardId();
+      if (_disposed) return;
+      _boardId = id;
       _archivedBoardId = null;
       if (_boardId == null) {
         _tasks = [];
         _tags = [];
         _archivedBoardId = await _repository.getFirstBoardId(archived: true);
+        if (_disposed) return;
         _errorMessage = _archivedBoardId == null
             ? null
             : 'This board is archived.';
@@ -140,7 +146,7 @@ class KanbanViewModel extends ChangeNotifier {
         await _reload();
       }
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -149,15 +155,22 @@ class KanbanViewModel extends ChangeNotifier {
 
   Future<void> _reload() async {
     final board = _boardId;
-    if (board == null) return;
-    _tasks = await _repository.getTasks(board);
+    if (_disposed || board == null) return;
+    final loaded = await _repository.getTasks(board);
+    if (_disposed || board != _boardId) return;
     final user = _repository.currentUserId;
-    _tags = user == null ? [] : await _repository.getUserTags(user);
+    final tags = user == null
+        ? <TaskTag>[]
+        : await _repository.getUserTags(user);
+    if (_disposed || board != _boardId) return;
+    _tasks = loaded;
+    _tags = tags;
     _errorMessage = null;
     notifyListeners();
   }
 
   Future<void> refresh({bool showLoading = true}) async {
+    if (_disposed) return;
     if (_boardId == null) {
       await initialize();
       return;
@@ -169,7 +182,7 @@ class KanbanViewModel extends ChangeNotifier {
     try {
       await _reload();
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
       notifyListeners();
     } finally {
       if (showLoading) {
@@ -183,11 +196,12 @@ class KanbanViewModel extends ChangeNotifier {
 
   Future<bool> archiveBoard() async {
     final id = _boardId;
-    if (id == null || _isSaving) return false;
+    if (_disposed || id == null || _isSaving) return false;
     _isSaving = true;
     notifyListeners();
     try {
       await _repository.setBoardArchived(id, true);
+      if (_disposed) return false;
       _archivedBoardId = id;
       _boardId = null;
       _tasks = [];
@@ -196,7 +210,7 @@ class KanbanViewModel extends ChangeNotifier {
       _feedbackMessage = 'Board archived';
       return true;
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
       return false;
     } finally {
       _isSaving = false;
@@ -206,18 +220,20 @@ class KanbanViewModel extends ChangeNotifier {
 
   Future<bool> restoreArchivedBoard() async {
     final id = _archivedBoardId;
-    if (id == null || _isSaving) return false;
+    if (_disposed || id == null || _isSaving) return false;
     _isSaving = true;
     notifyListeners();
     try {
       await _repository.setBoardArchived(id, false);
+      if (_disposed) return false;
       _boardId = id;
       _archivedBoardId = null;
       await _reload();
+      if (_disposed) return false;
       _feedbackMessage = 'Board restored';
       return true;
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
       return false;
     } finally {
       _isSaving = false;
@@ -226,8 +242,9 @@ class KanbanViewModel extends ChangeNotifier {
   }
 
   Future<bool> signIn(String email, String password) async {
+    if (_disposed) return false;
     if (email.trim().isEmpty || password.isEmpty) {
-      _errorMessage = 'Enter your email and password.';
+      _errorMessage = AppErrorMessages.credentialsRequired;
       notifyListeners();
       return false;
     }
@@ -236,11 +253,12 @@ class KanbanViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       await _repository.signIn(email.trim(), password);
+      if (_disposed) return false;
       _isSaving = false;
       await initialize();
-      return _errorMessage == null;
+      return !_disposed && _errorMessage == null;
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
       return false;
     } finally {
       _isSaving = false;
@@ -289,7 +307,7 @@ class KanbanViewModel extends ChangeNotifier {
     List<KanbanTask>? optimistic,
     String? failureMessage,
   }) async {
-    if (_isSaving) return false;
+    if (_disposed || _isSaving) return false;
     final previous = _tasks;
     _isSaving = true;
     _errorMessage = null;
@@ -297,12 +315,15 @@ class KanbanViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       await operation();
+      if (_disposed) return false;
       await _reload();
+      if (_disposed) return false;
       _feedbackMessage = feedback;
       return true;
     } catch (error) {
+      if (_disposed) return false;
       _tasks = previous;
-      _errorMessage = failureMessage ?? error.toString();
+      _errorMessage = failureMessage ?? AppException.messageFor(error);
       return false;
     } finally {
       _isSaving = false;
@@ -339,7 +360,7 @@ class KanbanViewModel extends ChangeNotifier {
       status: status,
       priority: priority,
       deadline: deadline,
-      sortOrder: (tasks(status).lastOrNull?.sortOrder ?? 0) + 1000,
+      sortOrder: _nextSortOrder(status),
       completedAt: status == KanbanStatus.completed ? now : null,
       createdAt: now,
       updatedAt: now,
@@ -390,7 +411,7 @@ class KanbanViewModel extends ChangeNotifier {
           status: status,
           sortOrder: status == task.status
               ? task.sortOrder
-              : tasks(status).length,
+              : _nextSortOrder(status),
           deadline: deadline,
           clearDeadline: deadline == null,
           completedAt: status == KanbanStatus.completed
@@ -443,7 +464,7 @@ class KanbanViewModel extends ChangeNotifier {
     final candidateOrder = _insertionOrder(target, index);
     final moved = task.copyWith(
       status: destination,
-      sortOrder: candidateOrder ?? (index + 1) * 1000,
+      sortOrder: candidateOrder ?? (index + 1) * _sortOrderStep,
       completedAt: destination == KanbanStatus.completed
           ? (task.completedAt ?? DateTime.now().toUtc())
           : null,
@@ -454,7 +475,7 @@ class KanbanViewModel extends ChangeNotifier {
     final targetOrdered = normalized
         ? [
             for (var i = 0; i < target.length; i++)
-              target[i].copyWith(sortOrder: (i + 1) * 1000),
+              target[i].copyWith(sortOrder: (i + 1) * _sortOrderStep),
           ]
         : target;
     final updated = targetOrdered[index];
@@ -523,13 +544,18 @@ class KanbanViewModel extends ChangeNotifier {
     return ok;
   }
 
+  int _nextSortOrder(KanbanStatus status) {
+    final column = tasks(status);
+    return _insertionOrder(column, column.length)!;
+  }
+
   int? _insertionOrder(List<KanbanTask> tasks, int index) {
-    if (tasks.isEmpty) return 1000;
+    if (tasks.isEmpty) return _sortOrderStep;
     if (index == 0) {
       final first = tasks.first.sortOrder;
       return first > 1 ? first ~/ 2 : null;
     }
-    if (index == tasks.length) return tasks.last.sortOrder + 1000;
+    if (index == tasks.length) return tasks.last.sortOrder + _sortOrderStep;
     final before = tasks[index - 1].sortOrder;
     final after = tasks[index].sortOrder;
     return after - before > 1 ? before + (after - before) ~/ 2 : null;
@@ -601,7 +627,7 @@ class KanbanViewModel extends ChangeNotifier {
     }
     final normalized = TaskTag.normalizeHex(colorHex);
     if (normalized == null) {
-      _errorMessage = 'Enter a valid 6-digit hex color.';
+      _errorMessage = AppErrorMessages.invalidTagColor;
       notifyListeners();
       return false;
     }
@@ -615,7 +641,7 @@ class KanbanViewModel extends ChangeNotifier {
         await _repository.createTag(userId, name.trim(), normalized);
       },
       'Tag created',
-      failureMessage: 'Unable to save the tag. Please try again.',
+      failureMessage: AppErrorMessages.saveTagFailed,
     );
   }
 
@@ -637,7 +663,7 @@ class KanbanViewModel extends ChangeNotifier {
     }
     final normalized = TaskTag.normalizeHex(colorHex);
     if (normalized == null) {
-      _errorMessage = 'Enter a valid 6-digit hex color.';
+      _errorMessage = AppErrorMessages.invalidTagColor;
       notifyListeners();
       return false;
     }
@@ -648,7 +674,7 @@ class KanbanViewModel extends ChangeNotifier {
         );
       },
       'Tag updated',
-      failureMessage: 'Unable to save the tag. Please try again.',
+      failureMessage: AppErrorMessages.saveTagFailed,
     );
   }
 
@@ -661,7 +687,7 @@ class KanbanViewModel extends ChangeNotifier {
     return _save(
       () => _repository.deleteTag(tagId),
       'Tag deleted',
-      failureMessage: 'Unable to delete the tag. Please try again.',
+      failureMessage: AppErrorMessages.deleteTagFailed,
     );
   }
 
@@ -737,6 +763,19 @@ class KanbanViewModel extends ChangeNotifier {
       _repository.getAttachmentUrl(attachment);
   Future<List<TaskActivity>> getTaskActivity(String taskId) =>
       _repository.getTaskActivity(taskId);
+  Future<void> resumeTask(String taskId) =>
+      _repository.addActivity(taskId, 'resumed');
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 }
 
 class _UndoAction {

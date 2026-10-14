@@ -30,7 +30,7 @@ void main() {
     );
     final model = ProjectDashboardViewModel(repo);
     await model.load();
-    model.search('flut');
+    model.search('  FLUT  ');
     expect(model.visibleProjects.single.project.name, 'Flutter');
     model.search('');
     expect(await model.archive('1'), true);

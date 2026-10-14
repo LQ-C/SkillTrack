@@ -2,12 +2,14 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../models/project_with_progress.dart';
 import '../repositories/project_repository.dart';
 
 class ProjectDashboardViewModel extends ChangeNotifier {
   ProjectDashboardViewModel(this._repository);
   final ProjectRepository _repository;
+  bool _disposed = false;
   List<ProjectWithProgress> _projects = [];
   bool _isLoading = false;
   String? _errorMessage;
@@ -29,19 +31,20 @@ class ProjectDashboardViewModel extends ChangeNotifier {
     final matchesStatus = _status == 'current'
         ? item.project.status != 'archived'
         : _status == 'all' || item.project.status == _status;
-    return matchesStatus &&
-        item.project.name.toLowerCase().contains(_search.toLowerCase().trim());
+    return matchesStatus && item.project.name.toLowerCase().contains(_search);
   }).toList();
 
   Future<void> load() async {
-    if (_isLoading) return;
+    if (_disposed || _isLoading) return;
     _isLoading = true;
     _errorMessage = null;
     notifyListeners();
     try {
-      _projects = await _repository.getProjectsWithProgress();
+      final loaded = await _repository.getProjectsWithProgress();
+      if (_disposed) return;
+      _projects = loaded;
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -49,24 +52,28 @@ class ProjectDashboardViewModel extends ChangeNotifier {
   }
 
   Future<bool> signIn(String email, String password) async {
+    if (_disposed) return false;
     if (email.trim().isEmpty || password.isEmpty) {
-      _errorMessage = 'Enter your email and password.';
+      _errorMessage = AppErrorMessages.credentialsRequired;
       notifyListeners();
       return false;
     }
     try {
       await _repository.signIn(email.trim(), password);
+      if (_disposed) return false;
       await load();
-      return _errorMessage == null;
+      return !_disposed && _errorMessage == null;
     } catch (error) {
-      _errorMessage = error.toString();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
       notifyListeners();
       return false;
     }
   }
 
   void search(String value) {
-    _search = value;
+    final query = value.trim().toLowerCase();
+    if (_disposed || query == _search) return;
+    _search = query;
     notifyListeners();
   }
 
@@ -75,44 +82,40 @@ class ProjectDashboardViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<bool> markCompleted(ProjectWithProgress item) async {
+  Future<bool> _mutate(Future<void> Function() operation) async {
+    if (_disposed) return false;
     try {
-      await _repository.updateProject(
-        item.project.copyWith(status: 'completed'),
-      );
+      await operation();
+      if (_disposed) return false;
       await load();
-      return true;
+      return !_disposed;
     } catch (error) {
-      _errorMessage = error.toString();
+      if (_disposed) return false;
+      _errorMessage = AppException.messageFor(error);
       notifyListeners();
       return false;
     }
   }
 
-  Future<bool> archive(String id) async {
-    try {
-      await _repository.archiveProject(id);
-      await load();
-      return true;
-    } catch (error) {
-      _errorMessage = error.toString();
-      notifyListeners();
-      return false;
-    }
-  }
-
-  Future<bool> delete(String id) async {
-    try {
-      await _repository.deleteProject(id);
-      await load();
-      return true;
-    } catch (error) {
-      _errorMessage = error.toString();
-      notifyListeners();
-      return false;
-    }
-  }
+  Future<bool> markCompleted(ProjectWithProgress item) => _mutate(() async {
+    await _repository.updateProject(item.project.copyWith(status: 'completed'));
+  });
+  Future<bool> archive(String id) =>
+      _mutate(() => _repository.archiveProject(id));
+  Future<bool> delete(String id) =>
+      _mutate(() => _repository.deleteProject(id));
 
   Future<String?> boardFor(String projectId) =>
       _repository.getProjectBoard(projectId);
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
 }

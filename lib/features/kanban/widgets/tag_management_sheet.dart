@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../models/task_tag.dart';
 import '../utils/task_tag_color_utils.dart';
 import '../viewmodels/kanban_view_model.dart';
@@ -39,8 +40,7 @@ class TagManagementSheet extends StatelessWidget {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            viewModel.errorMessage ??
-                'Unable to delete the tag. Please try again.',
+            viewModel.errorMessage ?? AppErrorMessages.deleteTagFailed,
           ),
         ),
       );

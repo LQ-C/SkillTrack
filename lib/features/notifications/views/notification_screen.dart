@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../../../app/router/app_router.dart';
 import '../../kanban/widgets/skilltrack_bottom_navigation.dart';
 import '../models/app_notification.dart';
@@ -155,7 +156,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                         children: [
                           const Icon(Icons.cloud_off_outlined, size: 48),
                           const SizedBox(height: 12),
-                          const Text('Unable to load notifications'),
+                          const Text(AppErrorMessages.loadNotificationsFailed),
                           const Text(
                             'Please check your connection and try again.',
                           ),

@@ -25,6 +25,7 @@ class NotificationTile extends StatelessWidget {
       NotificationType.deadlineReminder => Icons.event_outlined,
       NotificationType.learningResourceRecommendation =>
         Icons.menu_book_outlined,
+      NotificationType.unknown => Icons.notifications_none,
     };
     return Semantics(
       label:

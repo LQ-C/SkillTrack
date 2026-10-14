@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../models/kanban_task.dart';
 import '../repositories/kanban_repository.dart';
 
@@ -9,6 +10,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   ArchivedTasksViewModel(this._repository);
 
   final KanbanRepository _repository;
+  bool _disposed = false;
   String? _boardId;
   List<KanbanTask> _tasks = [];
   bool _isLoading = false;
@@ -53,6 +55,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   }
 
   Future<void> loadArchivedTasks(String boardId) async {
+    if (_disposed) return;
     _boardId = boardId;
     _isLoading = true;
     _errorMessage = null;
@@ -62,11 +65,13 @@ class ArchivedTasksViewModel extends ChangeNotifier {
         throw StateError('Board unavailable.');
       }
       final loaded = await _repository.getArchivedTasks(boardId);
+      if (_disposed) return;
       _tasks = loaded
           .where((task) => task.isArchived && task.boardId == boardId)
           .toList();
     } catch (_) {
-      _errorMessage = 'Unable to load archived tasks';
+      if (_disposed) return;
+      _errorMessage = AppErrorMessages.loadArchivedTasksFailed;
     } finally {
       _isLoading = false;
       notifyListeners();
@@ -97,17 +102,21 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   }
 
   Future<bool> restoreTask(String taskId) async {
-    if (_isSaving || !_tasks.any((task) => task.id == taskId)) return false;
+    if (_disposed || _isSaving || !_tasks.any((task) => task.id == taskId)) {
+      return false;
+    }
     _isSaving = true;
     _errorMessage = null;
     notifyListeners();
     try {
       await _repository.archiveTask(taskId, false);
+      if (_disposed) return false;
       _tasks = _tasks.where((task) => task.id != taskId).toList();
       _hasChanges = true;
       _feedbackMessage = 'Task restored';
       return true;
     } catch (_) {
+      if (_disposed) return false;
       _errorMessage = 'Unable to restore the task. Please try again.';
       return false;
     } finally {
@@ -117,7 +126,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   }
 
   Future<bool> restoreAllTasks() async {
-    if (_isSaving || _tasks.isEmpty) return false;
+    if (_disposed || _isSaving || _tasks.isEmpty) return false;
     _isSaving = true;
     _errorMessage = null;
     notifyListeners();
@@ -134,6 +143,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
         }
       }
       await refresh();
+      if (_disposed) return false;
       if (restored == pending.length && _errorMessage == null) {
         _feedbackMessage = 'All tasks restored';
         return true;
@@ -149,17 +159,21 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   }
 
   Future<bool> deleteTaskPermanently(String taskId) async {
-    if (_isSaving || !_tasks.any((task) => task.id == taskId)) return false;
+    if (_disposed || _isSaving || !_tasks.any((task) => task.id == taskId)) {
+      return false;
+    }
     _isSaving = true;
     _errorMessage = null;
     notifyListeners();
     try {
       await _repository.deleteTask(taskId);
+      if (_disposed) return false;
       _tasks = _tasks.where((task) => task.id != taskId).toList();
       _hasChanges = true;
       _feedbackMessage = 'Task deleted permanently';
       return true;
     } catch (_) {
+      if (_disposed) return false;
       _errorMessage = 'Unable to delete the task. Please try again.';
       return false;
     } finally {
@@ -176,5 +190,16 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   void clearFeedbackMessage() {
     _feedbackMessage = null;
     notifyListeners();
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

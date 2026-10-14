@@ -1,5 +1,6 @@
 import 'package:flutter/foundation.dart';
 
+import '../../../core/errors/app_exception.dart';
 import '../models/learning_project.dart';
 import '../models/project_with_progress.dart';
 import '../repositories/project_repository.dart';
@@ -7,6 +8,7 @@ import '../repositories/project_repository.dart';
 class CreateProjectViewModel extends ChangeNotifier {
   CreateProjectViewModel(this._repository, {this.original});
   final ProjectRepository _repository;
+  bool _disposed = false;
   final LearningProject? original;
   bool _isSaving = false;
   String? _nameError, _dateError, _errorMessage;
@@ -23,7 +25,7 @@ class CreateProjectViewModel extends ChangeNotifier {
     DateTime? endDate,
     String status = 'active',
   }) async {
-    if (_isSaving) return null;
+    if (_disposed || _isSaving) return null;
     _nameError = name.trim().isEmpty ? 'Project name is required.' : null;
     _dateError =
         startDate != null && endDate != null && endDate.isBefore(startDate)
@@ -48,12 +50,13 @@ class CreateProjectViewModel extends ChangeNotifier {
           _errorMessage = 'Sign in to create a project.';
           return null;
         }
-        return await _repository.createProject(
+        final created = await _repository.createProject(
           name: name.trim(),
           description: text,
           startDate: startDate,
           endDate: endDate,
         );
+        return _disposed ? null : created;
       }
       final updated = await _repository.updateProject(
         original!.copyWith(
@@ -67,20 +70,35 @@ class CreateProjectViewModel extends ChangeNotifier {
           status: status,
         ),
       );
+      if (_disposed) return null;
+      final boardId = await _repository.getProjectBoard(updated.id);
+      if (_disposed) return null;
       return ProjectWithProgress(
         project: updated,
-        boardId: await _repository.getProjectBoard(updated.id),
+        boardId: boardId,
         totalTaskCount: 0,
         completedTaskCount: 0,
       );
     } catch (_) {
+      if (_disposed) return null;
       _errorMessage = original == null
-          ? 'Unable to create the project. Please try again.'
-          : 'Unable to update the project. Please try again.';
+          ? AppErrorMessages.createProjectFailed
+          : AppErrorMessages.updateProjectFailed;
       return null;
     } finally {
       _isSaving = false;
       notifyListeners();
     }
+  }
+
+  @override
+  void notifyListeners() {
+    if (!_disposed) super.notifyListeners();
+  }
+
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
   }
 }

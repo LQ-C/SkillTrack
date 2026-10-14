@@ -5,6 +5,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
 import 'task_tag_chip.dart';
+import 'task_stagnation_indicator.dart';
 
 enum TaskCardAction {
   details,
@@ -35,7 +36,7 @@ class KanbanTaskCard extends StatelessWidget {
         : task.isOverdue
         ? Theme.of(context).colorScheme.error
         : task.isDueSoon
-        ? const Color(0xFFAE6800)
+        ? AppColors.warning
         : Theme.of(context).colorScheme.onSurfaceVariant;
     final deadlineIcon = task.isCompleted
         ? Icons.check_circle_outline
@@ -169,6 +170,8 @@ class KanbanTaskCard extends StatelessWidget {
                       ),
                     ),
                   ),
+                  if (task.shouldShowStagnation)
+                    TaskStagnationIndicator(task: task, compact: true),
                 ],
               ),
               if (task.tags.isNotEmpty) ...[
