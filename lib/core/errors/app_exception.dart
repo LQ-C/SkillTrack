@@ -20,6 +20,16 @@ class AppErrorMessages {
   static const invalidTagColor = 'Enter a valid 6-digit hex color.';
   static const createProjectFailed =
       'Unable to create the project. Please try again.';
+  static const generateTasksFailed =
+      'Tasks could not be generated. Please try again.';
+  static const taskGenerationTimedOut =
+      'Task generation is taking too long. Please try again.';
+  static const taskGenerationUnavailable =
+      'Task generation is unavailable right now. Create an empty project or try again later.';
+  static const noGeneratedTasks =
+      'No valid tasks were generated. Please try again.';
+  static const saveGeneratedTasksFailed =
+      'The project was created, but the generated tasks could not be saved. Please retry or open the empty project.';
   static const updateProjectFailed =
       'Unable to update the project. Please try again.';
   static const saveTagFailed = 'Unable to save the tag. Please try again.';

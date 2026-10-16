@@ -10,6 +10,7 @@ import '../models/task_attachment.dart';
 import '../models/task_checklist_item.dart';
 import '../models/task_tag.dart';
 import 'kanban_repository.dart';
+import '../../ai_task_generation/models/generated_task_draft.dart';
 
 class SupabaseKanbanRepository implements KanbanRepository {
   SupabaseKanbanRepository(this._client);
@@ -166,6 +167,74 @@ class SupabaseKanbanRepository implements KanbanRepository {
       rethrow;
     }
     return created;
+  });
+
+  @override
+  Future<void> createGeneratedTasks(
+    String boardId,
+    List<GeneratedTaskDraft> tasks,
+  ) => _guard(() async {
+    if (tasks.isEmpty) return;
+    final inserted = await _client
+        .from('kanban_tasks')
+        .insert([
+          for (final task in tasks)
+            {
+              'board_id': boardId,
+              'title': task.title,
+              'description': task.description,
+              'status': KanbanStatus.todo.value,
+              'priority': task.priority,
+              'deadline': task.deadline.toIso8601String().split('T').first,
+              'sort_order': (task.position + 1) * 1000,
+              'is_archived': false,
+            },
+        ])
+        .select('id,sort_order');
+    final idsByOrder = <int, String>{};
+    for (final row in inserted) {
+      final order = (row['sort_order'] as num?)?.toInt();
+      final id = row['id'];
+      if (order == null ||
+          id is! String ||
+          id.isEmpty ||
+          idsByOrder.containsKey(order)) {
+        throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
+      }
+      idsByOrder[order] = id;
+    }
+    if (idsByOrder.length != tasks.length) {
+      throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
+    }
+    final checklistRows = <Map<String, dynamic>>[];
+    for (final task in tasks) {
+      final taskId = idsByOrder[(task.position + 1) * 1000];
+      if (taskId == null) {
+        throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
+      }
+      for (var index = 0; index < task.checklist.length; index++) {
+        checklistRows.add({
+          'task_id': taskId,
+          'title': task.checklist[index],
+          'position': index,
+          'is_completed': false,
+        });
+      }
+    }
+    if (checklistRows.isEmpty) return;
+    try {
+      await _client.from('task_checklist_items').insert(checklistRows);
+    } catch (_) {
+      try {
+        await _client
+            .from('kanban_tasks')
+            .delete()
+            .inFilter('id', idsByOrder.values.toList());
+      } catch (_) {
+        // Preserve the checklist insertion error if rollback also fails.
+      }
+      rethrow;
+    }
   });
 
   @override

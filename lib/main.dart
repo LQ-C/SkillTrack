@@ -7,6 +7,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'app/skill_track_app.dart';
 import 'features/kanban/repositories/supabase_kanban_repository.dart';
 import 'features/projects/repositories/supabase_project_repository.dart';
+import 'features/ai_task_generation/repositories/supabase_ai_task_generation_repository.dart';
+import 'features/ai_task_generation/services/ai_task_generation_service.dart';
 import 'features/notifications/repositories/supabase_notification_repository.dart';
 import 'features/notifications/services/notification_realtime_service.dart';
 
@@ -25,6 +27,9 @@ Future<void> main() async {
     SkillTrackApp(
       projectRepository: SupabaseProjectRepository(Supabase.instance.client),
       kanbanRepository: SupabaseKanbanRepository(Supabase.instance.client),
+      taskGenerationRepository: SupabaseTaskGenerationRepository(
+        AiTaskGenerationService(Supabase.instance.client),
+      ),
       notificationRepository: SupabaseNotificationRepository(
         Supabase.instance.client,
       ),

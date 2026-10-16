@@ -9,6 +9,7 @@ import 'package:skilltrack/features/kanban/models/task_checklist_item.dart';
 import 'package:skilltrack/features/kanban/models/task_priority.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
 import 'package:skilltrack/features/kanban/repositories/kanban_repository.dart';
+import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 
 class FakeKanbanRepository extends Fake implements KanbanRepository {
   FakeKanbanRepository({
@@ -29,6 +30,8 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   bool failDelete = false;
   int moveCalls = 0;
   int reorderCalls = 0;
+  int generatedInsertCalls = 0;
+  bool failGeneratedInsert = false;
   final activityEvents =
       <
         ({
@@ -81,6 +84,43 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
     final created = task.copyWith(id: '${_nextId++}');
     stored.add(created);
     return created;
+  }
+
+  @override
+  Future<void> createGeneratedTasks(
+    String boardId,
+    List<GeneratedTaskDraft> tasks,
+  ) async {
+    generatedInsertCalls++;
+    if (failGeneratedInsert) throw StateError('batch failed');
+    final now = DateTime.now();
+    for (final draft in tasks) {
+      final taskId = '${_nextId++}';
+      stored.add(
+        KanbanTask(
+          id: taskId,
+          boardId: boardId,
+          title: draft.title,
+          description: draft.description,
+          status: KanbanStatus.todo,
+          priority: TaskPriority.fromValue(draft.priority),
+          deadline: draft.deadline,
+          sortOrder: (draft.position + 1) * 1000,
+          createdAt: now,
+          updatedAt: now,
+          checklistItems: [
+            for (var index = 0; index < draft.checklist.length; index++)
+              TaskChecklistItem(
+                id: '$taskId-$index',
+                taskId: taskId,
+                title: draft.checklist[index],
+                isCompleted: false,
+                position: index,
+              ),
+          ],
+        ),
+      );
+    }
   }
 
   @override

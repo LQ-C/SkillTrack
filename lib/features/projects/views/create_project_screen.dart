@@ -1,17 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/router/app_router.dart';
+import '../../kanban/repositories/kanban_repository.dart';
 import '../models/learning_project.dart';
 import '../repositories/project_repository.dart';
+import '../../ai_task_generation/repositories/ai_task_generation_repository.dart';
 import '../viewmodels/create_project_view_model.dart';
 
 class CreateProjectScreen extends StatefulWidget {
   const CreateProjectScreen({
     super.key,
     required this.repository,
+    this.generationRepository,
+    this.taskRepository,
     this.project,
   });
   final ProjectRepository repository;
+  final TaskGenerationRepository? generationRepository;
+  final KanbanRepository? taskRepository;
   final LearningProject? project;
 
   @override
@@ -21,18 +27,20 @@ class CreateProjectScreen extends StatefulWidget {
 class _CreateProjectScreenState extends State<CreateProjectScreen> {
   late final CreateProjectViewModel _model;
   late final TextEditingController _name, _description;
-  DateTime? _startDate, _endDate;
   String _status = 'active';
 
   @override
   void initState() {
     super.initState();
     final project = widget.project;
-    _model = CreateProjectViewModel(widget.repository, original: project);
+    _model = CreateProjectViewModel(
+      widget.repository,
+      original: project,
+      generationRepository: widget.generationRepository,
+      taskRepository: widget.taskRepository,
+    );
     _name = TextEditingController(text: project?.name);
     _description = TextEditingController(text: project?.description);
-    _startDate = project?.startDate;
-    _endDate = project?.endDate;
     _status = project?.status ?? 'active';
   }
 
@@ -44,62 +52,163 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     super.dispose();
   }
 
-  String _dateText(DateTime? date) => date == null
-      ? 'Select date'
-      : '${date.day.toString().padLeft(2, '0')}/${date.month.toString().padLeft(2, '0')}/${date.year}';
-
   Future<void> _pickDate(bool start) async {
+    if (_model.isSaving) return;
+    final today = DateUtils.dateOnly(DateTime.now());
+    final startDate = _model.startDate;
+    final firstDate = widget.project != null
+        ? DateTime(2000)
+        : !start && startDate != null && startDate.isAfter(today)
+        ? startDate
+        : today;
+    final limit = DateTime(2100);
+    final lastDate = limit.isBefore(firstDate) ? firstDate : limit;
+    final value = (start ? _model.startDate : _model.endDate) ?? firstDate;
+    final initialDate = value.isBefore(firstDate)
+        ? firstDate
+        : value.isAfter(lastDate)
+        ? lastDate
+        : value;
     final selected = await showDatePicker(
       context: context,
-      initialDate: (start ? _startDate : _endDate) ?? DateTime.now(),
-      firstDate: DateTime(2000),
-      lastDate: DateTime(2100),
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
     );
     if (selected != null && mounted) {
-      setState(() {
-        if (start) {
-          _startDate = selected;
-        } else {
-          _endDate = selected;
-        }
-      });
+      if (start) {
+        _model.setStartDate(selected);
+      } else {
+        _model.setEndDate(selected);
+      }
     }
   }
 
-  Widget _dateField(String label, DateTime? value, bool start) => Padding(
-    padding: const EdgeInsets.only(top: 16),
-    child: Row(
-      children: [
-        Expanded(
-          child: OutlinedButton.icon(
-            onPressed: () => _pickDate(start),
-            icon: const Icon(Icons.calendar_today_outlined),
-            label: Text('$label: ${_dateText(value)}'),
-          ),
+  Widget _dateField(String label, bool start) => ListenableBuilder(
+    listenable: _model,
+    builder: (context, child) {
+      final theme = Theme.of(context);
+      final colors = theme.colorScheme;
+      final value = start ? _model.startDate : _model.endDate;
+      final error = start ? _model.startDateError : _model.endDateError;
+      final enabled = !_model.isSaving;
+      final dates = MaterialLocalizations.of(context);
+      final text = value == null
+          ? 'Select date'
+          : '${dates.formatMediumDate(value)}, ${dates.formatYear(value)}';
+      final shape = RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(16),
+        side: BorderSide(
+          color: error == null ? colors.outlineVariant : colors.error,
         ),
-        if (value != null)
-          IconButton(
-            tooltip: 'Clear $label',
-            onPressed: () => setState(() {
-              if (start) {
-                _startDate = null;
-              } else {
-                _endDate = null;
-              }
-            }),
-            icon: const Icon(Icons.close),
-          ),
-      ],
-    ),
+      );
+      return Padding(
+        padding: const EdgeInsets.only(top: 16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Material(
+              color: colors.surface,
+              shape: shape,
+              clipBehavior: Clip.antiAlias,
+              child: Semantics(
+                button: true,
+                enabled: enabled,
+                label: 'Select $label',
+                child: InkWell(
+                  key: Key(
+                    start
+                        ? 'project-start-date-field'
+                        : 'project-end-date-field',
+                  ),
+                  onTap: enabled ? () => _pickDate(start) : null,
+                  customBorder: shape,
+                  child: Padding(
+                    padding: const EdgeInsets.all(12),
+                    child: Row(
+                      children: [
+                        Container(
+                          width: 40,
+                          height: 40,
+                          decoration: BoxDecoration(
+                            color: colors.primaryContainer,
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Icon(
+                            Icons.calendar_today_outlined,
+                            size: 20,
+                            color: enabled
+                                ? colors.onPrimaryContainer
+                                : theme.disabledColor,
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(label, style: theme.textTheme.labelSmall),
+                              const SizedBox(height: 2),
+                              Text(
+                                text,
+                                style: theme.textTheme.bodyMedium?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: enabled
+                                      ? colors.onSurface
+                                      : theme.disabledColor,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (value != null)
+                          IconButton(
+                            tooltip: 'Clear $label',
+                            onPressed: enabled
+                                ? () => start
+                                      ? _model.setStartDate(null)
+                                      : _model.setEndDate(null)
+                                : null,
+                            icon: const Icon(Icons.close),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            if (error != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 8, left: 12),
+                child: Semantics(
+                  liveRegion: true,
+                  child: Text(
+                    error,
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colors.error,
+                    ),
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    },
   );
 
   Future<void> _submit() async {
     final result = await _model.submit(
       name: _name.text,
       description: _description.text,
-      startDate: _startDate,
-      endDate: _endDate,
       status: _status,
+    );
+    if (result != null && mounted) AppRouter.back(context, result);
+  }
+
+  Future<void> _generateTasks() async {
+    final result = await _model.generateTasks(
+      name: _name.text,
+      description: _description.text,
     );
     if (result != null && mounted) AppRouter.back(context, result);
   }
@@ -118,7 +227,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       ),
       body: SafeArea(
         top: false,
-        bottom: false,
+        bottom: !editing,
         child: ListView(
           padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
           children: [
@@ -151,30 +260,22 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
               ),
             ),
             const SizedBox(height: 12),
-            TextField(
-              key: const Key('project-description-field'),
-              controller: _description,
-              minLines: 3,
-              maxLines: 5,
-              decoration: const InputDecoration(
-                labelText: 'Description',
-                hintText: 'What do you want to accomplish?',
-              ),
-            ),
-            _dateField('Start Date', _startDate, true),
-            _dateField('End Date', _endDate, false),
             ListenableBuilder(
               listenable: _model,
-              builder: (context, child) => _model.dateError == null
-                  ? const SizedBox.shrink()
-                  : Padding(
-                      padding: const EdgeInsets.only(top: 8),
-                      child: Text(
-                        _model.dateError!,
-                        style: TextStyle(color: theme.colorScheme.error),
-                      ),
-                    ),
+              builder: (context, child) => TextField(
+                key: const Key('project-description-field'),
+                controller: _description,
+                minLines: 3,
+                maxLines: 5,
+                decoration: InputDecoration(
+                  labelText: 'Description',
+                  hintText: 'What do you want to accomplish?',
+                  errorText: _model.descriptionError,
+                ),
+              ),
             ),
+            _dateField('Start date', true),
+            _dateField('End date', false),
             if (editing) ...[
               const SizedBox(height: 16),
               DropdownButtonFormField<String>(
@@ -204,34 +305,94 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                       ),
                     ),
             ),
+            if (!editing) ...[
+              const SizedBox(height: 24),
+              ListenableBuilder(
+                listenable: _model,
+                builder: (context, child) => Column(
+                  children: [
+                    SizedBox(
+                      height: 56,
+                      width: double.infinity,
+                      child: FilledButton(
+                        key: const Key('save-project-button'),
+                        onPressed:
+                            _model.isSaving || _model.pendingProject != null
+                            ? null
+                            : _submit,
+                        child: Text(
+                          _model.isSaving && !_model.isGeneratingTasks
+                              ? 'Creating…'
+                              : 'Create Empty Project',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 16),
+                    Row(
+                      children: [
+                        const Expanded(child: Divider()),
+                        Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text('OR', style: theme.textTheme.labelMedium),
+                        ),
+                        const Expanded(child: Divider()),
+                      ],
+                    ),
+                    const SizedBox(height: 16),
+                    SizedBox(
+                      height: 56,
+                      width: double.infinity,
+                      child: OutlinedButton(
+                        key: const Key('generate-tasks-button'),
+                        onPressed: _model.isSaving ? null : _generateTasks,
+                        child: Text(
+                          _model.isGeneratingTasks
+                              ? 'Generating Tasks…'
+                              : _model.pendingProject != null
+                              ? 'Retry Saving Tasks'
+                              : 'Generate Tasks',
+                        ),
+                      ),
+                    ),
+                    if (_model.pendingProject != null) ...[
+                      const SizedBox(height: 12),
+                      TextButton(
+                        key: const Key('open-empty-project-button'),
+                        onPressed: _model.isSaving
+                            ? null
+                            : () => AppRouter.back(
+                                context,
+                                _model.pendingProject,
+                              ),
+                        child: const Text('Open empty project'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            ],
           ],
         ),
       ),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-          child: ListenableBuilder(
-            listenable: _model,
-            builder: (context, child) => SizedBox(
-              height: 56,
-              child: FilledButton(
-                key: const Key('save-project-button'),
-                onPressed: _model.isSaving ? null : _submit,
-                child: Text(
-                  _model.isSaving
-                      ? editing
-                            ? 'Saving…'
-                            : 'Creating…'
-                      : editing
-                      ? 'Save Changes'
-                      : 'Create Project',
+      bottomNavigationBar: editing
+          ? SafeArea(
+              top: false,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                child: ListenableBuilder(
+                  listenable: _model,
+                  builder: (context, child) => SizedBox(
+                    height: 56,
+                    child: FilledButton(
+                      key: const Key('save-project-button'),
+                      onPressed: _model.isSaving ? null : _submit,
+                      child: Text(_model.isSaving ? 'Saving…' : 'Save Changes'),
+                    ),
+                  ),
                 ),
               ),
-            ),
-          ),
-        ),
-      ),
+            )
+          : null,
     );
   }
 }

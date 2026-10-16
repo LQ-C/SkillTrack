@@ -1,6 +1,40 @@
+import 'dart:async';
+
 import 'package:skilltrack/features/projects/models/learning_project.dart';
 import 'package:skilltrack/features/projects/models/project_with_progress.dart';
 import 'package:skilltrack/features/projects/repositories/project_repository.dart';
+import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_generation_repository.dart';
+
+class FakeTaskGenerationRepository implements TaskGenerationRepository {
+  int calls = 0;
+  bool fail = false;
+  Completer<List<GeneratedTaskDraft>>? pending;
+  List<GeneratedTaskDraft>? result;
+
+  @override
+  Future<List<GeneratedTaskDraft>> generate({
+    required String title,
+    required String description,
+    required DateTime startDate,
+    required DateTime endDate,
+  }) async {
+    calls++;
+    if (pending != null) return pending!.future;
+    if (fail) throw StateError('generation failed');
+    return result ??
+        [
+          for (var index = 0; index < 3; index++)
+            GeneratedTaskDraft(
+              title: 'Step ${index + 1}',
+              description: description,
+              priority: 'medium',
+              deadline: startDate.add(Duration(days: index)),
+              position: index,
+            ),
+        ];
+  }
+}
 
 class FakeProjectRepository implements ProjectRepository {
   FakeProjectRepository({

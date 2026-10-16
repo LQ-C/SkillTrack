@@ -1,10 +1,330 @@
+import 'dart:async';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:skilltrack/core/errors/app_exception.dart';
+import 'package:skilltrack/features/kanban/models/kanban_status.dart';
 import 'package:skilltrack/features/projects/viewmodels/create_project_view_model.dart';
 import 'package:skilltrack/features/projects/viewmodels/project_dashboard_view_model.dart';
+import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import '../kanban/fake_repository.dart';
 
 import 'fake_project_repository.dart';
 
 void main() {
+  test('repeated taps start only one generation and one project', () async {
+    final projects = FakeProjectRepository();
+    final generation = FakeTaskGenerationRepository()
+      ..pending = Completer<List<GeneratedTaskDraft>>();
+    final tasks = FakeKanbanRepository();
+    final model = CreateProjectViewModel(
+      projects,
+      generationRepository: generation,
+      taskRepository: tasks,
+    );
+    addTearDown(model.dispose);
+    final today = DateTime.now();
+    model.setStartDate(DateTime(today.year, today.month, today.day));
+    model.setEndDate(DateTime(today.year, today.month, today.day + 7));
+    final first = model.generateTasks(name: 'Flutter', description: 'Study');
+    expect(model.isGeneratingTasks, isTrue);
+    expect(
+      await model.generateTasks(name: 'Flutter', description: 'Study'),
+      isNull,
+    );
+    expect(await model.submit(name: 'Flutter', description: ''), isNull);
+    final start = model.startDate!;
+    generation.pending!.complete([
+      for (var index = 0; index < 3; index++)
+        GeneratedTaskDraft(
+          title: 'Step $index',
+          description: '',
+          priority: 'medium',
+          deadline: start,
+          position: index,
+        ),
+    ]);
+    expect(await first, isNotNull);
+    expect(generation.calls, 1);
+    expect(projects.stored.length, 1);
+    expect(tasks.generatedInsertCalls, 1);
+  });
+  test('generation requires a valid title and both dates', () async {
+    final projects = FakeProjectRepository();
+    final generation = FakeTaskGenerationRepository();
+    final tasks = FakeKanbanRepository();
+    final model = CreateProjectViewModel(
+      projects,
+      generationRepository: generation,
+      taskRepository: tasks,
+    );
+    addTearDown(model.dispose);
+    expect(await model.generateTasks(name: '', description: ''), isNull);
+    expect(model.nameError, 'Project name is required.');
+    expect(generation.calls, 0);
+    expect(await model.generateTasks(name: 'Flutter', description: ''), isNull);
+    expect(model.descriptionError, 'Add a description to generate tasks.');
+    expect(model.startDateError, isNotNull);
+    expect(model.endDateError, isNotNull);
+    expect(projects.stored, isEmpty);
+  });
+
+  test('generation failure keeps form data and creates no project', () async {
+    final projects = FakeProjectRepository();
+    final generation = FakeTaskGenerationRepository()..fail = true;
+    final model = CreateProjectViewModel(
+      projects,
+      generationRepository: generation,
+      taskRepository: FakeKanbanRepository(),
+    );
+    addTearDown(model.dispose);
+    final today = DateTime.now();
+    model.setStartDate(DateTime(today.year, today.month, today.day));
+    model.setEndDate(DateTime(today.year, today.month, today.day + 7));
+    expect(
+      await model.generateTasks(name: 'Flutter', description: 'Study'),
+      isNull,
+    );
+    expect(
+      model.errorMessage,
+      'Tasks could not be generated. Please try again.',
+    );
+    expect(projects.stored, isEmpty);
+    expect(model.isSaving, isFalse);
+    generation.fail = false;
+    expect(
+      await model.generateTasks(name: 'Flutter', description: 'Study'),
+      isNotNull,
+    );
+  });
+
+  test(
+    'failed batch insert retries without another project or generation',
+    () async {
+      final projects = FakeProjectRepository();
+      final generation = FakeTaskGenerationRepository();
+      final tasks = FakeKanbanRepository()..failGeneratedInsert = true;
+      final model = CreateProjectViewModel(
+        projects,
+        generationRepository: generation,
+        taskRepository: tasks,
+      );
+      addTearDown(model.dispose);
+      final today = DateTime.now();
+      model.setStartDate(DateTime(today.year, today.month, today.day));
+      model.setEndDate(DateTime(today.year, today.month, today.day + 7));
+      expect(
+        await model.generateTasks(name: 'Flutter', description: 'Study'),
+        isNull,
+      );
+      expect(model.pendingProject, isNotNull);
+      expect(projects.stored.length, 1);
+      expect(model.errorMessage, contains('could not be saved'));
+      tasks.failGeneratedInsert = false;
+      final result = await model.generateTasks(
+        name: 'Flutter',
+        description: 'Study',
+      );
+      expect(result?.project.id, projects.stored.single.project.id);
+      expect(projects.stored.length, 1);
+      expect(generation.calls, 1);
+      expect(tasks.generatedInsertCalls, 2);
+      expect(tasks.stored.length, 3);
+    },
+  );
+
+  test(
+    'retry does not accept generated tasks missing their checklists',
+    () async {
+      final projects = FakeProjectRepository();
+      final start = DateTime.now();
+      final generation = FakeTaskGenerationRepository()
+        ..result = [
+          for (var index = 0; index < 3; index++)
+            GeneratedTaskDraft(
+              title: 'Step ${index + 1}',
+              description: 'Study',
+              priority: 'medium',
+              deadline: start,
+              position: index,
+              checklist: ['Action $index'],
+            ),
+        ];
+      final tasks = FakeKanbanRepository()..failGeneratedInsert = true;
+      final model = CreateProjectViewModel(
+        projects,
+        generationRepository: generation,
+        taskRepository: tasks,
+      );
+      addTearDown(model.dispose);
+      model.setStartDate(start);
+      model.setEndDate(start.add(const Duration(days: 7)));
+      expect(
+        await model.generateTasks(name: 'Flutter', description: 'Study'),
+        isNull,
+      );
+      final boardId = model.pendingProject!.boardId!;
+      tasks.stored = [
+        for (var index = 0; index < 3; index++)
+          sampleTask(
+            '${index + 1}',
+            'Step ${index + 1}',
+            KanbanStatus.todo,
+            order: (index + 1) * 1000,
+          ).copyWith(boardId: boardId),
+      ];
+      tasks.failGeneratedInsert = false;
+      expect(
+        await model.generateTasks(name: 'Flutter', description: 'Study'),
+        isNull,
+      );
+      expect(model.errorMessage, AppErrorMessages.saveGeneratedTasksFailed);
+      expect(tasks.generatedInsertCalls, 1);
+      expect(projects.stored.length, 1);
+    },
+  );
+
+  test('defensive task parser cleans malformed values', () {
+    final start = DateTime(2026, 10, 16);
+    final end = DateTime(2026, 10, 20);
+    final tasks = GeneratedTaskDraft.parseTasks(
+      {
+        'milestones': [
+          {
+            'title': 'Foundation',
+            'tasks': [
+              {'title': ' A ', 'description': ' First ', 'priority': 'URGENT'},
+              {'title': 'a', 'description': 'duplicate', 'priority': 'high'},
+              {'title': 'B', 'description': 'Second', 'priority': 'HIGH'},
+            ],
+          },
+          {
+            'title': 'Build',
+            'tasks': [
+              {'title': 'C', 'description': 'Third', 'priority': 'low'},
+            ],
+          },
+        ],
+      },
+      startDate: start,
+      endDate: end,
+    );
+    expect(tasks.map((task) => task.title), ['A', 'B', 'C']);
+    expect(tasks.map((task) => task.position), [0, 1, 2]);
+    expect(tasks.first.deadline, start);
+    expect(tasks.last.deadline, end);
+    expect(tasks.first.priority, 'medium');
+    expect(tasks[1].priority, 'high');
+  });
+
+  test('generated checklists are sanitized, capped, ordered and immutable', () {
+    final longTitle = 'x' * 151;
+    final tasks = GeneratedTaskDraft.parseTasks(
+      {
+        'milestones': [
+          {
+            'tasks': [
+              {
+                'title': 'One',
+                'checklist': [
+                  '  First  ',
+                  ' ',
+                  42,
+                  'SECOND',
+                  'first',
+                  'second  ',
+                  longTitle,
+                  'Third',
+                  'Fourth',
+                  'Fifth',
+                ],
+              },
+              {'title': 'Two'},
+              {'title': 'Three', 'checklist': 'invalid'},
+            ],
+          },
+        ],
+      },
+      startDate: DateTime(2026, 10, 16),
+      endDate: DateTime(2026, 10, 20),
+    );
+    expect(tasks.first.checklist, [
+      'First',
+      'SECOND',
+      'x' * 150,
+      'Third',
+      'Fourth',
+    ]);
+    expect(tasks[1].checklist, isEmpty);
+    expect(tasks[2].checklist, isEmpty);
+    expect(() => tasks.first.checklist.add('Extra'), throwsUnsupportedError);
+    final source = ['Original'];
+    final draft = GeneratedTaskDraft(
+      title: 'Other',
+      description: '',
+      priority: 'medium',
+      deadline: DateTime(2026, 10, 16),
+      position: 0,
+      checklist: source,
+    );
+    source.add('Changed');
+    expect(draft.checklist, ['Original']);
+  });
+
+  test(
+    'milestone parser rejects unusable plans and limits tasks to twelve',
+    () {
+      final start = DateTime(2026, 10, 16);
+      final end = DateTime(2026, 11, 16);
+      for (final response in [
+        {'tasks': []},
+        {'milestones': []},
+        {
+          'milestones': [
+            {
+              'tasks': [
+                {'title': 'One'},
+                {'title': 'one'},
+              ],
+            },
+          ],
+        },
+      ]) {
+        expect(
+          () => GeneratedTaskDraft.parseTasks(
+            response,
+            startDate: start,
+            endDate: end,
+          ),
+          throwsException,
+        );
+      }
+      final tasks = GeneratedTaskDraft.parseTasks(
+        {
+          'milestones': [
+            for (var milestone = 0; milestone < 5; milestone++)
+              {
+                'title': 'Milestone $milestone',
+                'tasks': [
+                  for (var task = 0; task < 6; task++)
+                    {
+                      'title': 'Task $milestone-$task',
+                      'description': 'Learn',
+                      'priority': 'medium',
+                    },
+                ],
+              },
+          ],
+        },
+        startDate: start,
+        endDate: end,
+      );
+      expect(tasks.length, 12);
+      expect(tasks.first.title, 'Task 0-0');
+      expect(tasks.last.title, 'Task 1-5');
+      expect(tasks.first.deadline, start);
+      expect(tasks.last.deadline, end);
+    },
+  );
   test('dashboard loads only owned projects and calculates summary', () async {
     final repo = FakeProjectRepository(
       items: [
@@ -50,19 +370,18 @@ void main() {
       final model = CreateProjectViewModel(repo);
       expect(await model.submit(name: '   ', description: ''), null);
       expect(model.nameError, 'Project name is required.');
-      expect(
-        await model.submit(
-          name: 'Flutter',
-          description: '',
-          startDate: DateTime(2026, 10, 7),
-          endDate: DateTime(2026, 10, 6),
-        ),
-        null,
-      );
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      model.setStartDate(today.add(const Duration(days: 2)));
+      model.setEndDate(today.add(const Duration(days: 1)));
+      expect(await model.submit(name: 'Flutter', description: ''), null);
       expect(
         model.dateError,
         'End date cannot be earlier than the start date.',
       );
+      expect(repo.stored, isEmpty);
+      model.setStartDate(null);
+      model.setEndDate(null);
       final created = await model.submit(
         name: '  Flutter  ',
         description: '  Study  ',
@@ -94,11 +413,11 @@ void main() {
       repo,
       original: repo.stored.single.project,
     );
+    model.setStartDate(DateTime(2026, 10, 1));
     final result = await model.submit(
       name: '  Flutter Advanced  ',
       description: '  ',
       status: 'completed',
-      startDate: DateTime(2026, 10, 1),
     );
     expect(result?.project.name, 'Flutter Advanced');
     expect(result?.project.description, null);
@@ -106,4 +425,95 @@ void main() {
     expect(repo.stored.single.project.startDate, DateTime(2026, 10, 1));
     model.dispose();
   });
+
+  test(
+    'date state is normalized and later start corrects end with one update',
+    () {
+      final model = CreateProjectViewModel(FakeProjectRepository());
+      addTearDown(model.dispose);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      model.setEndDate(today.add(const Duration(hours: 19)));
+      var notifications = 0;
+      model.addListener(() => notifications++);
+      final future = DateTime(today.year, today.month, today.day + 5, 13, 30);
+      model.setStartDate(future);
+      final expected = DateTime(future.year, future.month, future.day);
+      expect(model.startDate, expected);
+      expect(model.endDate, expected);
+      expect(model.dateError, isNull);
+      expect(notifications, 1);
+      model.setEndDate(expected.add(const Duration(days: 1, hours: 8)));
+      expect(model.endDate, expected.add(const Duration(days: 1)));
+      model.setStartDate(null);
+      model.setEndDate(null);
+      expect(model.startDate, isNull);
+      expect(model.endDate, isNull);
+      expect(model.dateError, isNull);
+    },
+  );
+
+  test(
+    'today and same-day dates with different times can be submitted',
+    () async {
+      final repo = FakeProjectRepository();
+      final model = CreateProjectViewModel(repo);
+      addTearDown(model.dispose);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      model.setStartDate(today.add(const Duration(hours: 20)));
+      model.setEndDate(today.add(const Duration(hours: 6)));
+      final result = await model.submit(name: 'Today', description: '');
+      expect(result?.project.startDate, today);
+      expect(result?.project.endDate, today);
+      expect(model.dateError, isNull);
+    },
+  );
+
+  test('past dates are rejected on change and again before creation', () async {
+    final repo = FakeProjectRepository();
+    final model = CreateProjectViewModel(repo);
+    addTearDown(model.dispose);
+    final now = DateTime.now();
+    final yesterday = DateTime(now.year, now.month, now.day - 1, 23, 59);
+    model.setStartDate(yesterday);
+    expect(model.startDateError, 'Start date cannot be in the past.');
+    expect(await model.submit(name: 'Invalid', description: ''), isNull);
+    expect(repo.stored, isEmpty);
+    model.setStartDate(null);
+    model.setEndDate(yesterday);
+    expect(model.endDateError, 'End date cannot be in the past.');
+    expect(await model.submit(name: 'Invalid', description: ''), isNull);
+    expect(repo.stored, isEmpty);
+    model.setEndDate(null);
+    expect(model.dateError, isNull);
+  });
+
+  test(
+    'editing keeps stored past dates and does not correct dependent dates',
+    () async {
+      final repo = FakeProjectRepository(
+        items: [sampleProject('1', 'History')],
+      );
+      final past = DateTime(2020, 1, 1);
+      await repo.updateProject(
+        repo.stored.single.project.copyWith(startDate: past, endDate: past),
+      );
+      final model = CreateProjectViewModel(
+        repo,
+        original: repo.stored.single.project,
+      );
+      addTearDown(model.dispose);
+      expect(model.startDate, past);
+      expect(model.endDate, past);
+      expect(await model.submit(name: 'History', description: ''), isNotNull);
+      model.setStartDate(DateTime(2020, 1, 2));
+      expect(model.endDate, past);
+      expect(
+        model.endDateError,
+        'End date cannot be earlier than the start date.',
+      );
+      expect(await model.submit(name: 'History', description: ''), isNull);
+    },
+  );
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import '../features/kanban/repositories/kanban_repository.dart';
 import '../features/projects/repositories/project_repository.dart';
+import '../features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 import '../features/notifications/repositories/notification_repository.dart';
 import '../features/notifications/viewmodels/notification_badge_controller.dart';
 import '../features/notifications/services/notification_realtime_service.dart';
@@ -15,12 +16,14 @@ class SkillTrackApp extends StatefulWidget {
     super.key,
     required this.projectRepository,
     required this.kanbanRepository,
+    this.taskGenerationRepository,
     this.notificationRepository,
     this.realtimeService,
     this.authEvents,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
+  final TaskGenerationRepository? taskGenerationRepository;
   final NotificationRepository? notificationRepository;
   final NotificationRealtimeService? realtimeService;
   final Stream<Object?>? authEvents;
@@ -93,6 +96,7 @@ class _SkillTrackAppState extends State<SkillTrackApp>
     final router = AppRouter(
       projectRepository: widget.projectRepository,
       kanbanRepository: widget.kanbanRepository,
+      taskGenerationRepository: widget.taskGenerationRepository,
       notificationRepository: widget.notificationRepository,
       badgeController: _badge,
       realtime: widget.realtimeService,

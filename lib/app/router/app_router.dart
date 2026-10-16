@@ -11,6 +11,7 @@ import '../../features/kanban/widgets/task_form_sheet.dart';
 import '../../features/projects/models/learning_project.dart';
 import '../../features/projects/models/project_with_progress.dart';
 import '../../features/projects/repositories/project_repository.dart';
+import '../../features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 import '../../features/projects/views/create_project_screen.dart';
 import '../../features/projects/views/project_dashboard_screen.dart';
 import '../../features/notifications/repositories/notification_repository.dart';
@@ -91,12 +92,14 @@ class AppRouter {
   const AppRouter({
     required this.projectRepository,
     required this.kanbanRepository,
+    this.taskGenerationRepository,
     this.notificationRepository,
     this.badgeController,
     this.realtime,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
+  final TaskGenerationRepository? taskGenerationRepository;
   final NotificationRepository? notificationRepository;
   final NotificationBadgeController? badgeController;
   final NotificationChangeSource? realtime;
@@ -132,7 +135,11 @@ class AppRouter {
                 repository: notificationRepository!,
               );
       case AppRoutes.createProject:
-        page = CreateProjectScreen(repository: projectRepository);
+        page = CreateProjectScreen(
+          repository: projectRepository,
+          generationRepository: taskGenerationRepository,
+          taskRepository: kanbanRepository,
+        );
       case AppRoutes.editProject:
         page = arguments is EditProjectRouteArgs && arguments.isValid
             ? _EditProjectRoute(

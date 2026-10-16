@@ -1,46 +1,97 @@
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../kanban/repositories/kanban_repository.dart';
+import '../../ai_task_generation/models/generated_task_draft.dart';
 import '../models/learning_project.dart';
 import '../models/project_with_progress.dart';
 import '../repositories/project_repository.dart';
+import '../../ai_task_generation/repositories/ai_task_generation_repository.dart';
 
 class CreateProjectViewModel extends ChangeNotifier {
-  CreateProjectViewModel(this._repository, {this.original});
+  CreateProjectViewModel(
+    this._repository, {
+    this.original,
+    TaskGenerationRepository? generationRepository,
+    KanbanRepository? taskRepository,
+  }) : _generationRepository = generationRepository,
+       _taskRepository = taskRepository,
+       _startDate = _dateOnly(original?.startDate),
+       _endDate = _dateOnly(original?.endDate);
   final ProjectRepository _repository;
+  final TaskGenerationRepository? _generationRepository;
+  final KanbanRepository? _taskRepository;
   bool _disposed = false;
   final LearningProject? original;
   bool _isSaving = false;
-  String? _nameError, _dateError, _errorMessage;
+  bool _isGeneratingTasks = false;
+  ProjectWithProgress? _pendingProject;
+  List<GeneratedTaskDraft>? _pendingTasks;
+  DateTime? _startDate, _endDate;
+  String? _nameError,
+      _descriptionError,
+      _startDateError,
+      _endDateError,
+      _errorMessage;
 
   bool get isSaving => _isSaving;
+  bool get isGeneratingTasks => _isGeneratingTasks;
+  ProjectWithProgress? get pendingProject => _pendingProject;
   String? get nameError => _nameError;
-  String? get dateError => _dateError;
+  String? get descriptionError => _descriptionError;
+  DateTime? get startDate => _startDate;
+  DateTime? get endDate => _endDate;
+  String? get startDateError => _startDateError;
+  String? get endDateError => _endDateError;
+  String? get dateError => _startDateError ?? _endDateError;
   String? get errorMessage => _errorMessage;
+
+  static DateTime? _dateOnly(DateTime? value) =>
+      value == null ? null : DateTime(value.year, value.month, value.day);
+
+  void setStartDate(DateTime? value) {
+    if (_disposed || _isSaving) return;
+    _startDate = _dateOnly(value);
+    if (original == null &&
+        _startDate != null &&
+        _endDate != null &&
+        _endDate!.isBefore(_startDate!)) {
+      _endDate = _startDate;
+    }
+    _validateDates();
+    notifyListeners();
+  }
+
+  void setEndDate(DateTime? value) {
+    if (_disposed || _isSaving) return;
+    _endDate = _dateOnly(value);
+    _validateDates();
+    notifyListeners();
+  }
+
+  void _validateDates() {
+    final today = _dateOnly(DateTime.now())!;
+    _startDateError =
+        original == null && _startDate != null && _startDate!.isBefore(today)
+        ? 'Start date cannot be in the past.'
+        : null;
+    _endDateError =
+        _startDate != null &&
+            _endDate != null &&
+            _endDate!.isBefore(_startDate!)
+        ? 'End date cannot be earlier than the start date.'
+        : original == null && _endDate != null && _endDate!.isBefore(today)
+        ? 'End date cannot be in the past.'
+        : null;
+  }
 
   Future<ProjectWithProgress?> submit({
     required String name,
     required String description,
-    DateTime? startDate,
-    DateTime? endDate,
     String status = 'active',
   }) async {
-    if (_disposed || _isSaving) return null;
-    _nameError = name.trim().isEmpty ? 'Project name is required.' : null;
-    _dateError =
-        startDate != null && endDate != null && endDate.isBefore(startDate)
-        ? 'End date cannot be earlier than the start date.'
-        : null;
-    _errorMessage = null;
-    if (_nameError != null || _dateError != null) {
-      notifyListeners();
-      return null;
-    }
-    if (name.trim().length > 150) {
-      _nameError = 'Project name must be 150 characters or fewer.';
-      notifyListeners();
-      return null;
-    }
+    if (_disposed || _isSaving || _pendingProject != null) return null;
+    if (!_validateForm(name, description)) return null;
     _isSaving = true;
     notifyListeners();
     try {
@@ -50,12 +101,7 @@ class CreateProjectViewModel extends ChangeNotifier {
           _errorMessage = 'Sign in to create a project.';
           return null;
         }
-        final created = await _repository.createProject(
-          name: name.trim(),
-          description: text,
-          startDate: startDate,
-          endDate: endDate,
-        );
+        final created = await _createProject(name.trim(), text);
         return _disposed ? null : created;
       }
       final updated = await _repository.updateProject(
@@ -63,10 +109,10 @@ class CreateProjectViewModel extends ChangeNotifier {
           name: name.trim(),
           description: text,
           clearDescription: text == null,
-          startDate: startDate,
-          clearStartDate: startDate == null,
-          endDate: endDate,
-          clearEndDate: endDate == null,
+          startDate: _startDate,
+          clearStartDate: _startDate == null,
+          endDate: _endDate,
+          clearEndDate: _endDate == null,
           status: status,
         ),
       );
@@ -90,6 +136,147 @@ class CreateProjectViewModel extends ChangeNotifier {
       notifyListeners();
     }
   }
+
+  bool _validateForm(
+    String name,
+    String description, {
+    bool requireDates = false,
+  }) {
+    _nameError = name.trim().isEmpty ? 'Project name is required.' : null;
+    _descriptionError = requireDates && description.trim().isEmpty
+        ? 'Add a description to generate tasks.'
+        : requireDates && description.trim().length > 4000
+        ? 'Description must be 4000 characters or fewer.'
+        : null;
+    _validateDates();
+    _errorMessage = null;
+    if (name.trim().length > 150) {
+      _nameError = 'Project name must be 150 characters or fewer.';
+    }
+    if (requireDates && dateError == null) {
+      _startDateError ??= _startDate == null
+          ? 'Select a start date to generate tasks.'
+          : null;
+      _endDateError ??= _endDate == null
+          ? 'Select an end date to generate tasks.'
+          : null;
+    }
+    notifyListeners();
+    return _nameError == null && _descriptionError == null && dateError == null;
+  }
+
+  Future<ProjectWithProgress> _createProject(
+    String name,
+    String? description,
+  ) => _repository.createProject(
+    name: name,
+    description: description,
+    startDate: _startDate,
+    endDate: _endDate,
+  );
+
+  Future<ProjectWithProgress?> generateTasks({
+    required String name,
+    required String description,
+  }) async {
+    if (_disposed || _isSaving || original != null) return null;
+    if (_pendingProject == null &&
+        !_validateForm(name, description, requireDates: true)) {
+      return null;
+    }
+    if (_repository.currentUserId == null) {
+      _errorMessage = 'Sign in to generate tasks.';
+      notifyListeners();
+      return null;
+    }
+    if (_generationRepository == null || _taskRepository == null) {
+      _errorMessage = AppErrorMessages.generateTasksFailed;
+      notifyListeners();
+      return null;
+    }
+    _isSaving = true;
+    _isGeneratingTasks = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      if (_pendingProject == null) {
+        try {
+          _pendingTasks = await _generationRepository.generate(
+            title: name.trim(),
+            description: description.trim(),
+            startDate: _startDate!,
+            endDate: _endDate!,
+          );
+        } catch (error) {
+          _errorMessage = AppException.messageFor(
+            error,
+            fallback: AppErrorMessages.generateTasksFailed,
+          );
+          return null;
+        }
+        if (_disposed) return null;
+        if (_pendingTasks!.isEmpty) {
+          _errorMessage = AppErrorMessages.noGeneratedTasks;
+          return null;
+        }
+        try {
+          final text = description.trim();
+          _pendingProject = await _createProject(
+            name.trim(),
+            text.isEmpty ? null : text,
+          );
+        } catch (_) {
+          _errorMessage = AppErrorMessages.createProjectFailed;
+          return null;
+        }
+      }
+      final project = _pendingProject!;
+      final boardId = project.boardId;
+      if (boardId == null || boardId.isEmpty) {
+        _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
+        return null;
+      }
+      try {
+        // A previous insert may have committed even if its response was lost.
+        if (_pendingProject != null && _insertAttempted) {
+          final saved = await _taskRepository.getTasks(boardId);
+          if (saved.length == _pendingTasks!.length &&
+              saved.every(
+                (task) => _pendingTasks!.any(
+                  (draft) =>
+                      draft.title == task.title &&
+                      (draft.position + 1) * 1000 == task.sortOrder &&
+                      draft.checklist.length == task.checklistItems.length &&
+                      Iterable.generate(draft.checklist.length).every(
+                        (index) =>
+                            task.checklistItems[index].title ==
+                                draft.checklist[index] &&
+                            task.checklistItems[index].position == index,
+                      ),
+                ),
+              )) {
+            return _disposed ? null : project;
+          }
+          if (saved.isNotEmpty) {
+            _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
+            return null;
+          }
+        }
+        _insertAttempted = true;
+        await _taskRepository.createGeneratedTasks(boardId, _pendingTasks!);
+        return _disposed ? null : project;
+      } catch (_) {
+        _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
+        return null;
+      }
+    } finally {
+      _isSaving = false;
+      _isGeneratingTasks = false;
+      notifyListeners();
+    }
+  }
+
+  bool _insertAttempted = false;
 
   @override
   void notifyListeners() {

@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/kanban/repositories/supabase_kanban_repository.dart';
+import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/projects/repositories/supabase_project_repository.dart';
 
 class _ProjectRepository extends SupabaseProjectRepository {
@@ -19,8 +20,12 @@ class _ApiFixture {
   final HttpServer server;
   late final StreamSubscription<HttpRequest> subscription;
   final requests = <Uri>[];
+  final methods = <String>[];
+  final requestBodies = <String>[];
   final tables = <String, List<Map<String, dynamic>>>{};
   bool fail = false;
+  String? failInsertTable;
+  bool failTaskRollback = false;
 
   static Future<_ApiFixture> start() async {
     final fixture = _ApiFixture(
@@ -35,9 +40,16 @@ class _ApiFixture {
 
   Future<void> _respond(HttpRequest request) async {
     requests.add(request.uri);
-    await request.drain<void>();
+    methods.add(request.method);
+    final body = await utf8.decoder.bind(request).join();
+    requestBodies.add(body);
     request.response.headers.contentType = ContentType.json;
-    if (fail) {
+    final table = request.uri.pathSegments.last;
+    if (fail ||
+        (request.method == 'POST' && table == failInsertTable) ||
+        (request.method == 'DELETE' &&
+            table == 'kanban_tasks' &&
+            failTaskRollback)) {
       request.response.statusCode = 400;
       request.response.write(
         jsonEncode({
@@ -46,9 +58,19 @@ class _ApiFixture {
         }),
       );
     } else {
-      final table = request.uri.pathSegments.last;
       var rows = List<Map<String, dynamic>>.of(tables[table] ?? []);
       if (table == 'kanban_tasks') {
+        if (request.method == 'POST') {
+          final inserted = (jsonDecode(body) as List)
+              .cast<Map<String, dynamic>>();
+          rows = [
+            for (final row in inserted.reversed)
+              {
+                'id': 'generated-${row['sort_order']}',
+                'sort_order': row['sort_order'],
+              },
+          ];
+        }
         final board = request.uri.queryParameters['board_id'];
         final archived = request.uri.queryParameters['is_archived'];
         rows = rows
@@ -111,6 +133,176 @@ Map<String, dynamic> _task(String id, String board, {bool archived = false}) =>
     };
 
 void main() {
+  test('generated tasks use one trusted batch insert payload', () async {
+    final api = await _ApiFixture.start();
+    final client = api.client();
+    addTearDown(() async {
+      await client.dispose();
+      await api.close();
+    });
+    await SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+      GeneratedTaskDraft(
+        title: 'Basics',
+        description: 'Widgets',
+        priority: 'low',
+        deadline: DateTime(2026, 10, 16),
+        position: 0,
+      ),
+      GeneratedTaskDraft(
+        title: 'Practice',
+        description: 'Build a view',
+        priority: 'medium',
+        deadline: DateTime(2026, 10, 20),
+        position: 1,
+      ),
+    ]);
+    expect(api.requests.length, 1);
+    expect(api.requests.single.pathSegments.last, 'kanban_tasks');
+    expect(api.requests.single.queryParameters['select'], 'id,sort_order');
+    final rows = jsonDecode(api.requestBodies.single) as List<dynamic>;
+    expect(rows.length, 2);
+    expect(rows.map((row) => row['sort_order']), [1000, 2000]);
+    expect(
+      rows.every(
+        (row) =>
+            row['board_id'] == 'board-1' &&
+            row['status'] == 'todo' &&
+            row['is_archived'] == false,
+      ),
+      isTrue,
+    );
+    expect(rows.first['priority'], 'low');
+    for (final field in [
+      'id',
+      'project_id',
+      'user_id',
+      'created_at',
+      'updated_at',
+      'stagnation_score',
+      'is_stalled',
+    ]) {
+      expect(rows.first.containsKey(field), isFalse);
+    }
+  });
+
+  test(
+    'generated checklists are inserted once with returned task IDs',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      await SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+        GeneratedTaskDraft(
+          title: 'First',
+          description: '',
+          priority: 'medium',
+          deadline: DateTime(2026, 10, 16),
+          position: 0,
+          checklist: ['Plan', 'Build'],
+        ),
+        GeneratedTaskDraft(
+          title: 'Second',
+          description: '',
+          priority: 'high',
+          deadline: DateTime(2026, 10, 17),
+          position: 1,
+          checklist: ['Review'],
+        ),
+      ]);
+      expect(api.methods, ['POST', 'POST']);
+      expect(api.requests.map((uri) => uri.pathSegments.last), [
+        'kanban_tasks',
+        'task_checklist_items',
+      ]);
+      expect(api.requests.first.queryParameters['select'], 'id,sort_order');
+      final checklistRows = (jsonDecode(api.requestBodies.last) as List)
+          .cast<Map<String, dynamic>>();
+      expect(checklistRows, [
+        {
+          'task_id': 'generated-1000',
+          'title': 'Plan',
+          'position': 0,
+          'is_completed': false,
+        },
+        {
+          'task_id': 'generated-1000',
+          'title': 'Build',
+          'position': 1,
+          'is_completed': false,
+        },
+        {
+          'task_id': 'generated-2000',
+          'title': 'Review',
+          'position': 0,
+          'is_completed': false,
+        },
+      ]);
+      for (final field in ['id', 'created_at', 'completed_at']) {
+        expect(checklistRows.first.containsKey(field), isFalse);
+      }
+    },
+  );
+
+  test('failed generated task insert skips checklists', () async {
+    final api = await _ApiFixture.start()
+      ..failInsertTable = 'kanban_tasks';
+    final client = api.client();
+    addTearDown(() async {
+      await client.dispose();
+      await api.close();
+    });
+    await expectLater(
+      SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+        GeneratedTaskDraft(
+          title: 'First',
+          description: '',
+          priority: 'medium',
+          deadline: DateTime(2026, 10, 16),
+          position: 0,
+          checklist: ['Plan'],
+        ),
+      ]),
+      throwsA(isA<AppException>()),
+    );
+    expect(api.requests.map((uri) => uri.pathSegments.last), ['kanban_tasks']);
+  });
+
+  for (final rollbackFails in [false, true]) {
+    test(
+      'checklist failure keeps the save error when rollback fails: $rollbackFails',
+      () async {
+        final api = await _ApiFixture.start()
+          ..failInsertTable = 'task_checklist_items'
+          ..failTaskRollback = rollbackFails;
+        final client = api.client();
+        addTearDown(() async {
+          await client.dispose();
+          await api.close();
+        });
+        await expectLater(
+          SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+            GeneratedTaskDraft(
+              title: 'First',
+              description: '',
+              priority: 'medium',
+              deadline: DateTime(2026, 10, 16),
+              position: 0,
+              checklist: ['Plan'],
+            ),
+          ]),
+          throwsA(isA<AppException>()),
+        );
+        expect(api.methods, ['POST', 'POST', 'DELETE']);
+        final rollback = api.requests.last;
+        expect(rollback.pathSegments.last, 'kanban_tasks');
+        expect(rollback.queryParameters['id'], contains('generated-1000'));
+        expect(rollback.queryParameters.containsKey('board_id'), isFalse);
+      },
+    );
+  }
   for (final archived in [false, true]) {
     test(
       '${archived ? 'archived' : 'active'} tasks keep relations and use one query per table',
