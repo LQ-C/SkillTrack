@@ -5,12 +5,15 @@ import 'package:flutter/foundation.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
+import '../../ai_task_generation/models/task_generation_request.dart';
+import '../../ai_task_generation/view_models/generated_task_preview_state.dart';
 import '../models/learning_project.dart';
 import '../models/project_with_progress.dart';
 import '../repositories/project_repository.dart';
 import '../../ai_task_generation/repositories/ai_task_generation_repository.dart';
 
-class CreateProjectViewModel extends ChangeNotifier {
+class CreateProjectViewModel extends ChangeNotifier
+    implements GeneratedTaskPreviewState {
   CreateProjectViewModel(
     this._repository, {
     this.original,
@@ -28,6 +31,7 @@ class CreateProjectViewModel extends ChangeNotifier {
   bool _isSaving = false;
   bool _isGeneratingTasks = false;
   bool _isConfirmingGeneratedTasks = false;
+  bool _isRevisingGeneratedTasks = false;
   ProjectWithProgress? _pendingProject;
   List<GeneratedTaskDraft>? _pendingTasks;
   String? _pendingName, _pendingDescription;
@@ -40,7 +44,17 @@ class CreateProjectViewModel extends ChangeNotifier {
 
   bool get isSaving => _isSaving;
   bool get isGeneratingTasks => _isGeneratingTasks;
+  @override
   bool get isConfirmingGeneratedTasks => _isConfirmingGeneratedTasks;
+  @override
+  bool get isRevisingGeneratedTasks => _isRevisingGeneratedTasks;
+  @override
+  DateTime get generationStartDate => _startDate!;
+  @override
+  DateTime get generationEndDate => _endDate!;
+  @override
+  TaskGenerationMode get generationMode => TaskGenerationMode.initial;
+  @override
   List<GeneratedTaskDraft> get pendingGeneratedTasks =>
       UnmodifiableListView(_pendingTasks ?? const <GeneratedTaskDraft>[]);
   ProjectWithProgress? get pendingProject => _pendingProject;
@@ -51,6 +65,7 @@ class CreateProjectViewModel extends ChangeNotifier {
   String? get startDateError => _startDateError;
   String? get endDateError => _endDateError;
   String? get dateError => _startDateError ?? _endDateError;
+  @override
   String? get errorMessage => _errorMessage;
 
   static DateTime? _dateOnly(DateTime? value) =>
@@ -244,12 +259,24 @@ class CreateProjectViewModel extends ChangeNotifier {
     }
   }
 
+  @override
   Future<ProjectWithProgress?> confirmGeneratedTasks() async {
     if (_disposed ||
         _isSaving ||
         _isGeneratingTasks ||
+        _isRevisingGeneratedTasks ||
         _pendingTasks == null ||
         _pendingTasks!.isEmpty) {
+      return null;
+    }
+    final validation = GeneratedTaskDraft.validationError(
+      _pendingTasks!,
+      startDate: generationStartDate,
+      endDate: generationEndDate,
+    );
+    if (validation != null) {
+      _errorMessage = validation;
+      notifyListeners();
       return null;
     }
     _isSaving = true;
@@ -315,9 +342,148 @@ class CreateProjectViewModel extends ChangeNotifier {
     }
   }
 
+  @override
+  bool updateGeneratedTask(int index, GeneratedTaskDraft task) {
+    if (_disposed ||
+        _isSaving ||
+        _isRevisingGeneratedTasks ||
+        _pendingProject != null ||
+        _pendingTasks == null ||
+        index < 0 ||
+        index >= _pendingTasks!.length) {
+      return false;
+    }
+    final updated = [..._pendingTasks!]
+      ..[index] = task.copyWith(position: index);
+    final validation = GeneratedTaskDraft.validationError(
+      [updated[index]],
+      startDate: generationStartDate,
+      endDate: generationEndDate,
+      existingTitles: [
+        for (var other = 0; other < updated.length; other++)
+          if (other != index) updated[other].title,
+      ],
+    );
+    if (validation != null) {
+      _errorMessage = validation;
+      notifyListeners();
+      return false;
+    }
+    _pendingTasks = List.unmodifiable(updated);
+    _errorMessage = null;
+    notifyListeners();
+    return true;
+  }
+
+  @override
+  void removeGeneratedTask(int index) {
+    if (_disposed ||
+        _isSaving ||
+        _isRevisingGeneratedTasks ||
+        _pendingProject != null ||
+        _pendingTasks == null ||
+        index < 0 ||
+        index >= _pendingTasks!.length) {
+      return;
+    }
+    final updated = [..._pendingTasks!]..removeAt(index);
+    _pendingTasks = List.unmodifiable(GeneratedTaskDraft.reindex(updated));
+    _errorMessage = null;
+    notifyListeners();
+  }
+
+  @override
+  void reorderGeneratedTask(int oldIndex, int newIndex) {
+    if (_disposed ||
+        _isSaving ||
+        _isRevisingGeneratedTasks ||
+        _pendingProject != null ||
+        _pendingTasks == null ||
+        oldIndex < 0 ||
+        oldIndex >= _pendingTasks!.length ||
+        newIndex < 0 ||
+        newIndex > _pendingTasks!.length) {
+      return;
+    }
+    final updated = [..._pendingTasks!];
+    final task = updated.removeAt(oldIndex);
+    updated.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, task);
+    _pendingTasks = List.unmodifiable(GeneratedTaskDraft.reindex(updated));
+    notifyListeners();
+  }
+
+  @override
+  Future<bool> reviseGeneratedTasks(String feedback) async {
+    final text = feedback.trim();
+    if (_disposed ||
+        _isSaving ||
+        _isGeneratingTasks ||
+        _isRevisingGeneratedTasks ||
+        _pendingProject != null ||
+        _pendingTasks == null ||
+        _pendingTasks!.isEmpty ||
+        _generationRepository == null) {
+      return false;
+    }
+    if (text.isEmpty || text.length > 1000) {
+      _errorMessage = AppErrorMessages.invalidRevisionFeedback;
+      notifyListeners();
+      return false;
+    }
+    final validation = GeneratedTaskDraft.validationError(
+      _pendingTasks!,
+      startDate: generationStartDate,
+      endDate: generationEndDate,
+    );
+    if (validation != null) {
+      _errorMessage = validation;
+      notifyListeners();
+      return false;
+    }
+    _isRevisingGeneratedTasks = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final revised = await _generationRepository.revise(
+        title: _pendingName!,
+        description: _pendingDescription!,
+        startDate: generationStartDate,
+        endDate: generationEndDate,
+        sourceMode: TaskGenerationMode.initial,
+        feedback: text,
+        currentDraft: _pendingTasks!,
+      );
+      if (_disposed) return false;
+      final checked = GeneratedTaskDraft.reindex(revised);
+      final invalid = GeneratedTaskDraft.validationError(
+        checked,
+        startDate: generationStartDate,
+        endDate: generationEndDate,
+      );
+      if (invalid != null) throw AppException(invalid);
+      _pendingTasks = List.unmodifiable(checked);
+      return true;
+    } catch (error) {
+      if (!_disposed) {
+        _errorMessage = AppException.messageFor(
+          error,
+          fallback: AppErrorMessages.generateTasksFailed,
+        );
+      }
+      return false;
+    } finally {
+      if (!_disposed) {
+        _isRevisingGeneratedTasks = false;
+        notifyListeners();
+      }
+    }
+  }
+
+  @override
   void cancelGeneratedTaskPreview() {
     if (_disposed ||
         _isSaving ||
+        _isRevisingGeneratedTasks ||
         _pendingTasks == null ||
         _pendingProject != null) {
       return;

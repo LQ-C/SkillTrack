@@ -13,6 +13,8 @@ import '../../features/projects/models/project_with_progress.dart';
 import '../../features/projects/repositories/project_repository.dart';
 import '../../features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 import '../../features/ai_task_generation/views/generated_task_preview_screen.dart';
+import '../../features/ai_task_generation/view_models/generated_task_preview_state.dart';
+import '../../features/ai_task_generation/view_models/append_task_generation_view_model.dart';
 import '../../features/projects/views/create_project_screen.dart';
 import '../../features/projects/views/project_dashboard_screen.dart';
 import '../../features/projects/viewmodels/create_project_view_model.dart';
@@ -41,10 +43,12 @@ class BoardRouteArgs {
     required this.projectId,
     required this.boardId,
     required this.projectName,
+    this.projectStatus = 'active',
   });
   final String projectId;
   final String boardId;
   final String projectName;
+  final String projectStatus;
   bool get isValid =>
       projectId.trim().isNotEmpty &&
       boardId.trim().isNotEmpty &&
@@ -59,7 +63,7 @@ class EditProjectRouteArgs {
 
 class GeneratedTaskPreviewRouteArgs {
   const GeneratedTaskPreviewRouteArgs(this.viewModel);
-  final CreateProjectViewModel viewModel;
+  final GeneratedTaskPreviewState viewModel;
   bool get isValid => viewModel.pendingGeneratedTasks.isNotEmpty;
 }
 
@@ -162,7 +166,12 @@ class AppRouter {
             : const _RouteUnavailable();
       case AppRoutes.kanbanBoard:
         page = arguments is BoardRouteArgs && arguments.isValid
-            ? _BoardRoute(args: arguments, repository: kanbanRepository)
+            ? _BoardRoute(
+                args: arguments,
+                repository: kanbanRepository,
+                projectRepository: projectRepository,
+                generationRepository: taskGenerationRepository,
+              )
             : const _RouteUnavailable(board: true);
       case AppRoutes.createTask:
         page = arguments is CreateTaskRouteArgs && arguments.isValid
@@ -197,6 +206,16 @@ class AppRouter {
             arguments: GeneratedTaskPreviewRouteArgs(viewModel),
           ))
           as ProjectWithProgress?;
+
+  static Future<bool?> additionalTaskPreview(
+    BuildContext context,
+    GeneratedTaskPreviewState viewModel,
+  ) async =>
+      (await Navigator.of(context).pushNamed<dynamic>(
+            AppRoutes.generatedTaskPreview,
+            arguments: GeneratedTaskPreviewRouteArgs(viewModel),
+          ))
+          as bool?;
 
   static Future<ProjectWithProgress?> editProject(
     BuildContext context,
@@ -378,9 +397,16 @@ class _EditProjectRouteState extends State<_EditProjectRoute> {
 }
 
 class _BoardRoute extends StatefulWidget {
-  const _BoardRoute({required this.args, required this.repository});
+  const _BoardRoute({
+    required this.args,
+    required this.repository,
+    required this.projectRepository,
+    required this.generationRepository,
+  });
   final BoardRouteArgs args;
   final KanbanRepository repository;
+  final ProjectRepository projectRepository;
+  final TaskGenerationRepository? generationRepository;
 
   @override
   State<_BoardRoute> createState() => _BoardRouteState();
@@ -388,19 +414,32 @@ class _BoardRoute extends StatefulWidget {
 
 class _BoardRouteState extends State<_BoardRoute> {
   late final KanbanViewModel _model = KanbanViewModel(widget.repository);
+  late final AppendTaskGenerationViewModel? _append =
+      widget.generationRepository == null
+      ? null
+      : AppendTaskGenerationViewModel(
+          projectId: widget.args.projectId,
+          boardId: widget.args.boardId,
+          projectRepository: widget.projectRepository,
+          taskRepository: widget.repository,
+          generationRepository: widget.generationRepository!,
+        );
 
   @override
   void dispose() {
     _model.dispose();
+    _append?.dispose();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => KanbanBoardScreen(
     viewModel: _model,
+    appendViewModel: _append,
     projectId: widget.args.projectId,
     boardId: widget.args.boardId,
     projectName: widget.args.projectName,
+    projectStatus: widget.args.projectStatus,
   );
 }
 

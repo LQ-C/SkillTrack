@@ -28,6 +28,23 @@ class AppErrorMessages {
       'Task generation is unavailable right now. Create an empty project or try again later.';
   static const noGeneratedTasks =
       'No valid tasks were generated. Please try again.';
+  static const invalidGeneratedDraft =
+      'Check each task title, description, priority, and deadline.';
+  static const duplicateGeneratedTitle =
+      'Generated task titles must be unique.';
+  static const invalidGeneratedChecklist =
+      'Check the checklist items. Use up to five unique items of 150 characters or fewer.';
+  static const invalidRevisionFeedback =
+      'Enter revision feedback of 1000 characters or fewer.';
+  static const noAdditionalTasks = 'No new tasks were found for this project.';
+  static const additionalTasksAlreadyExist =
+      'No new tasks were added because they already exist.';
+  static const expiredProjectDeadline =
+      'Update the project end date before generating more tasks.';
+  static const projectDescriptionRequired =
+      'Add a project description before generating more tasks.';
+  static const addGeneratedTasksFailed =
+      'Unable to add tasks. Please try again.';
   static const saveGeneratedTasksFailed =
       'The project was created, but the generated tasks could not be saved. Please retry or open the empty project.';
   static const updateProjectFailed =

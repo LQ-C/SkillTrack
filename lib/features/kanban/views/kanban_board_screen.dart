@@ -5,6 +5,7 @@ import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
 import '../../../app/router/app_router.dart';
+import '../../ai_task_generation/view_models/append_task_generation_view_model.dart';
 import '../../../core/constants/app_constants.dart';
 import '../models/kanban_filter.dart';
 import '../models/kanban_status.dart';
@@ -28,11 +29,15 @@ class KanbanBoardScreen extends StatefulWidget {
     required this.projectId,
     required this.boardId,
     required this.projectName,
+    this.projectStatus = 'active',
+    this.appendViewModel,
   }) : assert(boardId != '');
   final KanbanViewModel viewModel;
   final String projectId;
   final String boardId;
   final String projectName;
+  final String projectStatus;
+  final AppendTaskGenerationViewModel? appendViewModel;
   @override
   State<KanbanBoardScreen> createState() => _KanbanBoardScreenState();
 }
@@ -652,6 +657,62 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     if (mounted) await _refreshWithEntrance();
   }
 
+  Future<void> _generateMoreTasks() async {
+    final append = widget.appendViewModel;
+    if (append == null || append.isGeneratingTasks) return;
+    FocusScope.of(context).unfocus();
+    final request = append.generateMoreTasks();
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) => PopScope(
+        canPop: false,
+        child: Center(
+          child: Card(
+            margin: const EdgeInsets.all(28),
+            child: Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const CircularProgressIndicator(),
+                  const SizedBox(height: 20),
+                  Text(
+                    'Generating additional tasks…',
+                    style: Theme.of(dialogContext).textTheme.titleMedium,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+    final drafts = await request;
+    if (!mounted) return;
+    AppRouter.back(context);
+    if (drafts == null) {
+      final message = append.errorMessage;
+      if (message != null) {
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(SnackBar(content: Text(message)));
+      }
+      return;
+    }
+    final added = await AppRouter.additionalTaskPreview(context, append);
+    if (!mounted || added != true) return;
+    await _refreshWithEntrance();
+    if (!mounted) return;
+    final feedback = append.feedbackMessage;
+    if (feedback != null) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text(feedback)));
+      append.clearFeedback();
+    }
+  }
+
   Future<void> _refreshWithEntrance() async {
     final known = {for (final task in widget.viewModel.allTasks) task.id};
     await widget.viewModel.refresh(showLoading: false);
@@ -888,6 +949,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       case 'archived':
         _openArchivedTasks();
         return;
+      case 'generate-more':
+        _generateMoreTasks();
+        return;
       case 'archive':
         _confirmArchiveBoard();
         return;
@@ -999,6 +1063,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       final model = widget.viewModel;
       final empty = model.isBoardEmpty;
       final noResults = !empty && model.isResultEmpty && _departingTask == null;
+      final append = widget.appendViewModel;
       return Scaffold(
         appBar: AppBar(
           leading: IconButton(
@@ -1062,12 +1127,29 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             PopupMenuButton<String>(
               tooltip: 'Board menu',
               onSelected: _overflow,
-              itemBuilder: (_) => const [
-                PopupMenuItem(value: 'filter', child: Text('Filter tasks')),
-                PopupMenuItem(value: 'sort', child: Text('Sort tasks')),
-                PopupMenuItem(value: 'tags', child: Text('Manage tags')),
-                PopupMenuItem(value: 'archived', child: Text('Archived Tasks')),
-                PopupMenuItem(value: 'archive', child: Text('Archive board')),
+              itemBuilder: (_) => [
+                const PopupMenuItem(
+                  value: 'filter',
+                  child: Text('Filter tasks'),
+                ),
+                const PopupMenuItem(value: 'sort', child: Text('Sort tasks')),
+                const PopupMenuItem(value: 'tags', child: Text('Manage tags')),
+                const PopupMenuItem(
+                  value: 'archived',
+                  child: Text('Archived Tasks'),
+                ),
+                if (append != null &&
+                    widget.projectStatus != 'archived' &&
+                    model.boardId != null &&
+                    !model.isBoardArchived)
+                  const PopupMenuItem(
+                    value: 'generate-more',
+                    child: Text('Generate More Tasks'),
+                  ),
+                const PopupMenuItem(
+                  value: 'archive',
+                  child: Text('Archive board'),
+                ),
               ],
             ),
           ],

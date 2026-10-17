@@ -10,6 +10,7 @@ import 'package:skilltrack/features/kanban/models/task_priority.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
 import 'package:skilltrack/features/kanban/repositories/kanban_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import 'package:skilltrack/features/ai_task_generation/models/task_generation_request.dart';
 
 class FakeKanbanRepository extends Fake implements KanbanRepository {
   FakeKanbanRepository({
@@ -31,6 +32,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   int moveCalls = 0;
   int reorderCalls = 0;
   int generatedInsertCalls = 0;
+  int summaryCalls = 0;
   bool failGeneratedInsert = false;
   final activityEvents =
       <
@@ -78,6 +80,24 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   }
 
   @override
+  Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId) async {
+    summaryCalls++;
+    if (failLoad) throw StateError('offline');
+    return [
+      for (final task
+          in tasksByBoard?[boardId] ??
+              stored.where((task) => task.boardId == boardId))
+        ExistingTaskSummary(
+          title: task.title,
+          description: task.description,
+          status: task.isArchived ? 'archived' : task.status.value,
+          deadline: task.deadline,
+          sortOrder: task.sortOrder,
+        ),
+    ];
+  }
+
+  @override
   Future<List<TaskTag>> getUserTags(String userId) async => List.of(tags);
   @override
   Future<KanbanTask> createTask(KanbanTask task) async {
@@ -89,12 +109,14 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   @override
   Future<void> createGeneratedTasks(
     String boardId,
-    List<GeneratedTaskDraft> tasks,
-  ) async {
+    List<GeneratedTaskDraft> tasks, {
+    int startingSortOrder = 0,
+  }) async {
     generatedInsertCalls++;
     if (failGeneratedInsert) throw StateError('batch failed');
     final now = DateTime.now();
-    for (final draft in tasks) {
+    for (var taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+      final draft = tasks[taskIndex];
       final taskId = '${_nextId++}';
       stored.add(
         KanbanTask(
@@ -105,7 +127,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
           status: KanbanStatus.todo,
           priority: TaskPriority.fromValue(draft.priority),
           deadline: draft.deadline,
-          sortOrder: (draft.position + 1) * 1000,
+          sortOrder: startingSortOrder + (taskIndex + 1) * 1000,
           createdAt: now,
           updatedAt: now,
           checklistItems: [

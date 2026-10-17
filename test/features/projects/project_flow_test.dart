@@ -9,6 +9,7 @@ import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/ai_task_generation/views/generated_task_preview_screen.dart';
+import 'package:skilltrack/features/projects/viewmodels/create_project_view_model.dart';
 import 'package:skilltrack/features/projects/views/create_project_screen.dart';
 import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 
@@ -110,7 +111,7 @@ void main() {
           ),
           GeneratedTaskDraft(
             title: 'Review result',
-            description: '',
+            description: 'Review the completed result',
             priority: 'medium',
             deadline: DateUtils.dateOnly(DateTime.now()),
             position: 1,
@@ -662,6 +663,68 @@ void main() {
     expect(find.text('Flutter task'), findsNothing);
   });
 
+  testWidgets(
+    'board reuses preview to add tasks and Cancel keeps board unchanged',
+    (tester) async {
+      final projects = FakeProjectRepository();
+      final today = DateUtils.dateOnly(DateTime.now());
+      final created = await projects.createProject(
+        name: 'Flutter study',
+        description: 'Build a learning app',
+        startDate: today,
+        endDate: today.add(const Duration(days: 7)),
+      );
+      final boardId = created.boardId!;
+      final kanban = FakeKanbanRepository(
+        tasks: [
+          sampleTask(
+            '1',
+            'Existing task',
+            KanbanStatus.todo,
+            order: 5000,
+          ).copyWith(boardId: boardId),
+        ],
+      );
+      final generation = FakeTaskGenerationRepository()
+        ..result = [
+          GeneratedTaskDraft(
+            title: 'Additional task',
+            description: 'Implement the feature',
+            priority: 'high',
+            deadline: today.add(const Duration(days: 3)),
+            position: 0,
+            checklist: ['Plan', 'Build'],
+          ),
+        ];
+      await showApp(tester, projects, kanban: kanban, generation: generation);
+      await tester.tap(find.byKey(Key('project-${created.project.id}')));
+      await tester.pumpAndSettle();
+      Future<void> openPreview() async {
+        await tester.tap(find.byTooltip('Board menu'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Generate More Tasks'));
+        await tester.pumpAndSettle();
+        expect(find.byType(GeneratedTaskPreviewScreen), findsOneWidget);
+        expect(find.text('Review Additional Tasks'), findsOneWidget);
+        expect(find.text('Additional task'), findsOneWidget);
+      }
+
+      await openPreview();
+      await tester.tap(find.byKey(const Key('cancel-generated-tasks-button')));
+      await tester.pumpAndSettle();
+      expect(kanban.stored, hasLength(1));
+      expect(kanban.generatedInsertCalls, 0);
+      await openPreview();
+      await tester.tap(find.byKey(const Key('confirm-generated-tasks-button')));
+      await tester.pumpAndSettle();
+      expect(kanban.stored, hasLength(2));
+      expect(kanban.stored.last.sortOrder, 6000);
+      expect(kanban.stored.last.checklistItems, hasLength(2));
+      expect(projects.stored, hasLength(1));
+      expect(generation.calls, 2);
+    },
+  );
+
   testWidgets('project can be archived and deletion requires confirmation', (
     tester,
   ) async {
@@ -755,5 +818,69 @@ void main() {
     await tester.tap(find.text('Return to Projects'));
     await tester.pumpAndSettle();
     await details;
+  });
+
+  testWidgets('preview edits a local draft and disables Confirm when emptied', (
+    tester,
+  ) async {
+    final projects = FakeProjectRepository();
+    final tasks = FakeKanbanRepository();
+    final generator = FakeTaskGenerationRepository();
+    final model = CreateProjectViewModel(
+      projects,
+      generationRepository: generator,
+      taskRepository: tasks,
+    );
+    addTearDown(model.dispose);
+    final today = DateUtils.dateOnly(DateTime.now());
+    model.setStartDate(today);
+    model.setEndDate(today.add(const Duration(days: 7)));
+    await model.generateTaskPreview(
+      name: 'Practice',
+      description: 'Learn Flutter',
+    );
+    await tester.pumpWidget(
+      MaterialApp(home: GeneratedTaskPreviewScreen(viewModel: model)),
+    );
+    await tester.tap(find.byTooltip('Edit generated task').first);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('generated-edit-title')),
+      'Custom step',
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('generated-new-checklist-item')),
+      250,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.enterText(
+      find.byKey(const Key('generated-new-checklist-item')),
+      'Verify result',
+    );
+    await tester.ensureVisible(find.byKey(const Key('save-generated-edit')));
+    await tester.tap(find.byKey(const Key('save-generated-edit')));
+    await tester.pumpAndSettle();
+    expect(model.pendingGeneratedTasks.first.title, 'Custom step');
+    expect(model.pendingGeneratedTasks.first.checklist, ['Verify result']);
+    expect(projects.stored, isEmpty);
+    expect(tasks.generatedInsertCalls, 0);
+    model.removeGeneratedTask(2);
+    model.removeGeneratedTask(1);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('Remove generated task').first);
+    await tester.pumpAndSettle();
+    expect(find.text('Remove generated task?'), findsOneWidget);
+    await tester.tap(find.text('Remove').last);
+    await tester.pumpAndSettle();
+    expect(model.pendingGeneratedTasks, isEmpty);
+    expect(
+      tester
+          .widget<FilledButton>(
+            find.byKey(const Key('confirm-generated-tasks-button')),
+          )
+          .onPressed,
+      isNull,
+    );
+    expect(tasks.generatedInsertCalls, 0);
   });
 }

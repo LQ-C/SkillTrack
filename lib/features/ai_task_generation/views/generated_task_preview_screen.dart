@@ -4,21 +4,98 @@ import '../../../app/router/app_router.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../kanban/models/task_priority.dart';
-import '../../projects/viewmodels/create_project_view_model.dart';
+import '../models/task_generation_request.dart';
+import '../view_models/generated_task_preview_state.dart';
 import '../models/generated_task_draft.dart';
+import '../widgets/generated_task_edit_sheet.dart';
 
-class GeneratedTaskPreviewScreen extends StatelessWidget {
+class GeneratedTaskPreviewScreen extends StatefulWidget {
   const GeneratedTaskPreviewScreen({super.key, required this.viewModel});
 
-  final CreateProjectViewModel viewModel;
+  final GeneratedTaskPreviewState viewModel;
+
+  @override
+  State<GeneratedTaskPreviewScreen> createState() =>
+      _GeneratedTaskPreviewScreenState();
+}
+
+class _GeneratedTaskPreviewScreenState
+    extends State<GeneratedTaskPreviewScreen> {
+  final _feedback = TextEditingController();
+  final _taskKeys = <Key>[];
+  GeneratedTaskPreviewState get viewModel => widget.viewModel;
+
+  @override
+  void dispose() {
+    _feedback.dispose();
+    super.dispose();
+  }
 
   Future<void> _confirm(BuildContext context) async {
-    final project = await viewModel.confirmGeneratedTasks();
-    if (context.mounted && project != null) AppRouter.back(context, project);
+    final result = await viewModel.confirmGeneratedTasks();
+    if (context.mounted && result != null) AppRouter.back(context, result);
   }
 
   void _cancel(BuildContext context) {
-    if (!viewModel.isConfirmingGeneratedTasks) AppRouter.back(context);
+    if (viewModel.isConfirmingGeneratedTasks ||
+        viewModel.isRevisingGeneratedTasks) {
+      return;
+    }
+    viewModel.cancelGeneratedTaskPreview();
+    AppRouter.back(context);
+  }
+
+  Future<void> _edit(
+    BuildContext context,
+    int index,
+    GeneratedTaskDraft task,
+  ) async {
+    final updated = await showGeneratedTaskEditSheet(
+      context,
+      task: task,
+      startDate: viewModel.generationStartDate,
+      endDate: viewModel.generationEndDate,
+    );
+    if (updated != null && mounted) {
+      viewModel.updateGeneratedTask(index, updated);
+    }
+  }
+
+  Future<void> _remove(BuildContext context, int index) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Remove generated task?'),
+        content: const Text('This task has not been saved yet.'),
+        actions: [
+          TextButton(
+            onPressed: () => AppRouter.back(context, false),
+            child: const Text('Keep task'),
+          ),
+          TextButton(
+            onPressed: () => AppRouter.back(context, true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true && mounted) {
+      _taskKeys.removeAt(index);
+      viewModel.removeGeneratedTask(index);
+    }
+  }
+
+  void _reorder(int oldIndex, int newIndex) {
+    final key = _taskKeys.removeAt(oldIndex);
+    _taskKeys.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, key);
+    viewModel.reorderGeneratedTask(oldIndex, newIndex);
+  }
+
+  Future<void> _revise(BuildContext context) async {
+    FocusScope.of(context).unfocus();
+    if (await viewModel.reviseGeneratedTasks(_feedback.text) && mounted) {
+      _feedback.clear();
+    }
   }
 
   @override
@@ -26,55 +103,115 @@ class GeneratedTaskPreviewScreen extends StatelessWidget {
     listenable: viewModel,
     builder: (context, child) {
       final tasks = viewModel.pendingGeneratedTasks;
+      while (_taskKeys.length < tasks.length) {
+        _taskKeys.add(UniqueKey());
+      }
+      if (_taskKeys.length > tasks.length) {
+        _taskKeys.removeRange(tasks.length, _taskKeys.length);
+      }
       final saving = viewModel.isConfirmingGeneratedTasks;
+      final revising = viewModel.isRevisingGeneratedTasks;
+      final busy = saving || revising;
+      final append = viewModel.generationMode == TaskGenerationMode.append;
       final theme = Theme.of(context);
       return PopScope<Object?>(
-        canPop: !saving,
+        canPop: !busy,
         onPopInvokedWithResult: (didPop, result) {
           if (didPop) viewModel.cancelGeneratedTaskPreview();
         },
         child: Scaffold(
           appBar: AppBar(
-            title: const Text('Review Generated Tasks'),
+            title: Text(
+              append ? 'Review Additional Tasks' : 'Review Generated Tasks',
+            ),
             leading: IconButton(
               tooltip: 'Back',
-              onPressed: saving ? null : () => _cancel(context),
+              onPressed: busy ? null : () => _cancel(context),
               icon: const Icon(Icons.arrow_back),
             ),
           ),
           body: SafeArea(
             bottom: false,
-            child: ListView.builder(
-              key: const Key('generated-task-preview-list'),
-              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-              itemCount: tasks.length + 1,
-              itemBuilder: (context, index) {
-                if (index == 0) {
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 20),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          'Review the generated plan before creating your project.',
-                          style: theme.textTheme.bodyMedium,
-                        ),
-                        const SizedBox(height: 10),
-                        Text(
-                          '${tasks.length} generated ${tasks.length == 1 ? 'task' : 'tasks'}',
-                          style: theme.textTheme.titleMedium,
-                        ),
-                      ],
+            child: Stack(
+              children: [
+                AbsorbPointer(
+                  absorbing: busy,
+                  child: ReorderableListView.builder(
+                    key: const Key('generated-task-preview-list'),
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                    buildDefaultDragHandles: false,
+                    itemCount: tasks.length,
+                    onReorder: _reorder,
+                    header: Padding(
+                      padding: const EdgeInsets.only(bottom: 20),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            append
+                                ? 'These tasks will be added to your existing project. Your current tasks will not be changed.'
+                                : 'Review the generated plan before creating your project.',
+                            style: theme.textTheme.bodyMedium,
+                          ),
+                          const SizedBox(height: 10),
+                          Text(
+                            '${tasks.length} generated ${tasks.length == 1 ? 'task' : 'tasks'}',
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          if (tasks.isEmpty)
+                            const Padding(
+                              padding: EdgeInsets.only(top: 20),
+                              child: Text(
+                                'No tasks in this preview. Cancel to return.',
+                              ),
+                            ),
+                        ],
+                      ),
                     ),
-                  );
-                }
-                final task = tasks[index - 1];
-                return Padding(
-                  key: ValueKey('generated-task-${task.position}'),
-                  padding: const EdgeInsets.only(bottom: 12),
-                  child: _PreviewCard(task: task, number: index),
-                );
-              },
+                    footer: _revisionSection(
+                      theme,
+                      enabled: !busy && tasks.isNotEmpty,
+                    ),
+                    itemBuilder: (context, index) {
+                      final task = tasks[index];
+                      return Padding(
+                        key: _taskKeys[index],
+                        padding: const EdgeInsets.only(bottom: 12),
+                        child: _PreviewCard(
+                          task: task,
+                          number: index + 1,
+                          onEdit: () => _edit(context, index, task),
+                          onRemove: () => _remove(context, index),
+                          dragHandle: ReorderableDelayedDragStartListener(
+                            index: index,
+                            enabled: !busy,
+                            child: const Tooltip(
+                              message: 'Hold to reorder task',
+                              child: Icon(Icons.drag_handle),
+                            ),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+                if (revising)
+                  Positioned.fill(
+                    child: ColoredBox(
+                      color: theme.colorScheme.surface.withValues(alpha: .82),
+                      child: const Center(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            CircularProgressIndicator(),
+                            SizedBox(height: 16),
+                            Text('Revising plan…'),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           bottomNavigationBar: SafeArea(
@@ -97,16 +234,22 @@ class GeneratedTaskPreviewScreen extends StatelessWidget {
                     builder: (context, constraints) {
                       final cancel = OutlinedButton(
                         key: const Key('cancel-generated-tasks-button'),
-                        onPressed: saving ? null : () => _cancel(context),
+                        onPressed: busy ? null : () => _cancel(context),
                         child: const Text('Cancel'),
                       );
                       final confirm = FilledButton(
                         key: const Key('confirm-generated-tasks-button'),
-                        onPressed: saving || tasks.isEmpty
+                        onPressed: busy || tasks.isEmpty
                             ? null
                             : () => _confirm(context),
                         child: Text(
-                          saving ? 'Creating project…' : 'Confirm & Create',
+                          saving
+                              ? append
+                                    ? 'Adding tasks to your project…'
+                                    : 'Creating project…'
+                              : append
+                              ? 'Add Tasks'
+                              : 'Confirm & Create',
                         ),
                       );
                       if (constraints.maxWidth < 360 ||
@@ -137,13 +280,62 @@ class GeneratedTaskPreviewScreen extends StatelessWidget {
       );
     },
   );
+
+  Widget _revisionSection(ThemeData theme, {required bool enabled}) => Padding(
+    padding: const EdgeInsets.only(top: 16),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Revise this plan', style: theme.textTheme.titleMedium),
+        const SizedBox(height: 4),
+        const Text(
+          'The revised plan may replace your current preview changes.',
+        ),
+        const SizedBox(height: 12),
+        TextField(
+          key: const Key('revision-feedback-field'),
+          controller: _feedback,
+          enabled: enabled,
+          minLines: 2,
+          maxLines: 4,
+          maxLength: 1000,
+          onChanged: (_) => setState(() {}),
+          decoration: const InputDecoration(
+            labelText: 'What should change?',
+            hintText: 'Add more testing tasks and make the plan easier.',
+            border: OutlineInputBorder(),
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: OutlinedButton.icon(
+            key: const Key('revise-generated-plan-button'),
+            onPressed: enabled && _feedback.text.trim().isNotEmpty
+                ? () => _revise(context)
+                : null,
+            icon: const Icon(Icons.auto_awesome_outlined),
+            label: const Text('Revise Plan'),
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _PreviewCard extends StatelessWidget {
-  const _PreviewCard({required this.task, required this.number});
+  const _PreviewCard({
+    required this.task,
+    required this.number,
+    required this.onEdit,
+    required this.onRemove,
+    required this.dragHandle,
+  });
 
   final GeneratedTaskDraft task;
   final int number;
+  final VoidCallback onEdit;
+  final VoidCallback onRemove;
+  final Widget dragHandle;
 
   @override
   Widget build(BuildContext context) {
@@ -170,6 +362,17 @@ class _PreviewCard extends StatelessWidget {
                   backgroundColor: color.withValues(alpha: .10),
                   labelStyle: TextStyle(color: color),
                 ),
+                IconButton(
+                  tooltip: 'Edit generated task',
+                  onPressed: onEdit,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Remove generated task',
+                  onPressed: onRemove,
+                  icon: const Icon(Icons.delete_outline),
+                ),
+                dragHandle,
               ],
             ),
             Text(task.title, style: theme.textTheme.titleMedium),

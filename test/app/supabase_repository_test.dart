@@ -133,6 +133,85 @@ Map<String, dynamic> _task(String id, String board, {bool archived = false}) =>
     };
 
 void main() {
+  test(
+    'task summaries include context and archived tasks in one query',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      api.tables['kanban_tasks'] = [
+        {
+          ..._task('1', 'board-1'),
+          'description': 'Build the foundation',
+          'deadline': '2026-11-20',
+        },
+        {
+          ..._task('2', 'board-1'),
+          'status': 'in_progress',
+          'deadline': 'invalid-date',
+        },
+        {..._task('3', 'board-1', archived: true), 'description': null},
+      ];
+      final summaries = await SupabaseKanbanRepository(
+        client,
+      ).getTaskSummaries('board-1');
+      expect(summaries.map((task) => task.status), [
+        'todo',
+        'in_progress',
+        'archived',
+      ]);
+      expect(summaries.first.description, 'Build the foundation');
+      expect(summaries.first.deadline, DateTime(2026, 11, 20));
+      expect(summaries[1].deadline, isNull);
+      expect(summaries.last.description, isEmpty);
+      expect(summaries.last.deadline, isNull);
+      expect(summaries.map((task) => task.sortOrder), [1000, 2000, 1000]);
+      expect(api.requests, hasLength(1));
+      expect(
+        api.requests.single.queryParameters['select'],
+        'title,description,status,deadline,sort_order,is_archived',
+      );
+      expect(
+        api.requests.single.queryParameters,
+        isNot(contains('is_archived')),
+      );
+    },
+  );
+
+  test(
+    'additional generated tasks start after the current To-Do order',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      await SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+        GeneratedTaskDraft(
+          title: 'Additional',
+          description: 'Build it',
+          priority: 'medium',
+          deadline: DateTime(2026, 10, 20),
+          position: 0,
+          checklist: ['Plan', 'Build'],
+        ),
+      ], startingSortOrder: 5000);
+      final rows = (jsonDecode(api.requestBodies.first) as List)
+          .cast<Map<String, dynamic>>();
+      expect(rows.single['sort_order'], 6000);
+      final checklist = (jsonDecode(api.requestBodies.last) as List)
+          .cast<Map<String, dynamic>>();
+      expect(checklist.map((row) => row['task_id']), [
+        'generated-6000',
+        'generated-6000',
+      ]);
+    },
+  );
+
   test('generated tasks use one trusted batch insert payload', () async {
     final api = await _ApiFixture.start();
     final client = api.client();

@@ -7,6 +7,7 @@ import '../models/task_attachment.dart';
 import '../models/task_checklist_item.dart';
 import '../models/task_tag.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
+import '../../ai_task_generation/models/task_generation_request.dart';
 
 abstract class KanbanRepository {
   String? get currentUserId;
@@ -15,11 +16,13 @@ abstract class KanbanRepository {
   Future<void> setBoardArchived(String boardId, bool archived);
   Future<List<KanbanTask>> getTasks(String boardId);
   Future<List<KanbanTask>> getArchivedTasks(String boardId);
+  Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId);
   Future<KanbanTask> createTask(KanbanTask task);
   Future<void> createGeneratedTasks(
     String boardId,
-    List<GeneratedTaskDraft> tasks,
-  );
+    List<GeneratedTaskDraft> tasks, {
+    int startingSortOrder = 0,
+  });
   Future<KanbanTask> updateTask(KanbanTask task);
   Future<KanbanTask> resumeTask(KanbanTask task);
   Future<void> archiveTask(String taskId, bool archived);

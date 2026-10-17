@@ -11,6 +11,7 @@ import '../models/task_checklist_item.dart';
 import '../models/task_tag.dart';
 import 'kanban_repository.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
+import '../../ai_task_generation/models/task_generation_request.dart';
 
 class SupabaseKanbanRepository implements KanbanRepository {
   SupabaseKanbanRepository(this._client);
@@ -80,6 +81,27 @@ class SupabaseKanbanRepository implements KanbanRepository {
   @override
   Future<List<KanbanTask>> getArchivedTasks(String boardId) =>
       _getTasks(boardId, archived: true);
+
+  @override
+  Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId) =>
+      _guard(() async {
+        final rows = await _client
+            .from('kanban_tasks')
+            .select('title,description,status,deadline,sort_order,is_archived')
+            .eq('board_id', boardId);
+        return [
+          for (final row in rows)
+            ExistingTaskSummary(
+              title: row['title']?.toString() ?? '',
+              description: row['description']?.toString() ?? '',
+              status: row['is_archived'] == true
+                  ? 'archived'
+                  : row['status']?.toString() ?? 'todo',
+              deadline: DateTime.tryParse(row['deadline']?.toString() ?? ''),
+              sortOrder: (row['sort_order'] as num?)?.toInt() ?? 0,
+            ),
+        ];
+      });
 
   Future<List<KanbanTask>> _getTasks(
     String boardId, {
@@ -172,21 +194,25 @@ class SupabaseKanbanRepository implements KanbanRepository {
   @override
   Future<void> createGeneratedTasks(
     String boardId,
-    List<GeneratedTaskDraft> tasks,
-  ) => _guard(() async {
+    List<GeneratedTaskDraft> tasks, {
+    int startingSortOrder = 0,
+  }) => _guard(() async {
     if (tasks.isEmpty) return;
     final inserted = await _client
         .from('kanban_tasks')
         .insert([
-          for (final task in tasks)
+          for (var index = 0; index < tasks.length; index++)
             {
               'board_id': boardId,
-              'title': task.title,
-              'description': task.description,
+              'title': tasks[index].title,
+              'description': tasks[index].description,
               'status': KanbanStatus.todo.value,
-              'priority': task.priority,
-              'deadline': task.deadline.toIso8601String().split('T').first,
-              'sort_order': (task.position + 1) * 1000,
+              'priority': tasks[index].priority,
+              'deadline': tasks[index].deadline
+                  .toIso8601String()
+                  .split('T')
+                  .first,
+              'sort_order': startingSortOrder + (index + 1) * 1000,
               'is_archived': false,
             },
         ])
@@ -207,8 +233,9 @@ class SupabaseKanbanRepository implements KanbanRepository {
       throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
     }
     final checklistRows = <Map<String, dynamic>>[];
-    for (final task in tasks) {
-      final taskId = idsByOrder[(task.position + 1) * 1000];
+    for (var taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
+      final task = tasks[taskIndex];
+      final taskId = idsByOrder[startingSortOrder + (taskIndex + 1) * 1000];
       if (taskId == null) {
         throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
       }

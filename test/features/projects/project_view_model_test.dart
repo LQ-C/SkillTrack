@@ -7,11 +7,98 @@ import 'package:skilltrack/features/projects/models/project_with_progress.dart';
 import 'package:skilltrack/features/projects/viewmodels/create_project_view_model.dart';
 import 'package:skilltrack/features/projects/viewmodels/project_dashboard_view_model.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import 'package:skilltrack/features/ai_task_generation/models/task_generation_request.dart';
 import '../kanban/fake_repository.dart';
 
 import 'fake_project_repository.dart';
 
 void main() {
+  test(
+    'initial preview edits and revision save only the final drafts',
+    () async {
+      final projects = FakeProjectRepository();
+      final generation = FakeTaskGenerationRepository();
+      final tasks = FakeKanbanRepository();
+      final model = CreateProjectViewModel(
+        projects,
+        generationRepository: generation,
+        taskRepository: tasks,
+      );
+      addTearDown(model.dispose);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      model.setStartDate(today);
+      model.setEndDate(today.add(const Duration(days: 7)));
+      expect(
+        await model.generateTaskPreview(
+          name: 'Flutter',
+          description: 'Study Flutter',
+        ),
+        hasLength(3),
+      );
+      final original = model.pendingGeneratedTasks.first;
+      expect(
+        model.updateGeneratedTask(0, original.copyWith(title: 'Step 2')),
+        isFalse,
+      );
+      expect(
+        model.updateGeneratedTask(0, original.copyWith(title: '')),
+        isFalse,
+      );
+      expect(
+        model.updateGeneratedTask(
+          0,
+          original.copyWith(deadline: today.subtract(const Duration(days: 1))),
+        ),
+        isFalse,
+      );
+      expect(
+        model.updateGeneratedTask(
+          0,
+          original.copyWith(
+            title: 'Custom step',
+            checklist: ['Read docs', 'Practice'],
+          ),
+        ),
+        isTrue,
+      );
+      model.removeGeneratedTask(1);
+      model.reorderGeneratedTask(0, 2);
+      expect(model.pendingGeneratedTasks.map((item) => item.position), [0, 1]);
+      expect(projects.stored, isEmpty);
+      expect(tasks.generatedInsertCalls, 0);
+      generation.failRevision = true;
+      expect(await model.reviseGeneratedTasks('  Add tests  '), isFalse);
+      expect(model.pendingGeneratedTasks.last.title, 'Custom step');
+      generation.failRevision = false;
+      generation.revisionResult = [
+        original.copyWith(title: 'Revised step', checklist: ['Review']),
+      ];
+      expect(await model.reviseGeneratedTasks('  Add tests  '), isTrue);
+      expect(generation.lastSourceMode, TaskGenerationMode.initial);
+      expect(generation.lastFeedback, 'Add tests');
+      expect(generation.lastExistingTasks, isEmpty);
+      expect(generation.lastCurrentDraft.last.title, 'Custom step');
+      expect(model.pendingGeneratedTasks.single.title, 'Revised step');
+      expect(
+        model.updateGeneratedTask(
+          0,
+          model.pendingGeneratedTasks.single.copyWith(
+            title: 'Final step',
+            checklist: ['Final check'],
+          ),
+        ),
+        isTrue,
+      );
+      expect(await model.confirmGeneratedTasks(), isNotNull);
+      expect(generation.calls, 1);
+      expect(generation.revisionCalls, 2);
+      expect(projects.stored, hasLength(1));
+      expect(tasks.stored.single.title, 'Final step');
+      expect(tasks.stored.single.checklistItems.single.title, 'Final check');
+    },
+  );
+
   test('generation keeps drafts in memory until one confirmation', () async {
     final projects = FakeProjectRepository();
     final generation = FakeTaskGenerationRepository()
@@ -41,7 +128,7 @@ void main() {
       for (var index = 0; index < 3; index++)
         GeneratedTaskDraft(
           title: 'Step $index',
-          description: '',
+          description: 'Study step $index',
           priority: 'medium',
           deadline: start,
           position: index,

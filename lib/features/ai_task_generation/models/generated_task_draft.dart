@@ -1,4 +1,5 @@
 import '../../../core/errors/app_exception.dart';
+import 'task_generation_request.dart';
 
 /// Unpersisted, validated input from the task generator.
 class GeneratedTaskDraft {
@@ -18,10 +19,87 @@ class GeneratedTaskDraft {
   final int position;
   final List<String> checklist;
 
+  GeneratedTaskDraft copyWith({
+    String? title,
+    String? description,
+    String? priority,
+    DateTime? deadline,
+    int? position,
+    List<String>? checklist,
+  }) => GeneratedTaskDraft(
+    title: title ?? this.title,
+    description: description ?? this.description,
+    priority: priority ?? this.priority,
+    deadline: deadline ?? this.deadline,
+    position: position ?? this.position,
+    checklist: checklist ?? this.checklist,
+  );
+
+  Map<String, Object?> toRevisionJson() => {
+    'title': title.trim(),
+    'description': description.trim(),
+    'priority': priority.trim(),
+    'deadline':
+        '${deadline.year.toString().padLeft(4, '0')}-${deadline.month.toString().padLeft(2, '0')}-${deadline.day.toString().padLeft(2, '0')}',
+    'position': position,
+    'checklist': [for (final item in checklist) item.trim()],
+  };
+
+  static List<GeneratedTaskDraft> reindex(List<GeneratedTaskDraft> drafts) => [
+    for (var index = 0; index < drafts.length; index++)
+      drafts[index].copyWith(position: index),
+  ];
+
+  static String? validationError(
+    List<GeneratedTaskDraft> drafts, {
+    required DateTime startDate,
+    required DateTime endDate,
+    Iterable<String> existingTitles = const [],
+  }) {
+    if (drafts.isEmpty) return AppErrorMessages.noGeneratedTasks;
+    final titles = existingTitles.map(normalizedTaskTitle).toSet();
+    final first = DateTime(startDate.year, startDate.month, startDate.day);
+    final last = DateTime(endDate.year, endDate.month, endDate.day);
+    for (final draft in drafts) {
+      final title = draft.title.trim();
+      final description = draft.description.trim();
+      final date = DateTime(
+        draft.deadline.year,
+        draft.deadline.month,
+        draft.deadline.day,
+      );
+      if (title.isEmpty ||
+          title.length > 150 ||
+          description.isEmpty ||
+          description.length > 1000 ||
+          !const {'low', 'medium', 'high'}.contains(draft.priority) ||
+          date.isBefore(first) ||
+          date.isAfter(last)) {
+        return AppErrorMessages.invalidGeneratedDraft;
+      }
+      if (!titles.add(normalizedTaskTitle(title))) {
+        return AppErrorMessages.duplicateGeneratedTitle;
+      }
+      if (draft.checklist.length > 5 ||
+          draft.checklist.any(
+            (item) => item.trim().isEmpty || item.trim().length > 150,
+          ) ||
+          draft.checklist
+                  .map((item) => item.trim().toLowerCase())
+                  .toSet()
+                  .length !=
+              draft.checklist.length) {
+        return AppErrorMessages.invalidGeneratedChecklist;
+      }
+    }
+    return null;
+  }
+
   static List<GeneratedTaskDraft> parseTasks(
     Object? response, {
     required DateTime startDate,
     required DateTime endDate,
+    int minimumTaskCount = 3,
   }) {
     if (response is! Map || response['milestones'] is! List) {
       throw const AppException(AppErrorMessages.noGeneratedTasks);
@@ -64,7 +142,7 @@ class GeneratedTaskDraft {
       }
       if (candidates.length == 12) break;
     }
-    if (candidates.length < 3) {
+    if (candidates.length < minimumTaskCount) {
       throw const AppException(AppErrorMessages.noGeneratedTasks);
     }
     final days = DateTime.utc(endDate.year, endDate.month, endDate.day)
@@ -81,7 +159,10 @@ class GeneratedTaskDraft {
           deadline: DateTime(
             startDate.year,
             startDate.month,
-            startDate.day + (days * index / (candidates.length - 1)).round(),
+            startDate.day +
+                (candidates.length == 1
+                    ? 0
+                    : (days * index / (candidates.length - 1)).round()),
           ),
           position: index,
           checklist: candidates[index].checklist,

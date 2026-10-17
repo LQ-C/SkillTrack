@@ -4,6 +4,7 @@ import 'package:skilltrack/features/projects/models/learning_project.dart';
 import 'package:skilltrack/features/projects/models/project_with_progress.dart';
 import 'package:skilltrack/features/projects/repositories/project_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import 'package:skilltrack/features/ai_task_generation/models/task_generation_request.dart';
 import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 
 class FakeTaskGenerationRepository implements TaskGenerationRepository {
@@ -11,6 +12,17 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
   bool fail = false;
   Completer<List<GeneratedTaskDraft>>? pending;
   List<GeneratedTaskDraft>? result;
+  TaskGenerationMode? lastMode;
+  List<ExistingTaskSummary> lastExistingTasks = [];
+  DateTime? lastStartDate;
+  DateTime? lastEndDate;
+  int revisionCalls = 0;
+  bool failRevision = false;
+  Completer<List<GeneratedTaskDraft>>? pendingRevision;
+  List<GeneratedTaskDraft>? revisionResult;
+  TaskGenerationMode? lastSourceMode;
+  String? lastFeedback;
+  List<GeneratedTaskDraft> lastCurrentDraft = [];
 
   @override
   Future<List<GeneratedTaskDraft>> generate({
@@ -18,8 +30,14 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     required String description,
     required DateTime startDate,
     required DateTime endDate,
+    TaskGenerationMode mode = TaskGenerationMode.initial,
+    List<ExistingTaskSummary> existingTasks = const [],
   }) async {
     calls++;
+    lastMode = mode;
+    lastExistingTasks = existingTasks;
+    lastStartDate = startDate;
+    lastEndDate = endDate;
     if (pending != null) return pending!.future;
     if (fail) throw StateError('generation failed');
     return result ??
@@ -33,6 +51,27 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
               position: index,
             ),
         ];
+  }
+
+  @override
+  Future<List<GeneratedTaskDraft>> revise({
+    required String title,
+    required String description,
+    required DateTime startDate,
+    required DateTime endDate,
+    required TaskGenerationMode sourceMode,
+    required String feedback,
+    required List<GeneratedTaskDraft> currentDraft,
+    List<ExistingTaskSummary> existingTasks = const [],
+  }) async {
+    revisionCalls++;
+    lastSourceMode = sourceMode;
+    lastFeedback = feedback;
+    lastCurrentDraft = List.of(currentDraft);
+    lastExistingTasks = List.of(existingTasks);
+    if (pendingRevision != null) return pendingRevision!.future;
+    if (failRevision) throw StateError('revision failed');
+    return revisionResult ?? List.of(currentDraft);
   }
 }
 

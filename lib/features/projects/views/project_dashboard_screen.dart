@@ -66,6 +66,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
         projectId: item.project.id,
         boardId: boardId ?? '',
         projectName: item.project.name,
+        projectStatus: item.project.status,
       ),
     );
     if (mounted) await _model.load();
