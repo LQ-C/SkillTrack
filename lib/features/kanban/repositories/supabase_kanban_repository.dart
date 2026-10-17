@@ -259,6 +259,31 @@ class SupabaseKanbanRepository implements KanbanRepository {
   });
 
   @override
+  Future<KanbanTask> resumeTask(KanbanTask task) => _guard(() async {
+    final now = DateTime.now().toUtc().toIso8601String();
+    final row = await _client
+        .from('kanban_tasks')
+        .update({
+          'is_stalled': false,
+          'stagnation_score': 0,
+          'stalled_at': null,
+          'last_activity_at': now,
+          'updated_at': now,
+        })
+        .eq('id', task.id)
+        .eq('board_id', task.boardId)
+        .select()
+        .single();
+    await addActivity(task.id, 'resumed');
+    return KanbanTask.fromMap(
+      row,
+      tags: task.tags,
+      checklistItems: task.checklistItems,
+      attachments: task.attachments,
+    );
+  });
+
+  @override
   Future<void> archiveTask(String taskId, bool archived) => _guard(() async {
     await _client
         .from('kanban_tasks')

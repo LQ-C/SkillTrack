@@ -58,10 +58,10 @@ void main() {
           model.allTasks.single.lastActivityAt,
           DateTime.utc(2026, 10, 13),
         );
-        await model.resumeTask('1');
+        expect(await model.resumeTask('1'), isTrue);
         expect(repo.activityEvents.single.action, 'resumed');
-        expect(model.allTasks.single.isStalled, isTrue);
-        expect(repo.stored.single.stagnationScore, 80);
+        expect(model.allTasks.single.isStalled, isFalse);
+        expect(repo.stored.single.stagnationScore, 0);
         repo.stored[0] = repo.stored[0].copyWith(
           stagnationScore: 40,
           isStalled: false,

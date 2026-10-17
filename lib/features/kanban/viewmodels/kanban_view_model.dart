@@ -763,8 +763,27 @@ class KanbanViewModel extends ChangeNotifier {
       _repository.getAttachmentUrl(attachment);
   Future<List<TaskActivity>> getTaskActivity(String taskId) =>
       _repository.getTaskActivity(taskId);
-  Future<void> resumeTask(String taskId) =>
-      _repository.addActivity(taskId, 'resumed');
+  Future<bool> resumeTask(String taskId) async {
+    if (_disposed || _isSaving) return false;
+    final index = _tasks.indexWhere((task) => task.id == taskId);
+    if (index < 0 || !_tasks[index].isStalled) return false;
+    _isSaving = true;
+    notifyListeners();
+    try {
+      final resumed = await _repository.resumeTask(_tasks[index]);
+      if (_disposed) return false;
+      _tasks = List.of(_tasks)..[index] = resumed;
+      _feedbackMessage = 'Task resumed';
+      notifyListeners();
+      return true;
+    } catch (error) {
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
+      return false;
+    } finally {
+      _isSaving = false;
+      notifyListeners();
+    }
+  }
 
   @override
   void notifyListeners() {

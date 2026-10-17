@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
 import 'package:flutter/material.dart';
@@ -6,6 +7,8 @@ import 'package:skilltrack/app/app_theme.dart';
 import 'package:skilltrack/app/skill_track_app.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
+import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import 'package:skilltrack/features/ai_task_generation/views/generated_task_preview_screen.dart';
 import 'package:skilltrack/features/projects/views/create_project_screen.dart';
 import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 
@@ -65,12 +68,54 @@ void main() {
     await tester.pumpAndSettle();
   }
 
+  Future<void> enterValidProjectForm(WidgetTester tester) async {
+    await tester.tap(find.byKey(const Key('new-project-button')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const Key('project-name-field')),
+      'Flutter study',
+    );
+    await tester.enterText(
+      find.byKey(const Key('project-description-field')),
+      'Practice widgets',
+    );
+    final today = DateUtils.dateOnly(DateTime.now());
+    for (final (key, date) in [
+      ('project-start-date-field', today),
+      ('project-end-date-field', today.add(const Duration(days: 7))),
+    ]) {
+      final field = find.byKey(Key(key));
+      await tester.ensureVisible(field);
+      await tester.tap(field);
+      await tester.pumpAndSettle();
+      await selectPickerDate(tester, date);
+    }
+    await showProjectAction(tester, 'generate-tasks-button');
+  }
+
   testWidgets(
-    'Generate Tasks creates a project and opens its board with To-Do tasks',
+    'Generate previews drafts, then Confirm creates the project and board',
     (tester) async {
       final projects = FakeProjectRepository();
       final kanban = FakeKanbanRepository();
-      final generation = FakeTaskGenerationRepository();
+      final generation = FakeTaskGenerationRepository()
+        ..result = [
+          GeneratedTaskDraft(
+            title: 'Build widget',
+            description: 'Practice layouts',
+            priority: 'high',
+            deadline: DateUtils.dateOnly(DateTime.now()),
+            position: 0,
+            checklist: ['Create screen', 'Run tests'],
+          ),
+          GeneratedTaskDraft(
+            title: 'Review result',
+            description: '',
+            priority: 'medium',
+            deadline: DateUtils.dateOnly(DateTime.now()),
+            position: 1,
+          ),
+        ];
       await showApp(tester, projects, kanban: kanban, generation: generation);
       await tester.tap(find.byKey(const Key('new-project-button')));
       await tester.pumpAndSettle();
@@ -109,9 +154,27 @@ void main() {
       await tester.tap(generate);
       await tester.pumpAndSettle();
       expect(generation.calls, 1);
+      expect(find.byType(GeneratedTaskPreviewScreen), findsOneWidget);
+      expect(find.text('2 generated tasks'), findsOneWidget);
+      expect(find.text('Build widget'), findsOneWidget);
+      expect(find.text('Practice layouts'), findsOneWidget);
+      expect(find.text('High'), findsOneWidget);
+      expect(find.text('Checklist (2)'), findsOneWidget);
+      expect(find.text('Create screen'), findsOneWidget);
+      expect(find.text('Run tests'), findsOneWidget);
+      expect(find.text('No checklist generated'), findsOneWidget);
+      expect(projects.stored, isEmpty);
+      expect(kanban.generatedInsertCalls, 0);
+      await tester.tap(find.byKey(const Key('confirm-generated-tasks-button')));
+      await tester.pumpAndSettle();
       expect(projects.stored.length, 1);
       expect(kanban.generatedInsertCalls, 1);
-      expect(kanban.stored.length, 3);
+      expect(kanban.stored.length, 2);
+      expect(kanban.stored.first.checklistItems.map((item) => item.title), [
+        'Create screen',
+        'Run tests',
+      ]);
+      expect(generation.calls, 1);
       expect(
         kanban.stored.every((task) => task.status == KanbanStatus.todo),
         isTrue,
@@ -119,6 +182,110 @@ void main() {
       expect(find.text('Flutter study'), findsWidgets);
     },
   );
+
+  testWidgets('Cancel and system Back discard drafts but keep the form', (
+    tester,
+  ) async {
+    final projects = FakeProjectRepository();
+    final kanban = FakeKanbanRepository();
+    final generation = FakeTaskGenerationRepository();
+    await showApp(tester, projects, kanban: kanban, generation: generation);
+    await enterValidProjectForm(tester);
+    for (final useSystemBack in [false, true]) {
+      await tester.tap(find.byKey(const Key('generate-tasks-button')));
+      await tester.pumpAndSettle();
+      expect(find.byType(GeneratedTaskPreviewScreen), findsOneWidget);
+      if (useSystemBack) {
+        await tester.binding.handlePopRoute();
+      } else {
+        await tester.tap(
+          find.byKey(const Key('cancel-generated-tasks-button')),
+        );
+      }
+      await tester.pumpAndSettle();
+      expect(find.byType(GeneratedTaskPreviewScreen), findsNothing);
+      expect(
+        tester
+            .widget<TextField>(find.byKey(const Key('project-name-field')))
+            .controller!
+            .text,
+        'Flutter study',
+      );
+      expect(
+        tester
+            .widget<TextField>(
+              find.byKey(const Key('project-description-field')),
+            )
+            .controller!
+            .text,
+        'Practice widgets',
+      );
+      expect(projects.stored, isEmpty);
+      expect(kanban.generatedInsertCalls, 0);
+      await showProjectAction(tester, 'generate-tasks-button');
+    }
+    expect(generation.calls, 2);
+  });
+
+  testWidgets('loading blocks duplicate generation and project creation', (
+    tester,
+  ) async {
+    final projects = FakeProjectRepository();
+    final generation = FakeTaskGenerationRepository()
+      ..pending = Completer<List<GeneratedTaskDraft>>();
+    await showApp(tester, projects, generation: generation);
+    await enterValidProjectForm(tester);
+    final generate = find.byKey(const Key('generate-tasks-button'));
+    await tester.tap(generate);
+    await tester.pump();
+    expect(find.text('Generating your task plan'), findsOneWidget);
+    expect(tester.widget<OutlinedButton>(generate).onPressed, isNull);
+    expect(
+      tester
+          .widget<FilledButton>(find.byKey(const Key('save-project-button')))
+          .onPressed,
+      isNull,
+    );
+    expect(generation.calls, 1);
+    expect(projects.stored, isEmpty);
+    generation.pending!.complete([
+      GeneratedTaskDraft(
+        title: 'First step',
+        description: '',
+        priority: 'medium',
+        deadline: DateUtils.dateOnly(DateTime.now()),
+        position: 0,
+      ),
+    ]);
+    await tester.pumpAndSettle();
+    expect(find.byType(GeneratedTaskPreviewScreen), findsOneWidget);
+    expect(generation.calls, 1);
+  });
+
+  testWidgets('failed Confirm retains the preview and allows retry', (
+    tester,
+  ) async {
+    final projects = FakeProjectRepository()..failBoardCreation = true;
+    final generation = FakeTaskGenerationRepository();
+    await showApp(tester, projects, generation: generation);
+    await enterValidProjectForm(tester);
+    await tester.tap(find.byKey(const Key('generate-tasks-button')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const Key('confirm-generated-tasks-button')));
+    await tester.pumpAndSettle();
+    expect(find.byType(GeneratedTaskPreviewScreen), findsOneWidget);
+    expect(find.text('Step 1'), findsOneWidget);
+    expect(
+      find.text('Unable to create the project. Please try again.'),
+      findsOneWidget,
+    );
+    expect(projects.stored, isEmpty);
+    projects.failBoardCreation = false;
+    await tester.tap(find.byKey(const Key('confirm-generated-tasks-button')));
+    await tester.pumpAndSettle();
+    expect(projects.stored, hasLength(1));
+    expect(generation.calls, 1);
+  });
 
   testWidgets('create actions remain reachable with keyboard and form errors', (
     tester,

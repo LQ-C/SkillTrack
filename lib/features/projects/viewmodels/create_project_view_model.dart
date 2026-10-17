@@ -1,3 +1,5 @@
+import 'dart:collection';
+
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
@@ -25,8 +27,10 @@ class CreateProjectViewModel extends ChangeNotifier {
   final LearningProject? original;
   bool _isSaving = false;
   bool _isGeneratingTasks = false;
+  bool _isConfirmingGeneratedTasks = false;
   ProjectWithProgress? _pendingProject;
   List<GeneratedTaskDraft>? _pendingTasks;
+  String? _pendingName, _pendingDescription;
   DateTime? _startDate, _endDate;
   String? _nameError,
       _descriptionError,
@@ -36,6 +40,9 @@ class CreateProjectViewModel extends ChangeNotifier {
 
   bool get isSaving => _isSaving;
   bool get isGeneratingTasks => _isGeneratingTasks;
+  bool get isConfirmingGeneratedTasks => _isConfirmingGeneratedTasks;
+  List<GeneratedTaskDraft> get pendingGeneratedTasks =>
+      UnmodifiableListView(_pendingTasks ?? const <GeneratedTaskDraft>[]);
   ProjectWithProgress? get pendingProject => _pendingProject;
   String? get nameError => _nameError;
   String? get descriptionError => _descriptionError;
@@ -50,7 +57,9 @@ class CreateProjectViewModel extends ChangeNotifier {
       value == null ? null : DateTime(value.year, value.month, value.day);
 
   void setStartDate(DateTime? value) {
-    if (_disposed || _isSaving) return;
+    if (_disposed || _isSaving || _isGeneratingTasks || _pendingTasks != null) {
+      return;
+    }
     _startDate = _dateOnly(value);
     if (original == null &&
         _startDate != null &&
@@ -63,7 +72,9 @@ class CreateProjectViewModel extends ChangeNotifier {
   }
 
   void setEndDate(DateTime? value) {
-    if (_disposed || _isSaving) return;
+    if (_disposed || _isSaving || _isGeneratingTasks || _pendingTasks != null) {
+      return;
+    }
     _endDate = _dateOnly(value);
     _validateDates();
     notifyListeners();
@@ -90,7 +101,13 @@ class CreateProjectViewModel extends ChangeNotifier {
     required String description,
     String status = 'active',
   }) async {
-    if (_disposed || _isSaving || _pendingProject != null) return null;
+    if (_disposed ||
+        _isSaving ||
+        _isGeneratingTasks ||
+        _pendingTasks != null ||
+        _pendingProject != null) {
+      return null;
+    }
     if (!_validateForm(name, description)) return null;
     _isSaving = true;
     notifyListeners();
@@ -175,15 +192,15 @@ class CreateProjectViewModel extends ChangeNotifier {
     endDate: _endDate,
   );
 
-  Future<ProjectWithProgress?> generateTasks({
+  Future<List<GeneratedTaskDraft>?> generateTaskPreview({
     required String name,
     required String description,
   }) async {
-    if (_disposed || _isSaving || original != null) return null;
-    if (_pendingProject == null &&
-        !_validateForm(name, description, requireDates: true)) {
+    if (_disposed || _isSaving || _isGeneratingTasks || original != null) {
       return null;
     }
+    if (_pendingTasks != null) return pendingGeneratedTasks;
+    if (!_validateForm(name, description, requireDates: true)) return null;
     if (_repository.currentUserId == null) {
       _errorMessage = 'Sign in to generate tasks.';
       notifyListeners();
@@ -194,36 +211,58 @@ class CreateProjectViewModel extends ChangeNotifier {
       notifyListeners();
       return null;
     }
-    _isSaving = true;
     _isGeneratingTasks = true;
+    _errorMessage = null;
+    notifyListeners();
+    try {
+      final generated = await _generationRepository.generate(
+        title: name.trim(),
+        description: description.trim(),
+        startDate: _startDate!,
+        endDate: _endDate!,
+      );
+      if (_disposed) return null;
+      if (generated.isEmpty) {
+        _errorMessage = AppErrorMessages.noGeneratedTasks;
+        return null;
+      }
+      _pendingTasks = List.unmodifiable(generated);
+      _pendingName = name.trim();
+      _pendingDescription = description.trim();
+      return pendingGeneratedTasks;
+    } catch (error) {
+      if (!_disposed) {
+        _errorMessage = AppException.messageFor(
+          error,
+          fallback: AppErrorMessages.generateTasksFailed,
+        );
+      }
+      return null;
+    } finally {
+      _isGeneratingTasks = false;
+      notifyListeners();
+    }
+  }
+
+  Future<ProjectWithProgress?> confirmGeneratedTasks() async {
+    if (_disposed ||
+        _isSaving ||
+        _isGeneratingTasks ||
+        _pendingTasks == null ||
+        _pendingTasks!.isEmpty) {
+      return null;
+    }
+    _isSaving = true;
+    _isConfirmingGeneratedTasks = true;
     _errorMessage = null;
     notifyListeners();
     try {
       if (_pendingProject == null) {
         try {
-          _pendingTasks = await _generationRepository.generate(
-            title: name.trim(),
-            description: description.trim(),
-            startDate: _startDate!,
-            endDate: _endDate!,
-          );
-        } catch (error) {
-          _errorMessage = AppException.messageFor(
-            error,
-            fallback: AppErrorMessages.generateTasksFailed,
-          );
-          return null;
-        }
-        if (_disposed) return null;
-        if (_pendingTasks!.isEmpty) {
-          _errorMessage = AppErrorMessages.noGeneratedTasks;
-          return null;
-        }
-        try {
-          final text = description.trim();
+          final description = _pendingDescription!;
           _pendingProject = await _createProject(
-            name.trim(),
-            text.isEmpty ? null : text,
+            _pendingName!,
+            description.isEmpty ? null : description,
           );
         } catch (_) {
           _errorMessage = AppErrorMessages.createProjectFailed;
@@ -239,7 +278,7 @@ class CreateProjectViewModel extends ChangeNotifier {
       try {
         // A previous insert may have committed even if its response was lost.
         if (_pendingProject != null && _insertAttempted) {
-          final saved = await _taskRepository.getTasks(boardId);
+          final saved = await _taskRepository!.getTasks(boardId);
           if (saved.length == _pendingTasks!.length &&
               saved.every(
                 (task) => _pendingTasks!.any(
@@ -263,7 +302,7 @@ class CreateProjectViewModel extends ChangeNotifier {
           }
         }
         _insertAttempted = true;
-        await _taskRepository.createGeneratedTasks(boardId, _pendingTasks!);
+        await _taskRepository!.createGeneratedTasks(boardId, _pendingTasks!);
         return _disposed ? null : project;
       } catch (_) {
         _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
@@ -271,9 +310,23 @@ class CreateProjectViewModel extends ChangeNotifier {
       }
     } finally {
       _isSaving = false;
-      _isGeneratingTasks = false;
+      _isConfirmingGeneratedTasks = false;
       notifyListeners();
     }
+  }
+
+  void cancelGeneratedTaskPreview() {
+    if (_disposed ||
+        _isSaving ||
+        _pendingTasks == null ||
+        _pendingProject != null) {
+      return;
+    }
+    _pendingTasks = null;
+    _pendingName = null;
+    _pendingDescription = null;
+    _errorMessage = null;
+    notifyListeners();
   }
 
   bool _insertAttempted = false;

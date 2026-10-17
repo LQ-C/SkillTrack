@@ -12,8 +12,10 @@ import '../../features/projects/models/learning_project.dart';
 import '../../features/projects/models/project_with_progress.dart';
 import '../../features/projects/repositories/project_repository.dart';
 import '../../features/ai_task_generation/repositories/ai_task_generation_repository.dart';
+import '../../features/ai_task_generation/views/generated_task_preview_screen.dart';
 import '../../features/projects/views/create_project_screen.dart';
 import '../../features/projects/views/project_dashboard_screen.dart';
+import '../../features/projects/viewmodels/create_project_view_model.dart';
 import '../../features/notifications/repositories/notification_repository.dart';
 import '../../features/notifications/viewmodels/notification_badge_controller.dart';
 import '../../features/notifications/services/notification_realtime_service.dart';
@@ -24,6 +26,7 @@ import '../views/main_module_shell.dart';
 class AppRoutes {
   static const projectDashboard = '/projects';
   static const createProject = '/projects/create';
+  static const generatedTaskPreview = '/projects/create/generated-tasks';
   static const editProject = '/projects/edit';
   static const kanbanBoard = '/projects/board';
   static const createTask = '/projects/board/tasks/create';
@@ -52,6 +55,12 @@ class EditProjectRouteArgs {
   const EditProjectRouteArgs(this.projectId);
   final String projectId;
   bool get isValid => projectId.trim().isNotEmpty;
+}
+
+class GeneratedTaskPreviewRouteArgs {
+  const GeneratedTaskPreviewRouteArgs(this.viewModel);
+  final CreateProjectViewModel viewModel;
+  bool get isValid => viewModel.pendingGeneratedTasks.isNotEmpty;
 }
 
 class CreateTaskRouteArgs extends BoardRouteArgs {
@@ -140,6 +149,10 @@ class AppRouter {
           generationRepository: taskGenerationRepository,
           taskRepository: kanbanRepository,
         );
+      case AppRoutes.generatedTaskPreview:
+        page = arguments is GeneratedTaskPreviewRouteArgs && arguments.isValid
+            ? GeneratedTaskPreviewScreen(viewModel: arguments.viewModel)
+            : const _RouteUnavailable();
       case AppRoutes.editProject:
         page = arguments is EditProjectRouteArgs && arguments.isValid
             ? _EditProjectRoute(
@@ -173,6 +186,16 @@ class AppRouter {
     BuildContext context,
   ) async =>
       (await Navigator.of(context).pushNamed<dynamic>(AppRoutes.createProject))
+          as ProjectWithProgress?;
+
+  static Future<ProjectWithProgress?> generatedTaskPreview(
+    BuildContext context,
+    CreateProjectViewModel viewModel,
+  ) async =>
+      (await Navigator.of(context).pushNamed<dynamic>(
+            AppRoutes.generatedTaskPreview,
+            arguments: GeneratedTaskPreviewRouteArgs(viewModel),
+          ))
           as ProjectWithProgress?;
 
   static Future<ProjectWithProgress?> editProject(

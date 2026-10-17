@@ -130,6 +130,19 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   }
 
   @override
+  Future<KanbanTask> resumeTask(KanbanTask task) async {
+    final resumed = task.copyWith(
+      isStalled: false,
+      stagnationScore: 0,
+      clearStalledAt: true,
+      lastActivityAt: DateTime.now().toUtc(),
+    );
+    stored = stored.map((item) => item.id == task.id ? resumed : item).toList();
+    await addActivity(task.id, 'resumed');
+    return resumed;
+  }
+
+  @override
   Future<void> moveTask(
     KanbanTask task,
     KanbanStatus status,

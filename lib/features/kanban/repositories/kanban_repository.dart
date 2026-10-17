@@ -21,6 +21,7 @@ abstract class KanbanRepository {
     List<GeneratedTaskDraft> tasks,
   );
   Future<KanbanTask> updateTask(KanbanTask task);
+  Future<KanbanTask> resumeTask(KanbanTask task);
   Future<void> archiveTask(String taskId, bool archived);
   Future<void> deleteTask(String taskId);
   Future<void> moveTask(

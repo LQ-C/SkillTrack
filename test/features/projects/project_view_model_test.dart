@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
+import 'package:skilltrack/features/projects/models/project_with_progress.dart';
 import 'package:skilltrack/features/projects/viewmodels/create_project_view_model.dart';
 import 'package:skilltrack/features/projects/viewmodels/project_dashboard_view_model.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
@@ -11,7 +12,7 @@ import '../kanban/fake_repository.dart';
 import 'fake_project_repository.dart';
 
 void main() {
-  test('repeated taps start only one generation and one project', () async {
+  test('generation keeps drafts in memory until one confirmation', () async {
     final projects = FakeProjectRepository();
     final generation = FakeTaskGenerationRepository()
       ..pending = Completer<List<GeneratedTaskDraft>>();
@@ -25,10 +26,13 @@ void main() {
     final today = DateTime.now();
     model.setStartDate(DateTime(today.year, today.month, today.day));
     model.setEndDate(DateTime(today.year, today.month, today.day + 7));
-    final first = model.generateTasks(name: 'Flutter', description: 'Study');
+    final first = model.generateTaskPreview(
+      name: 'Flutter',
+      description: 'Study',
+    );
     expect(model.isGeneratingTasks, isTrue);
     expect(
-      await model.generateTasks(name: 'Flutter', description: 'Study'),
+      await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
       isNull,
     );
     expect(await model.submit(name: 'Flutter', description: ''), isNull);
@@ -43,8 +47,14 @@ void main() {
           position: index,
         ),
     ]);
-    expect(await first, isNotNull);
+    expect(await first, hasLength(3));
     expect(generation.calls, 1);
+    expect(model.isGeneratingTasks, isFalse);
+    expect(model.pendingGeneratedTasks, hasLength(3));
+    expect(() => model.pendingGeneratedTasks.clear(), throwsUnsupportedError);
+    expect(projects.stored, isEmpty);
+    expect(tasks.generatedInsertCalls, 0);
+    expect(await model.confirmGeneratedTasks(), isNotNull);
     expect(projects.stored.length, 1);
     expect(tasks.generatedInsertCalls, 1);
   });
@@ -58,10 +68,13 @@ void main() {
       taskRepository: tasks,
     );
     addTearDown(model.dispose);
-    expect(await model.generateTasks(name: '', description: ''), isNull);
+    expect(await model.generateTaskPreview(name: '', description: ''), isNull);
     expect(model.nameError, 'Project name is required.');
     expect(generation.calls, 0);
-    expect(await model.generateTasks(name: 'Flutter', description: ''), isNull);
+    expect(
+      await model.generateTaskPreview(name: 'Flutter', description: ''),
+      isNull,
+    );
     expect(model.descriptionError, 'Add a description to generate tasks.');
     expect(model.startDateError, isNotNull);
     expect(model.endDateError, isNotNull);
@@ -81,7 +94,7 @@ void main() {
     model.setStartDate(DateTime(today.year, today.month, today.day));
     model.setEndDate(DateTime(today.year, today.month, today.day + 7));
     expect(
-      await model.generateTasks(name: 'Flutter', description: 'Study'),
+      await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
       isNull,
     );
     expect(
@@ -89,12 +102,104 @@ void main() {
       'Tasks could not be generated. Please try again.',
     );
     expect(projects.stored, isEmpty);
-    expect(model.isSaving, isFalse);
+    expect(model.isGeneratingTasks, isFalse);
     generation.fail = false;
     expect(
-      await model.generateTasks(name: 'Flutter', description: 'Study'),
+      await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
       isNotNull,
     );
+  });
+
+  test(
+    'cancel discards drafts but preserves dates and permits regeneration',
+    () async {
+      final projects = FakeProjectRepository();
+      final generation = FakeTaskGenerationRepository();
+      final tasks = FakeKanbanRepository();
+      final model = CreateProjectViewModel(
+        projects,
+        generationRepository: generation,
+        taskRepository: tasks,
+      );
+      addTearDown(model.dispose);
+      final today = DateTime.now();
+      final start = DateTime(today.year, today.month, today.day);
+      final end = start.add(const Duration(days: 7));
+      model.setStartDate(start);
+      model.setEndDate(end);
+      expect(
+        await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
+        hasLength(3),
+      );
+      model.cancelGeneratedTaskPreview();
+      expect(model.pendingGeneratedTasks, isEmpty);
+      expect(model.startDate, start);
+      expect(model.endDate, end);
+      expect(projects.stored, isEmpty);
+      expect(tasks.generatedInsertCalls, 0);
+      expect(
+        await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
+        hasLength(3),
+      );
+      expect(generation.calls, 2);
+    },
+  );
+
+  test(
+    'project creation failure retains drafts for confirmation retry',
+    () async {
+      final projects = FakeProjectRepository()..failBoardCreation = true;
+      final generation = FakeTaskGenerationRepository();
+      final model = CreateProjectViewModel(
+        projects,
+        generationRepository: generation,
+        taskRepository: FakeKanbanRepository(),
+      );
+      addTearDown(model.dispose);
+      final today = DateTime.now();
+      model.setStartDate(DateTime(today.year, today.month, today.day));
+      model.setEndDate(DateTime(today.year, today.month, today.day + 7));
+      expect(
+        await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
+        hasLength(3),
+      );
+      expect(await model.confirmGeneratedTasks(), isNull);
+      expect(model.pendingGeneratedTasks, hasLength(3));
+      expect(model.isConfirmingGeneratedTasks, isFalse);
+      expect(projects.stored, isEmpty);
+      projects.failBoardCreation = false;
+      expect(await model.confirmGeneratedTasks(), isNotNull);
+      expect(projects.stored, hasLength(1));
+      expect(generation.calls, 1);
+    },
+  );
+
+  test('concurrent Confirm calls create and insert only once', () async {
+    final projects = _DelayedProjectRepository();
+    final generation = FakeTaskGenerationRepository();
+    final tasks = FakeKanbanRepository();
+    final model = CreateProjectViewModel(
+      projects,
+      generationRepository: generation,
+      taskRepository: tasks,
+    );
+    addTearDown(model.dispose);
+    final today = DateTime.now();
+    model.setStartDate(DateTime(today.year, today.month, today.day));
+    model.setEndDate(DateTime(today.year, today.month, today.day + 7));
+    expect(
+      await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
+      hasLength(3),
+    );
+    final first = model.confirmGeneratedTasks();
+    expect(model.isConfirmingGeneratedTasks, isTrue);
+    expect(await model.confirmGeneratedTasks(), isNull);
+    projects.release.complete();
+    expect(await first, isNotNull);
+    expect(projects.createCalls, 1);
+    expect(projects.stored, hasLength(1));
+    expect(tasks.generatedInsertCalls, 1);
+    expect(generation.calls, 1);
   });
 
   test(
@@ -113,17 +218,16 @@ void main() {
       model.setStartDate(DateTime(today.year, today.month, today.day));
       model.setEndDate(DateTime(today.year, today.month, today.day + 7));
       expect(
-        await model.generateTasks(name: 'Flutter', description: 'Study'),
-        isNull,
+        await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
+        hasLength(3),
       );
+      expect(model.pendingProject, isNull);
+      expect(await model.confirmGeneratedTasks(), isNull);
       expect(model.pendingProject, isNotNull);
       expect(projects.stored.length, 1);
       expect(model.errorMessage, contains('could not be saved'));
       tasks.failGeneratedInsert = false;
-      final result = await model.generateTasks(
-        name: 'Flutter',
-        description: 'Study',
-      );
+      final result = await model.confirmGeneratedTasks();
       expect(result?.project.id, projects.stored.single.project.id);
       expect(projects.stored.length, 1);
       expect(generation.calls, 1);
@@ -159,9 +263,10 @@ void main() {
       model.setStartDate(start);
       model.setEndDate(start.add(const Duration(days: 7)));
       expect(
-        await model.generateTasks(name: 'Flutter', description: 'Study'),
-        isNull,
+        await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
+        hasLength(3),
       );
+      expect(await model.confirmGeneratedTasks(), isNull);
       final boardId = model.pendingProject!.boardId!;
       tasks.stored = [
         for (var index = 0; index < 3; index++)
@@ -173,10 +278,7 @@ void main() {
           ).copyWith(boardId: boardId),
       ];
       tasks.failGeneratedInsert = false;
-      expect(
-        await model.generateTasks(name: 'Flutter', description: 'Study'),
-        isNull,
-      );
+      expect(await model.confirmGeneratedTasks(), isNull);
       expect(model.errorMessage, AppErrorMessages.saveGeneratedTasksFailed);
       expect(tasks.generatedInsertCalls, 1);
       expect(projects.stored.length, 1);
@@ -516,4 +618,26 @@ void main() {
       expect(await model.submit(name: 'History', description: ''), isNull);
     },
   );
+}
+
+class _DelayedProjectRepository extends FakeProjectRepository {
+  final release = Completer<void>();
+  int createCalls = 0;
+
+  @override
+  Future<ProjectWithProgress> createProject({
+    required String name,
+    String? description,
+    DateTime? startDate,
+    DateTime? endDate,
+  }) async {
+    createCalls++;
+    await release.future;
+    return super.createProject(
+      name: name,
+      description: description,
+      startDate: startDate,
+      endDate: endDate,
+    );
+  }
 }
