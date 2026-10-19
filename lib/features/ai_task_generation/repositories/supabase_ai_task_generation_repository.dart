@@ -51,5 +51,9 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     startDate: startDate,
     endDate: endDate,
     minimumTaskCount: 1,
+    preservedDeadlines: {
+      for (final task in currentDraft)
+        normalizedTaskTitle(task.title): task.deadline,
+    },
   );
 }

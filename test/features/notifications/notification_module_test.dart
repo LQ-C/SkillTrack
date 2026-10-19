@@ -4,7 +4,6 @@ import 'package:skilltrack/features/notifications/models/app_notification.dart';
 import 'package:skilltrack/features/notifications/models/notification_context_type.dart';
 import 'package:skilltrack/features/notifications/models/notification_preferences.dart';
 import 'package:skilltrack/features/notifications/models/notification_type.dart';
-import 'package:skilltrack/features/notifications/services/notification_event_coordinator.dart';
 import 'package:skilltrack/features/notifications/viewmodels/notification_badge_controller.dart';
 import 'package:skilltrack/features/notifications/viewmodels/notification_list_view_model.dart';
 import 'package:skilltrack/features/notifications/viewmodels/notification_preferences_view_model.dart';
@@ -178,86 +177,4 @@ void main() {
     expect(model.errorMessage, isNotNull);
     model.dispose();
   });
-
-  test(
-    'coordinator deduplicates, checks preferences and gates invalid events',
-    () async {
-      final repo = FakeNotificationRepository();
-      final events = NotificationEventCoordinator(repo);
-      final stalledAt = DateTime.utc(2026, 1);
-      Future<void> stalled() => events.notifyTaskStalled(
-        userId: 'user',
-        projectId: 'project',
-        boardId: 'board',
-        taskId: 'task',
-        taskTitle: 'Study',
-        stalledAt: stalledAt,
-      );
-      await stalled();
-      await stalled();
-      expect(repo.items.length, 1);
-      await events.notifyTaskDeadline(
-        userId: 'user',
-        projectId: 'project',
-        boardId: 'board',
-        taskId: 'task',
-        taskTitle: 'Study',
-        deadline: stalledAt,
-        reminderWindow: 'tomorrow',
-        isCompleted: true,
-      );
-      expect(repo.items.length, 1);
-      await events.notifyTaskDeadline(
-        userId: 'user',
-        projectId: 'project',
-        boardId: 'board',
-        taskId: 'task',
-        taskTitle: 'Study',
-        deadline: stalledAt,
-        reminderWindow: 'tomorrow',
-      );
-      await events.notifyProjectDeadline(
-        userId: 'user',
-        projectId: 'project',
-        projectName: 'Project',
-        deadline: stalledAt,
-        reminderWindow: 'in 7 days',
-      );
-      await events.notifyLearningResourcesAvailable(
-        userId: 'user',
-        projectId: 'project',
-        boardId: 'board',
-        taskId: 'task',
-        taskTitle: 'Study',
-        resourceCount: 0,
-        recommendationBatchId: 'batch',
-      );
-      expect(repo.items.length, 3);
-      await events.notifyLearningResourcesAvailable(
-        userId: 'user',
-        projectId: 'project',
-        boardId: 'board',
-        taskId: 'task',
-        taskTitle: 'Study',
-        resourceCount: 2,
-        recommendationBatchId: 'batch',
-      );
-      expect(repo.items.length, 4);
-      repo.savedPreferences = NotificationPreferences(
-        userId: 'user',
-        stalledTaskEnabled: false,
-        deadlineReminderEnabled: false,
-        recommendationEnabled: false,
-      );
-      await events.notifyTaskStalled(
-        userId: 'user',
-        projectId: 'project',
-        boardId: 'board',
-        taskId: 'next',
-        taskTitle: 'Next',
-        stalledAt: stalledAt,
-      );
-      expect(repo.items.length, 4);
-    },
-  );
 }

@@ -141,10 +141,6 @@ class NotificationRealtimeService implements NotificationChangeSource {
         (status) {
           if (generation != _generation) return;
           final wasConnected = _connected;
-          final reconnecting =
-              status == RealtimeSubscribeStatus.subscribed &&
-              wasSubscribed &&
-              !_connected;
           _connected = status == RealtimeSubscribeStatus.subscribed;
           if (_connected) {
             wasSubscribed = true;
@@ -152,7 +148,7 @@ class NotificationRealtimeService implements NotificationChangeSource {
           } else if (wasConnected) {
             debugPrint('Notification Realtime disconnected');
           }
-          if (reconnecting) requestSync();
+          if (_connected && !wasConnected) requestSync();
           if (wasSubscribed &&
               (status == RealtimeSubscribeStatus.channelError ||
                   status == RealtimeSubscribeStatus.timedOut)) {

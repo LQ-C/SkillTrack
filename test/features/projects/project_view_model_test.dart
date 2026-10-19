@@ -705,6 +705,30 @@ void main() {
       expect(await model.submit(name: 'History', description: ''), isNull);
     },
   );
+  test(
+    'initial confirmation retries a lost committed response without duplicates',
+    () async {
+      final projects = FakeProjectRepository();
+      final tasks = FakeKanbanRepository()..loseGeneratedResponseOnce = true;
+      final model = CreateProjectViewModel(
+        projects,
+        taskRepository: tasks,
+        generationRepository: FakeTaskGenerationRepository(),
+      );
+      addTearDown(model.dispose);
+      final now = DateTime.now();
+      final today = DateTime(now.year, now.month, now.day);
+      model.setStartDate(today);
+      model.setEndDate(today.add(const Duration(days: 7)));
+      await model.generateTaskPreview(name: 'App', description: 'Build an app');
+      expect(await model.confirmGeneratedTasks(), isNull);
+      expect(tasks.stored, hasLength(3));
+      expect(await model.confirmGeneratedTasks(), isNotNull);
+      expect(tasks.stored, hasLength(3));
+      expect(projects.stored, hasLength(1));
+      expect(tasks.generatedRequestIds.toSet(), hasLength(1));
+    },
+  );
 }
 
 class _DelayedProjectRepository extends FakeProjectRepository {

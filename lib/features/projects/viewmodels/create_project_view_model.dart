@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/utils/operation_id.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
 import '../../ai_task_generation/models/task_generation_request.dart';
@@ -13,7 +14,7 @@ import '../repositories/project_repository.dart';
 import '../../ai_task_generation/repositories/ai_task_generation_repository.dart';
 
 class CreateProjectViewModel extends ChangeNotifier
-    implements GeneratedTaskPreviewState {
+    with GeneratedTaskPreviewEditor {
   CreateProjectViewModel(
     this._repository, {
     this.original,
@@ -32,6 +33,7 @@ class CreateProjectViewModel extends ChangeNotifier
   bool _isGeneratingTasks = false;
   bool _isConfirmingGeneratedTasks = false;
   bool _isRevisingGeneratedTasks = false;
+  String? _saveRequestId;
   ProjectWithProgress? _pendingProject;
   List<GeneratedTaskDraft>? _pendingTasks;
   String? _pendingName, _pendingDescription;
@@ -42,6 +44,12 @@ class CreateProjectViewModel extends ChangeNotifier
       _endDateError,
       _errorMessage;
 
+  @override
+  bool get canCustomizeGeneratedTasks =>
+      !_disposed &&
+      !_isSaving &&
+      !_isGeneratingTasks &&
+      _pendingProject == null;
   bool get isSaving => _isSaving;
   bool get isGeneratingTasks => _isGeneratingTasks;
   @override
@@ -303,33 +311,35 @@ class CreateProjectViewModel extends ChangeNotifier
         return null;
       }
       try {
-        // A previous insert may have committed even if its response was lost.
-        if (_pendingProject != null && _insertAttempted) {
+        if (_saveRequestId != null) {
           final saved = await _taskRepository!.getTasks(boardId);
-          if (saved.length == _pendingTasks!.length &&
-              saved.every(
-                (task) => _pendingTasks!.any(
-                  (draft) =>
-                      draft.title == task.title &&
-                      (draft.position + 1) * 1000 == task.sortOrder &&
-                      draft.checklist.length == task.checklistItems.length &&
-                      Iterable.generate(draft.checklist.length).every(
-                        (index) =>
-                            task.checklistItems[index].title ==
-                                draft.checklist[index] &&
-                            task.checklistItems[index].position == index,
-                      ),
-                ),
-              )) {
-            return _disposed ? null : project;
-          }
-          if (saved.isNotEmpty) {
-            _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
-            return null;
+          // Refuse legacy partial batches rather than treating matching titles
+          // as proof that every checklist was saved.
+          if (saved.isNotEmpty &&
+              (saved.length != _pendingTasks!.length ||
+                  !saved.every(
+                    (task) => _pendingTasks!.any(
+                      (draft) =>
+                          draft.title == task.title &&
+                          draft.checklist.length ==
+                              task.checklistItems.length &&
+                          Iterable.generate(draft.checklist.length).every(
+                            (index) =>
+                                task.checklistItems[index].title ==
+                                    draft.checklist[index] &&
+                                task.checklistItems[index].position == index,
+                          ),
+                    ),
+                  ))) {
+            throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
           }
         }
-        _insertAttempted = true;
-        await _taskRepository!.createGeneratedTasks(boardId, _pendingTasks!);
+        _saveRequestId ??= createOperationId();
+        await _taskRepository!.createGeneratedTasks(
+          boardId,
+          _pendingTasks!,
+          requestId: _saveRequestId,
+        );
         return _disposed ? null : project;
       } catch (_) {
         _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
@@ -343,72 +353,12 @@ class CreateProjectViewModel extends ChangeNotifier
   }
 
   @override
-  bool updateGeneratedTask(int index, GeneratedTaskDraft task) {
-    if (_disposed ||
-        _isSaving ||
-        _isRevisingGeneratedTasks ||
-        _pendingProject != null ||
-        _pendingTasks == null ||
-        index < 0 ||
-        index >= _pendingTasks!.length) {
-      return false;
-    }
-    final updated = [..._pendingTasks!]
-      ..[index] = task.copyWith(position: index);
-    final validation = GeneratedTaskDraft.validationError(
-      [updated[index]],
-      startDate: generationStartDate,
-      endDate: generationEndDate,
-      existingTitles: [
-        for (var other = 0; other < updated.length; other++)
-          if (other != index) updated[other].title,
-      ],
-    );
-    if (validation != null) {
-      _errorMessage = validation;
-      notifyListeners();
-      return false;
-    }
-    _pendingTasks = List.unmodifiable(updated);
-    _errorMessage = null;
-    notifyListeners();
-    return true;
-  }
-
-  @override
-  void removeGeneratedTask(int index) {
-    if (_disposed ||
-        _isSaving ||
-        _isRevisingGeneratedTasks ||
-        _pendingProject != null ||
-        _pendingTasks == null ||
-        index < 0 ||
-        index >= _pendingTasks!.length) {
-      return;
-    }
-    final updated = [..._pendingTasks!]..removeAt(index);
-    _pendingTasks = List.unmodifiable(GeneratedTaskDraft.reindex(updated));
-    _errorMessage = null;
-    notifyListeners();
-  }
-
-  @override
-  void reorderGeneratedTask(int oldIndex, int newIndex) {
-    if (_disposed ||
-        _isSaving ||
-        _isRevisingGeneratedTasks ||
-        _pendingProject != null ||
-        _pendingTasks == null ||
-        oldIndex < 0 ||
-        oldIndex >= _pendingTasks!.length ||
-        newIndex < 0 ||
-        newIndex > _pendingTasks!.length) {
-      return;
-    }
-    final updated = [..._pendingTasks!];
-    final task = updated.removeAt(oldIndex);
-    updated.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, task);
-    _pendingTasks = List.unmodifiable(GeneratedTaskDraft.reindex(updated));
+  void setGeneratedTaskPreview(
+    List<GeneratedTaskDraft> tasks, {
+    String? error,
+  }) {
+    _pendingTasks = List.unmodifiable(tasks);
+    _errorMessage = error;
     notifyListeners();
   }
 
@@ -494,8 +444,6 @@ class CreateProjectViewModel extends ChangeNotifier
     _errorMessage = null;
     notifyListeners();
   }
-
-  bool _insertAttempted = false;
 
   @override
   void notifyListeners() {

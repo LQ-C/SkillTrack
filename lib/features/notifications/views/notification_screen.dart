@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../core/errors/app_exception.dart';
 import '../../../app/router/app_router.dart';
-import '../../kanban/widgets/skilltrack_bottom_navigation.dart';
+import '../../../app/widgets/skilltrack_bottom_navigation.dart';
 import '../models/app_notification.dart';
 import '../viewmodels/notification_badge_controller.dart';
 import '../viewmodels/notification_list_view_model.dart';

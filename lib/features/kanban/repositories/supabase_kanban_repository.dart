@@ -3,6 +3,7 @@ import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/utils/operation_id.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
 import '../models/task_activity.dart';
@@ -195,73 +196,17 @@ class SupabaseKanbanRepository implements KanbanRepository {
   Future<void> createGeneratedTasks(
     String boardId,
     List<GeneratedTaskDraft> tasks, {
-    int startingSortOrder = 0,
+    String? requestId,
   }) => _guard(() async {
     if (tasks.isEmpty) return;
-    final inserted = await _client
-        .from('kanban_tasks')
-        .insert([
-          for (var index = 0; index < tasks.length; index++)
-            {
-              'board_id': boardId,
-              'title': tasks[index].title,
-              'description': tasks[index].description,
-              'status': KanbanStatus.todo.value,
-              'priority': tasks[index].priority,
-              'deadline': tasks[index].deadline
-                  .toIso8601String()
-                  .split('T')
-                  .first,
-              'sort_order': startingSortOrder + (index + 1) * 1000,
-              'is_archived': false,
-            },
-        ])
-        .select('id,sort_order');
-    final idsByOrder = <int, String>{};
-    for (final row in inserted) {
-      final order = (row['sort_order'] as num?)?.toInt();
-      final id = row['id'];
-      if (order == null ||
-          id is! String ||
-          id.isEmpty ||
-          idsByOrder.containsKey(order)) {
-        throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
-      }
-      idsByOrder[order] = id;
-    }
-    if (idsByOrder.length != tasks.length) {
-      throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
-    }
-    final checklistRows = <Map<String, dynamic>>[];
-    for (var taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
-      final task = tasks[taskIndex];
-      final taskId = idsByOrder[startingSortOrder + (taskIndex + 1) * 1000];
-      if (taskId == null) {
-        throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
-      }
-      for (var index = 0; index < task.checklist.length; index++) {
-        checklistRows.add({
-          'task_id': taskId,
-          'title': task.checklist[index],
-          'position': index,
-          'is_completed': false,
-        });
-      }
-    }
-    if (checklistRows.isEmpty) return;
-    try {
-      await _client.from('task_checklist_items').insert(checklistRows);
-    } catch (_) {
-      try {
-        await _client
-            .from('kanban_tasks')
-            .delete()
-            .inFilter('id', idsByOrder.values.toList());
-      } catch (_) {
-        // Preserve the checklist insertion error if rollback also fails.
-      }
-      rethrow;
-    }
+    await _client.rpc(
+      'save_generated_tasks',
+      params: {
+        'p_board_id': boardId,
+        'p_request_id': requestId ?? createOperationId(),
+        'p_tasks': tasks.map((task) => task.toRevisionJson()).toList(),
+      },
+    );
   });
 
   @override
@@ -357,12 +302,16 @@ class SupabaseKanbanRepository implements KanbanRepository {
 
   @override
   Future<void> reorderTasks(List<KanbanTask> tasks) => _guard(() async {
-    for (final task in tasks) {
-      await _client
-          .from('kanban_tasks')
-          .update({'sort_order': task.sortOrder})
-          .eq('id', task.id);
-    }
+    if (tasks.isEmpty) return;
+    await _client.rpc(
+      'reorder_kanban_tasks',
+      params: {
+        'p_tasks': [
+          for (final task in tasks)
+            {'id': task.id, 'sort_order': task.sortOrder},
+        ],
+      },
+    );
   });
 
   @override
@@ -468,18 +417,26 @@ class SupabaseKanbanRepository implements KanbanRepository {
 
   @override
   Future<void> deleteChecklistItem(String itemId) => _guard(() async {
-    await _client.from('task_checklist_items').delete().eq('id', itemId);
+    await _client.rpc(
+      'delete_task_checklist_item',
+      params: {'p_item_id': itemId},
+    );
   });
 
   @override
   Future<void> reorderChecklistItems(List<TaskChecklistItem> items) =>
       _guard(() async {
-        for (final item in items) {
-          await _client
-              .from('task_checklist_items')
-              .update({'position': item.position})
-              .eq('id', item.id);
-        }
+        if (items.isEmpty) return;
+        await _client.rpc(
+          'reorder_task_checklist',
+          params: {
+            'p_task_id': items.first.taskId,
+            'p_items': [
+              for (final item in items)
+                {'id': item.id, 'position': item.position},
+            ],
+          },
+        );
       });
 
   @override
@@ -511,23 +468,28 @@ class SupabaseKanbanRepository implements KanbanRepository {
     }
     try {
       final row = await _client
-          .from('task_attachments')
-          .insert({
-            'task_id': taskId,
-            'file_name': fileName,
-            'storage_path': path,
-            'mime_type': mimeType,
-            'file_size_bytes': bytes.length,
-          })
-          .select()
+          .rpc(
+            'register_task_attachment',
+            params: {
+              'p_task_id': taskId,
+              'p_file_name': fileName,
+              'p_storage_path': path,
+              'p_mime_type': mimeType ?? 'application/octet-stream',
+              'p_file_size': bytes.length,
+            },
+          )
           .single();
-      await addActivity(
-        taskId,
-        'attachment_added',
-        newValues: {'file_name': fileName},
-      );
       return TaskAttachment.fromMap(row);
     } catch (_) {
+      // A lost response may follow a committed transaction.
+      // Remove the object only after a query confirms metadata is absent.
+      final saved = await _client
+          .from('task_attachments')
+          .select()
+          .eq('task_id', taskId)
+          .eq('storage_path', path)
+          .maybeSingle();
+      if (saved != null) return TaskAttachment.fromMap(saved);
       await _client.storage.from(_bucket).remove([path]);
       rethrow;
     }

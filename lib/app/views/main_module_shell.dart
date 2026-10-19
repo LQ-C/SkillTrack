@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../features/kanban/repositories/kanban_repository.dart';
-import '../../features/kanban/widgets/skilltrack_bottom_navigation.dart';
+import '../widgets/skilltrack_bottom_navigation.dart';
 import '../../features/notifications/repositories/notification_repository.dart';
 import '../../features/notifications/services/notification_realtime_service.dart';
 import '../../features/notifications/viewmodels/notification_badge_controller.dart';

@@ -37,11 +37,42 @@ class TaskDetailsSheet extends StatefulWidget {
 
 class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   late Future<List<TaskActivity>> _activity;
+  late int _activityVersion;
   bool _resuming = false;
   @override
   void initState() {
     super.initState();
     _activity = widget.viewModel.getTaskActivity(widget.taskId);
+    _activityVersion = widget.viewModel.activityVersion;
+    widget.viewModel.addListener(_onChanged);
+  }
+
+  void _onChanged() {
+    if (_activityVersion == widget.viewModel.activityVersion) return;
+    _activityVersion = widget.viewModel.activityVersion;
+    final activity = widget.viewModel.getTaskActivity(widget.taskId);
+    setState(() {
+      _activity = activity;
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant TaskDetailsSheet oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.viewModel == widget.viewModel &&
+        oldWidget.taskId == widget.taskId) {
+      return;
+    }
+    oldWidget.viewModel.removeListener(_onChanged);
+    widget.viewModel.addListener(_onChanged);
+    _activityVersion = widget.viewModel.activityVersion;
+    _activity = widget.viewModel.getTaskActivity(widget.taskId);
+  }
+
+  @override
+  void dispose() {
+    widget.viewModel.removeListener(_onChanged);
+    super.dispose();
   }
 
   Future<void> _resume(KanbanTask task) async {
@@ -50,11 +81,7 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
     try {
       final resumed = await widget.viewModel.resumeTask(task.id);
       if (!mounted) return;
-      if (resumed) {
-        setState(
-          () => _activity = widget.viewModel.getTaskActivity(widget.taskId),
-        );
-      } else {
+      if (!resumed) {
         _showResumeError();
       }
     } catch (_) {

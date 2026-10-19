@@ -30,13 +30,27 @@ class SupabaseNotificationRepository implements NotificationRepository {
   Future<List<AppNotification>> getNotifications({
     int limit = 50,
     DateTime? before,
+    String? beforeId,
   }) => _guard(() async {
     final userId = _userId;
     var query = _client.from('notifications').select().eq('user_id', userId);
     if (before != null) {
-      query = query.lt('created_at', before.toUtc().toIso8601String());
+      final timestamp = before.toUtc().toIso8601String();
+      if (beforeId == null) {
+        query = query.lt('created_at', timestamp);
+      } else {
+        if (!RegExp(r'^[0-9a-fA-F-]{36}$').hasMatch(beforeId)) {
+          throw const AppException(AppErrorMessages.invalidNotificationCursor);
+        }
+        query = query.or(
+          'created_at.lt.$timestamp,and(created_at.eq.$timestamp,id.lt.$beforeId)',
+        );
+      }
     }
-    final rows = await query.order('created_at', ascending: false).limit(limit);
+    final rows = await query
+        .order('created_at', ascending: false)
+        .order('id', ascending: false)
+        .limit(limit);
     return rows.map(AppNotification.fromMap).toList();
   });
 
@@ -50,23 +64,6 @@ class SupabaseNotificationRepository implements NotificationRepository {
         .count(CountOption.exact);
     return result.count;
   });
-
-  @override
-  Future<AppNotification> createNotification(AppNotification notification) =>
-      _guard(() async {
-        if (notification.userId != _userId) {
-          throw const AppException(
-            'Unable to create a notification for this account.',
-          );
-        }
-        final data = notification.toMap()..remove('id');
-        final row = await _client
-            .from('notifications')
-            .insert(data)
-            .select()
-            .single();
-        return AppNotification.fromMap(row);
-      });
 
   @override
   Future<void> markAsRead(String notificationId) => _guard(() async {
@@ -130,16 +127,5 @@ class SupabaseNotificationRepository implements NotificationRepository {
         .select()
         .single();
     return NotificationPreferences.fromMap(row);
-  });
-
-  @override
-  Future<bool> notificationExists(String uniqueKey) => _guard(() async {
-    final row = await _client
-        .from('notifications')
-        .select('id')
-        .eq('user_id', _userId)
-        .eq('unique_key', uniqueKey)
-        .maybeSingle();
-    return row != null;
   });
 }

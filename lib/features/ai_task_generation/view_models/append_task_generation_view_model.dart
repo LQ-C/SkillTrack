@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/utils/operation_id.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../projects/repositories/project_repository.dart';
 import '../models/generated_task_draft.dart';
@@ -11,7 +12,7 @@ import '../repositories/ai_task_generation_repository.dart';
 import 'generated_task_preview_state.dart';
 
 class AppendTaskGenerationViewModel extends ChangeNotifier
-    implements GeneratedTaskPreviewState {
+    with GeneratedTaskPreviewEditor {
   AppendTaskGenerationViewModel({
     required this.projectId,
     required this.boardId,
@@ -34,11 +35,16 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   DateTime? _generationStartDate, _generationEndDate;
   List<ExistingTaskSummary> _existingSummaries = const [];
   List<GeneratedTaskDraft>? _pending;
+  List<GeneratedTaskDraft>? _saveDraft;
+  String? _saveRequestId;
   String? _errorMessage;
   String? _feedbackMessage;
 
   @override
   TaskGenerationMode get generationMode => TaskGenerationMode.append;
+  @override
+  bool get canCustomizeGeneratedTasks =>
+      !_disposed && !_isGenerating && _saveDraft == null;
   bool get isGeneratingTasks => _isGenerating;
   @override
   bool get isConfirmingGeneratedTasks => _isConfirming;
@@ -154,22 +160,17 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       }
       final current = await _tasks.getTaskSummaries(boardId);
       if (_disposed) return null;
-      final fresh = _withoutDuplicates(_pending!, current);
+      final fresh = _saveDraft ?? _withoutDuplicates(_pending!, current);
       if (fresh.isEmpty) {
         _feedbackMessage = AppErrorMessages.additionalTasksAlreadyExist;
         return true;
       }
-      final highestTodo = current
-          .where((task) => task.status == 'todo')
-          .fold<int>(
-            0,
-            (highest, task) =>
-                task.sortOrder > highest ? task.sortOrder : highest,
-          );
+      _saveDraft = List.unmodifiable(fresh);
+      _saveRequestId ??= createOperationId();
       await _tasks.createGeneratedTasks(
         boardId,
         fresh,
-        startingSortOrder: highestTodo,
+        requestId: _saveRequestId,
       );
       return _disposed ? null : true;
     } catch (_) {
@@ -184,69 +185,16 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   }
 
   @override
-  bool updateGeneratedTask(int index, GeneratedTaskDraft task) {
-    if (_disposed ||
-        _isRevising ||
-        _isConfirming ||
-        _pending == null ||
-        index < 0 ||
-        index >= _pending!.length) {
-      return false;
-    }
-    final updated = [..._pending!]..[index] = task.copyWith(position: index);
-    final validation = GeneratedTaskDraft.validationError(
-      [updated[index]],
-      startDate: generationStartDate,
-      endDate: generationEndDate,
-      existingTitles: [
-        ..._existingSummaries.map((item) => item.title),
-        for (var other = 0; other < updated.length; other++)
-          if (other != index) updated[other].title,
-      ],
-    );
-    if (validation != null) {
-      _errorMessage = validation;
-      notifyListeners();
-      return false;
-    }
-    _pending = List.unmodifiable(updated);
-    _errorMessage = null;
-    notifyListeners();
-    return true;
-  }
+  Iterable<String> get savedTaskTitles =>
+      _existingSummaries.map((task) => task.title);
 
   @override
-  void removeGeneratedTask(int index) {
-    if (_disposed ||
-        _isRevising ||
-        _isConfirming ||
-        _pending == null ||
-        index < 0 ||
-        index >= _pending!.length) {
-      return;
-    }
-    final updated = [..._pending!]..removeAt(index);
-    _pending = List.unmodifiable(GeneratedTaskDraft.reindex(updated));
-    _errorMessage = null;
-    notifyListeners();
-  }
-
-  @override
-  void reorderGeneratedTask(int oldIndex, int newIndex) {
-    if (_disposed ||
-        _isRevising ||
-        _isConfirming ||
-        _pending == null ||
-        oldIndex < 0 ||
-        oldIndex >= _pending!.length ||
-        newIndex < 0 ||
-        newIndex > _pending!.length) {
-      return;
-    }
-    final updated = [..._pending!];
-    final task = updated.removeAt(oldIndex);
-    updated.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, task);
-    _pending = List.unmodifiable(GeneratedTaskDraft.reindex(updated));
+  void setGeneratedTaskPreview(
+    List<GeneratedTaskDraft> tasks, {
+    String? error,
+  }) {
+    _pending = List.unmodifiable(tasks);
+    _errorMessage = error;
     notifyListeners();
   }
 
@@ -257,6 +205,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _isGenerating ||
         _isConfirming ||
         _isRevising ||
+        _saveDraft != null ||
         _pending == null ||
         _pending!.isEmpty) {
       return false;
@@ -346,6 +295,8 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   void cancelGeneratedTaskPreview() {
     if (_disposed || _isConfirming || _isRevising || _pending == null) return;
     _pending = null;
+    _saveDraft = null;
+    _saveRequestId = null;
     _errorMessage = null;
     notifyListeners();
   }

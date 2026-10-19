@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../../app/router/app_router.dart';
 import '../../kanban/repositories/kanban_repository.dart';
-import '../../kanban/widgets/skilltrack_bottom_navigation.dart';
+import '../../../app/widgets/skilltrack_bottom_navigation.dart';
 import '../models/project_with_progress.dart';
 import '../repositories/project_repository.dart';
 import '../viewmodels/project_dashboard_view_model.dart';

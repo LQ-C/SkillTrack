@@ -75,9 +75,10 @@ class CountingRepository extends FakeNotificationRepository {
   Future<List<AppNotification>> getNotifications({
     int limit = 50,
     DateTime? before,
+    String? beforeId,
   }) =>
       pendingLoad?.future ??
-      super.getNotifications(limit: limit, before: before);
+      super.getNotifications(limit: limit, before: before, beforeId: beforeId);
 }
 
 class MutableRepository extends CountingRepository {
@@ -675,5 +676,83 @@ void main() {
     expect(find.text('Yesterday'), findsOneWidget);
     expect(find.text('Task alert today'), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
+  });
+  test('equal timestamps do not skip notifications between pages', () async {
+    final repo = CountingRepository(currentUserId: 'user')
+      ..items.addAll(
+        List.generate(121, (i) => alert(i.toString().padLeft(3, '0'))),
+      );
+    final badge = NotificationBadgeController(repo);
+    final model = NotificationListViewModel(
+      repo,
+      FakeProjectRepository(),
+      FakeKanbanRepository(),
+      badge,
+    );
+    addTearDown(model.dispose);
+    addTearDown(badge.dispose);
+    await model.initialize();
+    await model.loadMore();
+    await model.loadMore();
+    expect(model.allNotifications, hasLength(121));
+    expect(model.allNotifications.map((n) => n.id).toSet(), hasLength(121));
+    expect(model.hasMore, isFalse);
+  });
+
+  test(
+    'refresh invalidates an older page without leaving loadingMore stuck',
+    () async {
+      final repo = CountingRepository(currentUserId: 'user')
+        ..items.addAll(
+          List.generate(51, (i) => alert(i.toString().padLeft(3, '0'))),
+        );
+      final badge = NotificationBadgeController(repo);
+      final model = NotificationListViewModel(
+        repo,
+        FakeProjectRepository(),
+        FakeKanbanRepository(),
+        badge,
+      );
+      addTearDown(model.dispose);
+      addTearDown(badge.dispose);
+      await model.initialize();
+      final gate = Completer<List<AppNotification>>();
+      repo.pendingLoad = gate;
+      final older = model.loadMore();
+      repo.pendingLoad = null;
+      await model.refresh();
+      expect(model.isLoadingMore, isFalse);
+      gate.complete([alert('stale')]);
+      await older;
+      expect(model.allNotifications.any((n) => n.id == 'stale'), isFalse);
+      await model.loadMore();
+      expect(model.allNotifications, hasLength(51));
+    },
+  );
+
+  test('retained inbox reloads for another account after reset', () async {
+    final repo = MutableRepository()
+      ..items.addAll([alert('old'), alert('new', user: 'second')]);
+    final service = NotificationRealtimeService(FakeTransport());
+    final badge = NotificationBadgeController(repo, service);
+    final model = NotificationListViewModel(
+      repo,
+      FakeProjectRepository(),
+      FakeKanbanRepository(),
+      badge,
+      service,
+    );
+    await model.initialize();
+    await flushEvents();
+    expect(model.allNotifications.single.id, 'old');
+    await service.stop();
+    await flushEvents();
+    repo.signedInUser = 'second';
+    await service.startForUser('second');
+    await flushEvents();
+    expect(model.allNotifications.single.id, 'new');
+    model.dispose();
+    badge.dispose();
+    await service.dispose();
   });
 }

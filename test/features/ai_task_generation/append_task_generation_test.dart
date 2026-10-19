@@ -76,7 +76,9 @@ void main() {
     });
     expect(
       GeneratedTaskDraft.validationError(
-        [original.copyWith(checklist: ['  Test ', 'test'])],
+        [
+          original.copyWith(checklist: ['  Test ', 'test']),
+        ],
         startDate: DateTime(2026, 11, 1),
         endDate: DateTime(2026, 11, 30),
       ),
@@ -621,5 +623,71 @@ void main() {
     expect(await model.confirmGeneratedTasks(), isTrue);
     expect(tasks.generatedInsertCalls, 0);
     expect(model.feedbackMessage, AppErrorMessages.additionalTasksAlreadyExist);
+  });
+  test(
+    'append retries a lost response with the same ID and frozen draft',
+    () async {
+      final (projects, board) = await project();
+      final tasks = FakeKanbanRepository()..loseGeneratedResponseOnce = true;
+      final generator = FakeTaskGenerationRepository()
+        ..result = [draft('Extra', 0)];
+      final model = AppendTaskGenerationViewModel(
+        projectId: projects.stored.single.project.id,
+        boardId: board,
+        projectRepository: projects,
+        taskRepository: tasks,
+        generationRepository: generator,
+      );
+      addTearDown(model.dispose);
+      await model.generateMoreTasks();
+      expect(await model.confirmGeneratedTasks(), isNull);
+      expect(tasks.stored, hasLength(1));
+      expect(model.canCustomizeGeneratedTasks, isFalse);
+      expect(model.updateGeneratedTask(0, draft('Changed', 0)), isFalse);
+      expect(await model.confirmGeneratedTasks(), isTrue);
+      expect(tasks.stored, hasLength(1));
+      expect(tasks.generatedRequestIds.toSet(), hasLength(1));
+      expect(tasks.generatedInsertCalls, 2);
+    },
+  );
+
+  test('parser preserves revised dates and falls back for invalid dates', () {
+    final parsed = GeneratedTaskDraft.parseTasks(
+      {
+        'milestones': [
+          {
+            'tasks': [
+              {'title': 'Preserved', 'deadline': '2026-11-23'},
+              {'title': 'Invalid', 'deadline': '2026-02-30'},
+              {'title': 'Outside', 'deadline': '2027-01-01'},
+            ],
+          },
+        ],
+      },
+      startDate: DateTime(2026, 11, 1),
+      endDate: DateTime(2026, 11, 30),
+    );
+    expect(parsed.first.deadline, DateTime(2026, 11, 23));
+    expect(parsed[1].deadline, DateTime(2026, 11, 16));
+    expect(parsed.last.deadline, DateTime(2026, 11, 30));
+  });
+  test('revision without a returned date retains the customized deadline', () {
+    final date = DateTime(2026, 11, 23);
+    final parsed = GeneratedTaskDraft.parseTasks(
+      {
+        'milestones': [
+          {
+            'tasks': [
+              {'title': 'Build'},
+            ],
+          },
+        ],
+      },
+      startDate: DateTime(2026, 11, 1),
+      endDate: DateTime(2026, 11, 30),
+      minimumTaskCount: 1,
+      preservedDeadlines: {normalizedTaskTitle('Build'): date},
+    );
+    expect(parsed.single.deadline, date);
   });
 }

@@ -68,9 +68,15 @@ alter table public.notifications drop constraint if exists notifications_context
 alter table public.notifications drop constraint if exists notification_context_matches_type;
 alter table public.notifications drop constraint if exists notifications_context_reference_check;
 
+drop trigger if exists notification_read_only_update on public.notifications;
+
 update public.notifications
 set type = upper(type), context_type = upper(context_type)
 where type <> upper(type) or context_type <> upper(context_type);
+
+create trigger notification_read_only_update
+  before update on public.notifications
+  for each row execute function public.notification_read_only_update();
 
 alter table public.notifications add constraint notifications_type_valid
   check (type in ('STALLED_TASK', 'DEADLINE_REMINDER',

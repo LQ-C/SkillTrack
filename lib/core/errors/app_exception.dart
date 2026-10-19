@@ -10,6 +10,12 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const attachmentTooLarge =
+      'Choose a non-empty file of 10 MB or smaller.';
+  static const savedRefreshFailed =
+      'Changes saved. Unable to refresh the board. Please refresh to see updates.';
+  static const olderNotificationsFailed = 'Unable to load older notifications.';
+  static const invalidNotificationCursor = 'Invalid notification cursor.';
   static const requestFailed =
       'Unable to complete the request. Please check your connection.';
   static const signInFailed =

@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/router/app_router.dart';
-import '../../../core/constants/app_constants.dart';
+import '../../kanban/utils/kanban_colors.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../kanban/models/task_priority.dart';
 import '../models/task_generation_request.dart';
@@ -50,15 +50,15 @@ class _GeneratedTaskPreviewScreenState
     int index,
     GeneratedTaskDraft task,
   ) async {
-    final updated = await showGeneratedTaskEditSheet(
+    await showGeneratedTaskEditSheet(
       context,
       task: task,
       startDate: viewModel.generationStartDate,
       endDate: viewModel.generationEndDate,
+      onSave: (updated) => viewModel.updateGeneratedTask(index, updated)
+          ? null
+          : viewModel.errorMessage ?? 'Unable to update this task.',
     );
-    if (updated != null && mounted) {
-      viewModel.updateGeneratedTask(index, updated);
-    }
   }
 
   Future<void> _remove(BuildContext context, int index) async {
@@ -112,6 +112,7 @@ class _GeneratedTaskPreviewScreenState
       final saving = viewModel.isConfirmingGeneratedTasks;
       final revising = viewModel.isRevisingGeneratedTasks;
       final busy = saving || revising;
+      final canCustomize = !busy && viewModel.canCustomizeGeneratedTasks;
       final append = viewModel.generationMode == TaskGenerationMode.append;
       final theme = Theme.of(context);
       return PopScope<Object?>(
@@ -170,7 +171,7 @@ class _GeneratedTaskPreviewScreenState
                     ),
                     footer: _revisionSection(
                       theme,
-                      enabled: !busy && tasks.isNotEmpty,
+                      enabled: canCustomize && tasks.isNotEmpty,
                     ),
                     itemBuilder: (context, index) {
                       final task = tasks[index];
@@ -180,11 +181,15 @@ class _GeneratedTaskPreviewScreenState
                         child: _PreviewCard(
                           task: task,
                           number: index + 1,
-                          onEdit: () => _edit(context, index, task),
-                          onRemove: () => _remove(context, index),
+                          onEdit: canCustomize
+                              ? () => _edit(context, index, task)
+                              : null,
+                          onRemove: canCustomize
+                              ? () => _remove(context, index)
+                              : null,
                           dragHandle: ReorderableDelayedDragStartListener(
                             index: index,
-                            enabled: !busy,
+                            enabled: canCustomize,
                             child: const Tooltip(
                               message: 'Hold to reorder task',
                               child: Icon(Icons.drag_handle),
@@ -333,15 +338,15 @@ class _PreviewCard extends StatelessWidget {
 
   final GeneratedTaskDraft task;
   final int number;
-  final VoidCallback onEdit;
-  final VoidCallback onRemove;
+  final VoidCallback? onEdit;
+  final VoidCallback? onRemove;
   final Widget dragHandle;
 
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final priority = TaskPriority.fromValue(task.priority);
-    final color = AppColors.priority(priority);
+    final color = KanbanColors.priority(priority);
     return Card(
       margin: EdgeInsets.zero,
       child: Padding(

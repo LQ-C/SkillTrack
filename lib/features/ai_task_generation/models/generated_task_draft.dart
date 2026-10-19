@@ -100,6 +100,7 @@ class GeneratedTaskDraft {
     required DateTime startDate,
     required DateTime endDate,
     int minimumTaskCount = 3,
+    Map<String, DateTime> preservedDeadlines = const {},
   }) {
     if (response is! Map || response['milestones'] is! List) {
       throw const AppException(AppErrorMessages.noGeneratedTasks);
@@ -111,6 +112,7 @@ class GeneratedTaskDraft {
             String title,
             String description,
             String priority,
+            DateTime? deadline,
             List<String> checklist,
           })
         >[];
@@ -137,6 +139,9 @@ class GeneratedTaskDraft {
             _ => 'medium',
           },
           checklist: _parseChecklist(row['checklist']),
+          deadline:
+              _parseDeadline(row['deadline'], startDate, endDate) ??
+              preservedDeadlines[normalizedTaskTitle(safeTitle)],
         ));
         if (candidates.length == 12) break;
       }
@@ -156,14 +161,16 @@ class GeneratedTaskDraft {
           title: candidates[index].title,
           description: candidates[index].description,
           priority: candidates[index].priority,
-          deadline: DateTime(
-            startDate.year,
-            startDate.month,
-            startDate.day +
-                (candidates.length == 1
-                    ? 0
-                    : (days * index / (candidates.length - 1)).round()),
-          ),
+          deadline:
+              candidates[index].deadline ??
+              DateTime(
+                startDate.year,
+                startDate.month,
+                startDate.day +
+                    (candidates.length == 1
+                        ? 0
+                        : (days * index / (candidates.length - 1)).round()),
+              ),
           position: index,
           checklist: candidates[index].checklist,
         ),
@@ -183,5 +190,19 @@ class GeneratedTaskDraft {
       if (items.length == 5) break;
     }
     return items;
+  }
+
+  static DateTime? _parseDeadline(Object? value, DateTime start, DateTime end) {
+    if (value is! String ||
+        !RegExp(r'^[0-9]{4}-[0-9]{2}-[0-9]{2}$').hasMatch(value)) {
+      return null;
+    }
+    final date = DateTime.tryParse(value);
+    if (date == null || date.toIso8601String().substring(0, 10) != value) {
+      return null;
+    }
+    final first = DateTime(start.year, start.month, start.day);
+    final last = DateTime(end.year, end.month, end.day);
+    return date.isBefore(first) || date.isAfter(last) ? null : date;
   }
 }

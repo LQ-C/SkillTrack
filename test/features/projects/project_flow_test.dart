@@ -883,4 +883,56 @@ void main() {
     );
     expect(tasks.generatedInsertCalls, 0);
   });
+  testWidgets('rejected duplicate title keeps editor inputs open', (
+    tester,
+  ) async {
+    final model = CreateProjectViewModel(
+      FakeProjectRepository(),
+      taskRepository: FakeKanbanRepository(),
+      generationRepository: FakeTaskGenerationRepository(),
+    );
+    addTearDown(model.dispose);
+    final today = DateUtils.dateOnly(DateTime.now());
+    model.setStartDate(today);
+    model.setEndDate(today.add(const Duration(days: 7)));
+    await model.generateTaskPreview(name: 'App', description: 'Build it');
+    await tester.pumpWidget(
+      MaterialApp(home: GeneratedTaskPreviewScreen(viewModel: model)),
+    );
+    await tester.tap(find.byTooltip('Edit generated task').first);
+    await tester.pumpAndSettle();
+    final titleController = tester
+        .widget<TextFormField>(find.byKey(const Key('generated-edit-title')))
+        .controller!;
+    final descriptionController = tester
+        .widget<TextFormField>(
+          find.byKey(const Key('generated-edit-description')),
+        )
+        .controller!;
+    await tester.enterText(
+      find.byKey(const Key('generated-edit-title')),
+      'Step 2',
+    );
+    await tester.enterText(
+      find.byKey(const Key('generated-edit-description')),
+      'Keep this edit',
+    );
+    await tester.scrollUntilVisible(
+      find.byKey(const Key('generated-new-checklist-item')),
+      250,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await tester.enterText(
+      find.byKey(const Key('generated-new-checklist-item')),
+      'Verify',
+    );
+    await tester.ensureVisible(find.byKey(const Key('save-generated-edit')));
+    await tester.tap(find.byKey(const Key('save-generated-edit')));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit generated task'), findsOneWidget);
+    expect(find.text('Generated task titles must be unique.'), findsWidgets);
+    expect(titleController.text, 'Step 2');
+    expect(descriptionController.text, 'Keep this edit');
+    expect(model.pendingGeneratedTasks.first.title, 'Step 1');
+  });
 }

@@ -28,6 +28,7 @@ export type GeneratedTask = {
   title: string;
   description: string;
   priority: "low" | "medium" | "high";
+  deadline?: string;
   checklist: string[];
 };
 
@@ -62,6 +63,10 @@ export const outputSchema = {
                 description: {
                   type: "string",
                 },
+                deadline: {
+                  type: "string",
+                  description: "Task deadline in YYYY-MM-DD format.",
+                },
                 priority: {
                   type: "string",
                   enum: [
@@ -83,6 +88,7 @@ export const outputSchema = {
                 "title",
                 "description",
                 "priority",
+                "deadline",
                 "checklist",
               ],
             },
@@ -492,7 +498,8 @@ export function buildPrompt(
       "Apply the requested changes across task titles, descriptions, priorities, and checklists where appropriate.",
       "Return the complete revised draft, including unchanged useful draft tasks.",
       "Do not return only the changed tasks.",
-      "Keep all generated deadlines within the project deadline.",
+      "Preserve currentDraft deadlines unless revisionFeedback requests schedule changes.",
+      "Return a YYYY-MM-DD deadline for every revised task, within the project deadline.",
       "Keep the result within 12 total tasks.",
       "If sourceMode is append, do not generate tasks that duplicate saved existingTasks.",
       "Return at least one valid revised task.",
@@ -658,6 +665,8 @@ export function sanitizeGenerated(
           task.priority,
         ),
         checklist,
+        ...(normalizedTaskDeadline(task.deadline)
+          ? { deadline: normalizedTaskDeadline(task.deadline)! } : {}),
       });
 
       seenTaskTitles.add(

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../utils/kanban_colors.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_status.dart';
@@ -32,7 +33,7 @@ class KanbanTaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final deadlineColor = task.isCompleted
-        ? AppColors.status(KanbanStatus.completed)
+        ? KanbanColors.status(KanbanStatus.completed)
         : task.isOverdue
         ? Theme.of(context).colorScheme.error
         : task.isDueSoon
@@ -156,7 +157,7 @@ class KanbanTaskCard extends StatelessWidget {
                       vertical: 4,
                     ),
                     decoration: BoxDecoration(
-                      color: AppColors.priority(
+                      color: KanbanColors.priority(
                         task.priority,
                       ).withValues(alpha: .10),
                       borderRadius: BorderRadius.circular(20),
@@ -165,7 +166,7 @@ class KanbanTaskCard extends StatelessWidget {
                       task.priority.label,
                       style: TextStyle(
                         fontSize: 12,
-                        color: AppColors.priority(task.priority),
+                        color: KanbanColors.priority(task.priority),
                         fontWeight: FontWeight.w700,
                       ),
                     ),

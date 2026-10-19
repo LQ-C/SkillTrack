@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/app/app_theme.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/features/kanban/models/kanban_filter.dart';
+import 'package:skilltrack/features/kanban/models/kanban_sort.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
 import 'package:skilltrack/features/kanban/viewmodels/kanban_view_model.dart';
@@ -1425,5 +1426,76 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const Key('save-task-button')), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+  testWidgets('filtered drop uses visible neighbours in the full task order', (
+    tester,
+  ) async {
+    final repo = FakeKanbanRepository(
+      tasks: [
+        sampleTask('source', 'Show source', KanbanStatus.todo),
+        sampleTask('hidden', 'Hidden', KanbanStatus.inProgress, order: 1000),
+        sampleTask('first', 'Show first', KanbanStatus.inProgress, order: 2000),
+        sampleTask(
+          'second',
+          'Show second',
+          KanbanStatus.inProgress,
+          order: 3000,
+        ),
+      ],
+    );
+    final model = await showBoard(tester, repo);
+    model.setSearchQuery('Show');
+    await tester.pumpAndSettle();
+    final columns = tester.widgetList<KanbanStatusColumn>(
+      find.byType(KanbanStatusColumn, skipOffstage: false),
+    );
+    final source = columns.firstWhere((c) => c.status == KanbanStatus.todo);
+    final target = columns.firstWhere(
+      (c) => c.status == KanbanStatus.inProgress,
+    );
+    source.onDragStart(
+      model.allTasks.firstWhere((t) => t.id == 'source'),
+      const Rect.fromLTWH(20, 200, 240, 80),
+    );
+    await tester.pump();
+    target.onDrop('source', KanbanStatus.inProgress, 1, null);
+    await tester.pumpAndSettle();
+    expect(model.tasks(KanbanStatus.inProgress).map((t) => t.id), [
+      'hidden',
+      'first',
+      'source',
+      'second',
+    ]);
+    expect(repo.moveCalls, 1);
+  });
+
+  testWidgets('derived sorting offers Custom order before dragging', (
+    tester,
+  ) async {
+    final model = await showBoard(
+      tester,
+      FakeKanbanRepository(tasks: [sampleTask('1', 'Task', KanbanStatus.todo)]),
+    );
+    model.setSort(KanbanSort.nearestDeadline);
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<LongPressDraggable<String>>(
+            find.byType(LongPressDraggable<String>).first,
+          )
+          .maxSimultaneousDrags,
+      0,
+    );
+    await tester.tap(find.text('Use Custom order to drag tasks'));
+    await tester.pumpAndSettle();
+    expect(model.activeSort, KanbanSort.custom);
+    expect(
+      tester
+          .widget<LongPressDraggable<String>>(
+            find.byType(LongPressDraggable<String>).first,
+          )
+          .maxSimultaneousDrags,
+      1,
+    );
   });
 }

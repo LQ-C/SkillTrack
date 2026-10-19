@@ -46,7 +46,7 @@ class NotificationListViewModel extends ChangeNotifier {
   ]) {
     _changes = _realtime?.changes.listen(_onChange);
     _syncRequests = _realtime?.syncRequests.listen((_) {
-      if (_loadStarted && !isLoading) unawaited(refresh());
+      if (_hasInitialized && !isLoading) unawaited(refresh());
     });
     _badge.addListener(_onBadgeChanged);
   }
@@ -62,6 +62,7 @@ class NotificationListViewModel extends ChangeNotifier {
   bool isLoading = true, isRefreshing = false, isMarkingAllRead = false;
   bool isLoadingMore = false, hasMore = false;
   bool _loadStarted = false;
+  bool _hasInitialized = false;
   bool _disposed = false;
   int _loadVersion = 0;
   String? errorMessage, feedbackMessage, loadMoreError;
@@ -91,10 +92,12 @@ class NotificationListViewModel extends ChangeNotifier {
   Future<void> retry() => _load(initial: true);
 
   Future<void> _load({required bool initial}) async {
-    if (_loadStarted && (isLoading || isRefreshing)) return;
+    if (_disposed || (_loadStarted && (isLoading || isRefreshing))) return;
+    _hasInitialized = true;
     _loadStarted = true;
     final userId = _repository.currentUserId;
     final version = ++_loadVersion;
+    isLoadingMore = false;
     if (initial) {
       isLoading = true;
     } else {
@@ -151,6 +154,7 @@ class NotificationListViewModel extends ChangeNotifier {
       final page = await _repository.getNotifications(
         limit: _pageSize,
         before: _items.last.createdAt,
+        beforeId: _items.last.id,
       );
       if (_disposed ||
           version != _loadVersion ||
@@ -161,7 +165,7 @@ class NotificationListViewModel extends ChangeNotifier {
       hasMore = page.length == _pageSize;
     } catch (_) {
       if (!_disposed && version == _loadVersion) {
-        loadMoreError = 'Unable to load older notifications.';
+        loadMoreError = AppErrorMessages.olderNotificationsFailed;
       }
     } finally {
       if (!_disposed && version == _loadVersion) {

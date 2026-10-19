@@ -15,6 +15,7 @@ class FakeNotificationRepository implements NotificationRepository {
   Future<List<AppNotification>> getNotifications({
     int limit = 50,
     DateTime? before,
+    String? beforeId,
   }) async {
     if (failLoad) throw StateError('load');
     final filtered =
@@ -22,10 +23,17 @@ class FakeNotificationRepository implements NotificationRepository {
             .where(
               (item) =>
                   item.userId == currentUserId &&
-                  (before == null || item.createdAt.isBefore(before)),
+                  (before == null ||
+                      item.createdAt.isBefore(before) ||
+                      (item.createdAt.isAtSameMomentAs(before) &&
+                          beforeId != null &&
+                          item.id.compareTo(beforeId) < 0)),
             )
             .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+          ..sort((a, b) {
+            final date = b.createdAt.compareTo(a.createdAt);
+            return date != 0 ? date : b.id.compareTo(a.id);
+          });
     return filtered.take(limit).toList();
   }
 
@@ -33,22 +41,6 @@ class FakeNotificationRepository implements NotificationRepository {
   Future<int> getUnreadCount() async => items
       .where((item) => item.userId == currentUserId && item.isUnread)
       .length;
-
-  @override
-  Future<AppNotification> createNotification(
-    AppNotification notification,
-  ) async {
-    if (notification.uniqueKey != null &&
-        await notificationExists(notification.uniqueKey!)) {
-      throw StateError('duplicate');
-    }
-    final created = AppNotification.fromMap({
-      ...notification.toMap(),
-      'id': '${items.length + 1}',
-    });
-    items.add(created);
-    return created;
-  }
 
   @override
   Future<void> markAsRead(String notificationId) async {
@@ -87,9 +79,4 @@ class FakeNotificationRepository implements NotificationRepository {
     if (failSave) throw StateError('save');
     return savedPreferences = preferences;
   }
-
-  @override
-  Future<bool> notificationExists(String uniqueKey) async => items.any(
-    (item) => item.userId == currentUserId && item.uniqueKey == uniqueKey,
-  );
 }

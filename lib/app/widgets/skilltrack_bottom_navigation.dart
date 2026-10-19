@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../notifications/viewmodels/notification_badge_controller.dart';
+import '../../features/notifications/viewmodels/notification_badge_controller.dart';
 
 class SkillTrackBottomNavigation extends StatelessWidget {
   const SkillTrackBottomNavigation({

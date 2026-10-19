@@ -21,7 +21,7 @@ abstract class KanbanRepository {
   Future<void> createGeneratedTasks(
     String boardId,
     List<GeneratedTaskDraft> tasks, {
-    int startingSortOrder = 0,
+    String? requestId,
   });
   Future<KanbanTask> updateTask(KanbanTask task);
   Future<KanbanTask> resumeTask(KanbanTask task);

@@ -10,6 +10,7 @@ Future<GeneratedTaskDraft?> showGeneratedTaskEditSheet(
   required GeneratedTaskDraft task,
   required DateTime startDate,
   required DateTime endDate,
+  String? Function(GeneratedTaskDraft)? onSave,
 }) => showModalBottomSheet<GeneratedTaskDraft>(
   context: context,
   isScrollControlled: true,
@@ -18,6 +19,7 @@ Future<GeneratedTaskDraft?> showGeneratedTaskEditSheet(
     task: task,
     startDate: startDate,
     endDate: endDate,
+    onSave: onSave,
   ),
 );
 
@@ -26,11 +28,13 @@ class _GeneratedTaskEditSheet extends StatefulWidget {
     required this.task,
     required this.startDate,
     required this.endDate,
+    this.onSave,
   });
 
   final GeneratedTaskDraft task;
   final DateTime startDate;
   final DateTime endDate;
+  final String? Function(GeneratedTaskDraft)? onSave;
 
   @override
   State<_GeneratedTaskEditSheet> createState() =>
@@ -131,16 +135,19 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
       );
       return;
     }
-    AppRouter.back(
-      context,
-      widget.task.copyWith(
-        title: _title.text.trim(),
-        description: _description.text.trim(),
-        priority: _priority,
-        deadline: _deadline,
-        checklist: items,
-      ),
+    final updated = widget.task.copyWith(
+      title: _title.text.trim(),
+      description: _description.text.trim(),
+      priority: _priority,
+      deadline: _deadline,
+      checklist: items,
     );
+    final error = widget.onSave?.call(updated);
+    if (error != null) {
+      setState(() => _checklistError = error);
+      return;
+    }
+    AppRouter.back(context, updated);
   }
 
   @override

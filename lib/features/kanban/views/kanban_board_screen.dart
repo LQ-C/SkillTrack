@@ -6,8 +6,9 @@ import 'package:flutter/services.dart';
 
 import '../../../app/router/app_router.dart';
 import '../../ai_task_generation/view_models/append_task_generation_view_model.dart';
-import '../../../core/constants/app_constants.dart';
+import '../utils/kanban_colors.dart';
 import '../models/kanban_filter.dart';
+import '../models/kanban_sort.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
 import '../viewmodels/kanban_view_model.dart';
@@ -323,7 +324,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     }
     final available = target >= 0 && target < KanbanStatus.values.length;
     final color = available
-        ? AppColors.status(KanbanStatus.values[target])
+        ? KanbanColors.status(KanbanStatus.values[target])
         : Theme.of(context).disabledColor;
     final active = _edgeDirection == direction;
     return Positioned(
@@ -424,6 +425,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             SizedBox(
               width: columnWidth,
               child: KanbanStatusColumn(
+                dragEnabled:
+                    widget.viewModel.activeSort == KanbanSort.custom &&
+                    !widget.viewModel.isSaving,
                 key: ValueKey(KanbanStatus.values[index]),
                 status: KanbanStatus.values[index],
                 tasks: _columnTasks(KanbanStatus.values[index]),
@@ -564,7 +568,26 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     _endTaskDrag();
     HapticFeedback.selectionClick();
     _accentTasks({id});
-    final moved = await widget.viewModel.moveTask(id, status, newIndex: index);
+    final visible = widget.viewModel
+        .visibleTasks(status)
+        .where((task) => task.id != id)
+        .toList();
+    final ordered = widget.viewModel
+        .tasks(status)
+        .where((task) => task.id != id)
+        .toList();
+    final slot = index.clamp(0, visible.length);
+    final anchor = slot < visible.length ? visible[slot].id : null;
+    final insertion = anchor != null
+        ? ordered.indexWhere((task) => task.id == anchor)
+        : visible.isEmpty
+        ? ordered.length
+        : ordered.indexWhere((task) => task.id == visible.last.id) + 1;
+    final moved = await widget.viewModel.moveTask(
+      id,
+      status,
+      newIndex: insertion,
+    );
     if (!moved && mounted) {
       setState(() => _pageIndex = _dragStartIndex);
       _animateBoard(_pageIndex, 1);
@@ -1192,6 +1215,12 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                       ),
                       if (model.hasActiveFilters)
                         _filterChips(model.activeFilter),
+                      if (model.activeSort != KanbanSort.custom)
+                        TextButton.icon(
+                          onPressed: () => model.setSort(KanbanSort.custom),
+                          icon: const Icon(Icons.drag_indicator),
+                          label: const Text('Use Custom order to drag tasks'),
+                        ),
                       Expanded(
                         child: LayoutBuilder(
                           builder: (context, constraints) {

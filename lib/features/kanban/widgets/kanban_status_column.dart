@@ -1,7 +1,7 @@
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_constants.dart';
+import '../utils/kanban_colors.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
 import 'kanban_task_card.dart';
@@ -29,9 +29,11 @@ class KanbanStatusColumn extends StatefulWidget {
     required this.onHover,
     required this.onLeave,
     required this.onDrop,
+    this.dragEnabled = true,
   });
 
   final KanbanStatus status;
+  final bool dragEnabled;
   final List<KanbanTask> tasks;
   final ScrollController scrollController;
   final GlobalKey viewportKey;
@@ -119,7 +121,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
             child: Text(
               'Move to ${widget.status.label}',
               style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                color: AppColors.status(widget.status),
+                color: KanbanColors.status(widget.status),
               ),
             ),
           )
@@ -174,6 +176,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                       _feedbackPointer.value = event.position,
                   child: LongPressDraggable<String>(
                     data: task.id,
+                    maxSimultaneousDrags: widget.dragEnabled ? 1 : 0,
                     dragAnchorStrategy: pointerDragAnchorStrategy,
                     onDragStarted: () {
                       final box = _cardKeys[task.id]?.currentContext
@@ -305,11 +308,11 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                                 margin: const EdgeInsets.only(bottom: 12),
                                 alignment: Alignment.center,
                                 decoration: BoxDecoration(
-                                  color: AppColors.status(
+                                  color: KanbanColors.status(
                                     widget.status,
                                   ).withValues(alpha: .06),
                                   border: Border.all(
-                                    color: AppColors.status(
+                                    color: KanbanColors.status(
                                       widget.status,
                                     ).withValues(alpha: .55),
                                   ),
@@ -359,14 +362,14 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
         padding: const EdgeInsets.fromLTRB(12, 12, 12, 0),
         decoration: BoxDecoration(
           color: Color.alphaBlend(
-            AppColors.status(
+            KanbanColors.status(
               widget.status,
             ).withValues(alpha: hovering ? .12 : .05),
             const Color(0xFFF0F2F7),
           ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
-            color: AppColors.status(
+            color: KanbanColors.status(
               widget.status,
             ).withValues(alpha: hovering ? .9 : .5),
             width: hovering ? 1.5 : 1,
@@ -374,7 +377,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
           boxShadow: hovering
               ? [
                   BoxShadow(
-                    color: AppColors.status(
+                    color: KanbanColors.status(
                       widget.status,
                     ).withValues(alpha: .10),
                     blurRadius: 8,
@@ -391,7 +394,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                   width: 7,
                   height: 28,
                   decoration: BoxDecoration(
-                    color: AppColors.status(widget.status),
+                    color: KanbanColors.status(widget.status),
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
@@ -404,7 +407,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                     style: Theme.of(context).textTheme.titleLarge!.copyWith(
                       fontWeight: hovering ? FontWeight.w800 : FontWeight.w700,
                       color: hovering
-                          ? AppColors.status(widget.status)
+                          ? KanbanColors.status(widget.status)
                           : Theme.of(context).colorScheme.onSurface,
                     ),
                     child: Text(widget.status.label),
@@ -493,8 +496,8 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
       margin: const EdgeInsets.only(bottom: 12),
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: AppColors.status(widget.status).withValues(alpha: .12),
-        border: Border.all(color: AppColors.status(widget.status), width: 2),
+        color: KanbanColors.status(widget.status).withValues(alpha: .12),
+        border: Border.all(color: KanbanColors.status(widget.status), width: 2),
         borderRadius: BorderRadius.circular(16),
       ),
       child: Text(
@@ -568,7 +571,7 @@ class _CardMotionState extends State<_CardMotion> {
               borderRadius: BorderRadius.circular(16),
               border: Border.all(
                 color: widget.active && widget.completed
-                    ? AppColors.status(KanbanStatus.completed)
+                    ? KanbanColors.status(KanbanStatus.completed)
                     : Colors.transparent,
                 width: 2,
               ),
@@ -592,7 +595,7 @@ class _CardMotionState extends State<_CardMotion> {
                         ),
                         child: CircleAvatar(
                           radius: 13,
-                          backgroundColor: AppColors.status(
+                          backgroundColor: KanbanColors.status(
                             KanbanStatus.completed,
                           ),
                           child: const Icon(

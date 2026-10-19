@@ -5,7 +5,7 @@ import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/app/skill_track_app.dart';
 import 'package:skilltrack/app/views/main_module_shell.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
-import 'package:skilltrack/features/kanban/widgets/skilltrack_bottom_navigation.dart';
+import 'package:skilltrack/app/widgets/skilltrack_bottom_navigation.dart';
 import 'package:skilltrack/features/notifications/models/app_notification.dart';
 import 'package:skilltrack/features/notifications/models/notification_context_type.dart';
 import 'package:skilltrack/features/notifications/models/notification_type.dart';
@@ -38,9 +38,14 @@ class _Notifications extends FakeNotificationRepository {
   Future<List<AppNotification>> getNotifications({
     int limit = 50,
     DateTime? before,
+    String? beforeId,
   }) {
     loads++;
-    return super.getNotifications(limit: limit, before: before);
+    return super.getNotifications(
+      limit: limit,
+      before: before,
+      beforeId: beforeId,
+    );
   }
 }
 

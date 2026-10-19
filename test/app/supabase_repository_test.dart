@@ -182,7 +182,7 @@ void main() {
   );
 
   test(
-    'additional generated tasks start after the current To-Do order',
+    'generated tasks and checklists use one atomic request with a retry ID',
     () async {
       final api = await _ApiFixture.start();
       final client = api.client();
@@ -190,198 +190,90 @@ void main() {
         await client.dispose();
         await api.close();
       });
-      await SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+      final drafts = [
         GeneratedTaskDraft(
-          title: 'Additional',
-          description: 'Build it',
-          priority: 'medium',
+          title: 'Basics',
+          description: 'Build widgets',
+          priority: 'low',
           deadline: DateTime(2026, 10, 20),
           position: 0,
           checklist: ['Plan', 'Build'],
         ),
-      ], startingSortOrder: 5000);
-      final rows = (jsonDecode(api.requestBodies.first) as List)
-          .cast<Map<String, dynamic>>();
-      expect(rows.single['sort_order'], 6000);
-      final checklist = (jsonDecode(api.requestBodies.last) as List)
-          .cast<Map<String, dynamic>>();
-      expect(checklist.map((row) => row['task_id']), [
-        'generated-6000',
-        'generated-6000',
-      ]);
+      ];
+      final repo = SupabaseKanbanRepository(client);
+      for (var retry = 0; retry < 2; retry++) {
+        await repo.createGeneratedTasks(
+          'board-1',
+          drafts,
+          requestId: 'stable-operation-123',
+        );
+      }
+      expect(api.methods, ['POST', 'POST']);
+      expect(
+        api.requests.every(
+          (uri) => uri.path.endsWith('/rpc/save_generated_tasks'),
+        ),
+        isTrue,
+      );
+      expect(api.requestBodies[0], api.requestBodies[1]);
+      final payload = jsonDecode(api.requestBodies.first) as Map;
+      expect(payload['p_board_id'], 'board-1');
+      expect(payload['p_request_id'], 'stable-operation-123');
+      final task = (payload['p_tasks'] as List).single as Map;
+      expect(task['checklist'], ['Plan', 'Build']);
+      expect(task['deadline'], '2026-10-20');
+      expect(
+        task.containsKey('sort_order'),
+        isFalse,
+      ); // Allocated under a DB lock.
+      expect(task.containsKey('owner_id'), isFalse);
     },
   );
 
-  test('generated tasks use one trusted batch insert payload', () async {
+  test(
+    'failed atomic generation does not attempt client compensation',
+    () async {
+      final api = await _ApiFixture.start()
+        ..failInsertTable = 'save_generated_tasks';
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      await expectLater(
+        SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+          GeneratedTaskDraft(
+            title: 'Build',
+            description: 'Build it',
+            priority: 'medium',
+            deadline: DateTime(2026, 10, 20),
+            position: 0,
+            checklist: ['Plan'],
+          ),
+        ]),
+        throwsA(isA<AppException>()),
+      );
+      expect(api.methods, ['POST']);
+      expect(api.requests.single.path, endsWith('/rpc/save_generated_tasks'));
+    },
+  );
+
+  test('reorder and checklist deletion each use one transaction RPC', () async {
     final api = await _ApiFixture.start();
     final client = api.client();
     addTearDown(() async {
       await client.dispose();
       await api.close();
     });
-    await SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
-      GeneratedTaskDraft(
-        title: 'Basics',
-        description: 'Widgets',
-        priority: 'low',
-        deadline: DateTime(2026, 10, 16),
-        position: 0,
-      ),
-      GeneratedTaskDraft(
-        title: 'Practice',
-        description: 'Build a view',
-        priority: 'medium',
-        deadline: DateTime(2026, 10, 20),
-        position: 1,
-      ),
-    ]);
-    expect(api.requests.length, 1);
-    expect(api.requests.single.pathSegments.last, 'kanban_tasks');
-    expect(api.requests.single.queryParameters['select'], 'id,sort_order');
-    final rows = jsonDecode(api.requestBodies.single) as List<dynamic>;
-    expect(rows.length, 2);
-    expect(rows.map((row) => row['sort_order']), [1000, 2000]);
+    final repo = SupabaseKanbanRepository(client);
+    await repo.deleteChecklistItem('item-1');
     expect(
-      rows.every(
-        (row) =>
-            row['board_id'] == 'board-1' &&
-            row['status'] == 'todo' &&
-            row['is_archived'] == false,
-      ),
-      isTrue,
+      api.requests.single.path,
+      endsWith('/rpc/delete_task_checklist_item'),
     );
-    expect(rows.first['priority'], 'low');
-    for (final field in [
-      'id',
-      'project_id',
-      'user_id',
-      'created_at',
-      'updated_at',
-      'stagnation_score',
-      'is_stalled',
-    ]) {
-      expect(rows.first.containsKey(field), isFalse);
-    }
+    expect(jsonDecode(api.requestBodies.single), {'p_item_id': 'item-1'});
   });
 
-  test(
-    'generated checklists are inserted once with returned task IDs',
-    () async {
-      final api = await _ApiFixture.start();
-      final client = api.client();
-      addTearDown(() async {
-        await client.dispose();
-        await api.close();
-      });
-      await SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
-        GeneratedTaskDraft(
-          title: 'First',
-          description: '',
-          priority: 'medium',
-          deadline: DateTime(2026, 10, 16),
-          position: 0,
-          checklist: ['Plan', 'Build'],
-        ),
-        GeneratedTaskDraft(
-          title: 'Second',
-          description: '',
-          priority: 'high',
-          deadline: DateTime(2026, 10, 17),
-          position: 1,
-          checklist: ['Review'],
-        ),
-      ]);
-      expect(api.methods, ['POST', 'POST']);
-      expect(api.requests.map((uri) => uri.pathSegments.last), [
-        'kanban_tasks',
-        'task_checklist_items',
-      ]);
-      expect(api.requests.first.queryParameters['select'], 'id,sort_order');
-      final checklistRows = (jsonDecode(api.requestBodies.last) as List)
-          .cast<Map<String, dynamic>>();
-      expect(checklistRows, [
-        {
-          'task_id': 'generated-1000',
-          'title': 'Plan',
-          'position': 0,
-          'is_completed': false,
-        },
-        {
-          'task_id': 'generated-1000',
-          'title': 'Build',
-          'position': 1,
-          'is_completed': false,
-        },
-        {
-          'task_id': 'generated-2000',
-          'title': 'Review',
-          'position': 0,
-          'is_completed': false,
-        },
-      ]);
-      for (final field in ['id', 'created_at', 'completed_at']) {
-        expect(checklistRows.first.containsKey(field), isFalse);
-      }
-    },
-  );
-
-  test('failed generated task insert skips checklists', () async {
-    final api = await _ApiFixture.start()
-      ..failInsertTable = 'kanban_tasks';
-    final client = api.client();
-    addTearDown(() async {
-      await client.dispose();
-      await api.close();
-    });
-    await expectLater(
-      SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
-        GeneratedTaskDraft(
-          title: 'First',
-          description: '',
-          priority: 'medium',
-          deadline: DateTime(2026, 10, 16),
-          position: 0,
-          checklist: ['Plan'],
-        ),
-      ]),
-      throwsA(isA<AppException>()),
-    );
-    expect(api.requests.map((uri) => uri.pathSegments.last), ['kanban_tasks']);
-  });
-
-  for (final rollbackFails in [false, true]) {
-    test(
-      'checklist failure keeps the save error when rollback fails: $rollbackFails',
-      () async {
-        final api = await _ApiFixture.start()
-          ..failInsertTable = 'task_checklist_items'
-          ..failTaskRollback = rollbackFails;
-        final client = api.client();
-        addTearDown(() async {
-          await client.dispose();
-          await api.close();
-        });
-        await expectLater(
-          SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
-            GeneratedTaskDraft(
-              title: 'First',
-              description: '',
-              priority: 'medium',
-              deadline: DateTime(2026, 10, 16),
-              position: 0,
-              checklist: ['Plan'],
-            ),
-          ]),
-          throwsA(isA<AppException>()),
-        );
-        expect(api.methods, ['POST', 'POST', 'DELETE']);
-        final rollback = api.requests.last;
-        expect(rollback.pathSegments.last, 'kanban_tasks');
-        expect(rollback.queryParameters['id'], contains('generated-1000'));
-        expect(rollback.queryParameters.containsKey('board_id'), isFalse);
-      },
-    );
-  }
   for (final archived in [false, true]) {
     test(
       '${archived ? 'archived' : 'active'} tasks keep relations and use one query per table',

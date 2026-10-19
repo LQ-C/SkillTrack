@@ -34,6 +34,9 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   int generatedInsertCalls = 0;
   int summaryCalls = 0;
   bool failGeneratedInsert = false;
+  bool loseGeneratedResponseOnce = false;
+  final generatedRequests = <String, String>{};
+  final generatedRequestIds = <String?>[];
   final activityEvents =
       <
         ({
@@ -110,10 +113,32 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   Future<void> createGeneratedTasks(
     String boardId,
     List<GeneratedTaskDraft> tasks, {
-    int startingSortOrder = 0,
+    String? requestId,
   }) async {
     generatedInsertCalls++;
+    generatedRequestIds.add(requestId);
+    final payload = tasks
+        .map((task) => task.toRevisionJson().toString())
+        .join();
+    if (requestId != null && generatedRequests.containsKey(requestId)) {
+      if (generatedRequests[requestId] != payload) {
+        throw StateError("request reused");
+      }
+      return;
+    }
     if (failGeneratedInsert) throw StateError('batch failed');
+    final startingSortOrder = stored
+        .where(
+          (task) =>
+              task.boardId == boardId &&
+              task.status == KanbanStatus.todo &&
+              !task.isArchived,
+        )
+        .fold<int>(
+          0,
+          (highest, task) =>
+              task.sortOrder > highest ? task.sortOrder : highest,
+        );
     final now = DateTime.now();
     for (var taskIndex = 0; taskIndex < tasks.length; taskIndex++) {
       final draft = tasks[taskIndex];
@@ -142,6 +167,11 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
           ],
         ),
       );
+    }
+    if (requestId != null) generatedRequests[requestId] = payload;
+    if (loseGeneratedResponseOnce) {
+      loseGeneratedResponseOnce = false;
+      throw StateError('Response lost after commit');
     }
   }
 

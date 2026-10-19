@@ -11,6 +11,19 @@ import 'package:skilltrack/features/kanban/viewmodels/kanban_view_model.dart';
 import '../fake_repository.dart';
 
 void main() {
+  test('committed create stays successful when its refresh fails', () async {
+    final repo = FakeKanbanRepository();
+    final model = KanbanViewModel(repo);
+    addTearDown(model.dispose);
+    await model.initialize();
+    repo.failLoad = true;
+    expect(await model.createTask(title: 'Saved'), isTrue);
+    expect(repo.stored, hasLength(1));
+    expect(model.allTasks.single.title, 'Saved');
+    expect(model.errorMessage, AppErrorMessages.savedRefreshFailed);
+    expect(model.activityVersion, 1);
+  });
+
   group('KanbanViewModel', () {
     test('loads tasks and derives progress', () async {
       final repo = FakeKanbanRepository(

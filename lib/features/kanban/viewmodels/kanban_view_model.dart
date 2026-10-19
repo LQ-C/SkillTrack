@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/constants/app_constants.dart';
 import '../models/kanban_filter.dart';
 import '../models/kanban_sort.dart';
 import '../models/kanban_status.dart';
@@ -19,6 +20,8 @@ class KanbanViewModel extends ChangeNotifier {
   final KanbanRepository _repository;
   static const _sortOrderStep = 1000;
   bool _disposed = false;
+  int _activityVersion = 0;
+  int get activityVersion => _activityVersion;
   String? _boardId;
   String? _archivedBoardId;
   List<KanbanTask> _tasks = [];
@@ -156,12 +159,11 @@ class KanbanViewModel extends ChangeNotifier {
   Future<void> _reload() async {
     final board = _boardId;
     if (_disposed || board == null) return;
-    final loaded = await _repository.getTasks(board);
-    if (_disposed || board != _boardId) return;
     final user = _repository.currentUserId;
-    final tags = user == null
-        ? <TaskTag>[]
-        : await _repository.getUserTags(user);
+    final (loaded, tags) = await (
+      _repository.getTasks(board),
+      user == null ? Future.value(<TaskTag>[]) : _repository.getUserTags(user),
+    ).wait;
     if (_disposed || board != _boardId) return;
     _tasks = loaded;
     _tags = tags;
@@ -313,18 +315,24 @@ class KanbanViewModel extends ChangeNotifier {
     _errorMessage = null;
     if (optimistic != null) _tasks = optimistic;
     notifyListeners();
+    var committed = false;
     try {
       await operation();
+      committed = true;
       if (_disposed) return false;
+      _activityVersion++;
       await _reload();
       if (_disposed) return false;
       _feedbackMessage = feedback;
       return true;
     } catch (error) {
       if (_disposed) return false;
-      _tasks = previous;
-      _errorMessage = failureMessage ?? AppException.messageFor(error);
-      return false;
+      if (!committed) _tasks = previous;
+      _errorMessage = committed
+          ? AppErrorMessages.savedRefreshFailed
+          : failureMessage ?? AppException.messageFor(error);
+      if (committed) _feedbackMessage = feedback;
+      return committed;
     } finally {
       _isSaving = false;
       notifyListeners();
@@ -384,6 +392,7 @@ class KanbanViewModel extends ChangeNotifier {
         await _repository.deleteTask(created.id);
         rethrow;
       }
+      _tasks = [..._tasks, created];
     }, 'Task created successfully');
   }
 
@@ -691,11 +700,6 @@ class KanbanViewModel extends ChangeNotifier {
     );
   }
 
-  Future<bool> addTagToTask(String taskId, String tagId) =>
-      _save(() => _repository.attachTagToTask(taskId, tagId), 'Tag added');
-  Future<bool> removeTagFromTask(String taskId, String tagId) =>
-      _save(() => _repository.removeTagFromTask(taskId, tagId), 'Tag removed');
-
   Future<bool> createChecklistItem(String taskId, String title) async {
     if (title.trim().isEmpty) return false;
     final task = _tasks.where((item) => item.id == taskId).firstOrNull;
@@ -753,6 +757,9 @@ class KanbanViewModel extends ChangeNotifier {
     Uint8List bytes,
     String? mimeType,
   ) => _save(() async {
+    if (bytes.isEmpty || bytes.length > AppLimits.maxAttachmentBytes) {
+      throw const AppException(AppErrorMessages.attachmentTooLarge);
+    }
     await _repository.uploadAttachment(taskId, fileName, bytes, mimeType);
   }, 'Attachment uploaded');
   Future<bool> deleteAttachment(TaskAttachment attachment) => _save(
@@ -774,7 +781,7 @@ class KanbanViewModel extends ChangeNotifier {
       if (_disposed) return false;
       _tasks = List.of(_tasks)..[index] = resumed;
       _feedbackMessage = 'Task resumed';
-      notifyListeners();
+      _activityVersion++;
       return true;
     } catch (error) {
       if (!_disposed) _errorMessage = AppException.messageFor(error);

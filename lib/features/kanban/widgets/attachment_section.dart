@@ -1,7 +1,12 @@
+import 'dart:typed_data';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../../app/router/app_router.dart';
+import '../../../core/constants/app_constants.dart';
+import '../../../core/errors/app_exception.dart';
 import '../models/kanban_task.dart';
 import '../models/task_attachment.dart';
 import '../viewmodels/kanban_view_model.dart';
@@ -17,15 +22,42 @@ class AttachmentSection extends StatelessWidget {
 
   Future<void> _upload(BuildContext context) async {
     try {
-      final selection = await FilePicker.pickFiles(withData: true);
+      final selection = await FilePicker.pickFiles(
+        withData: false,
+        withReadStream: true,
+      );
       final file = selection?.files.singleOrNull;
       if (file == null) return;
-      if (file.bytes == null) throw StateError('File data unavailable');
-      await viewModel.uploadAttachment(task.id, file.name, file.bytes!, null);
-    } catch (_) {
+      if (file.size > AppLimits.maxAttachmentBytes) {
+        throw const AppException(AppErrorMessages.attachmentTooLarge);
+      }
+      final stream = file.readStream;
+      if (stream == null) throw StateError('File data unavailable');
+      final buffer = BytesBuilder(copy: false);
+      await for (final chunk in stream) {
+        if (buffer.length + chunk.length > AppLimits.maxAttachmentBytes) {
+          throw const AppException(AppErrorMessages.attachmentTooLarge);
+        }
+        buffer.add(chunk);
+      }
+      if (!context.mounted) return;
+      await viewModel.uploadAttachment(
+        task.id,
+        file.name,
+        buffer.takeBytes(),
+        'application/octet-stream',
+      );
+    } catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Unable to select this file.')),
+          SnackBar(
+            content: Text(
+              AppException.messageFor(
+                error,
+                fallback: 'Unable to select this file.',
+              ),
+            ),
+          ),
         );
       }
     }
@@ -57,11 +89,11 @@ class AttachmentSection extends StatelessWidget {
         content: Text('Remove ${attachment.fileName}?'),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
+            onPressed: () => AppRouter.back(dialogContext, false),
             child: const Text('Cancel'),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
+            onPressed: () => AppRouter.back(dialogContext, true),
             child: const Text('Delete'),
           ),
         ],

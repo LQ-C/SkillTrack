@@ -109,7 +109,7 @@ void main() {
   for (final fail in [false, true]) {
     final outcome = fail ? 'fails' : 'succeeds';
     test(
-      'Kanban load $outcome after disposal without notifying or fetching tags',
+      'Kanban load $outcome after disposal without notifying or starting further reads',
       () async {
         final repo = _KanbanRepository()
           ..pendingTasks = Completer<List<KanbanTask>>();
@@ -125,7 +125,10 @@ void main() {
         await loading;
         expect(notifications, before);
         expect(model.allTasks, isEmpty);
-        expect(repo.tagLoads, 0);
+        expect(
+          repo.tagLoads,
+          1,
+        ); // Started with the task read, before disposal.
         await model.refresh();
         expect(repo.loads, 1);
       },

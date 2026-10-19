@@ -6,14 +6,13 @@ abstract class NotificationRepository {
   Future<List<AppNotification>> getNotifications({
     int limit = 50,
     DateTime? before,
+    String? beforeId,
   });
   Future<int> getUnreadCount();
-  Future<AppNotification> createNotification(AppNotification notification);
   Future<void> markAsRead(String notificationId);
   Future<void> markAllAsRead();
   Future<NotificationPreferences> getPreferences();
   Future<NotificationPreferences> updatePreferences(
     NotificationPreferences preferences,
   );
-  Future<bool> notificationExists(String uniqueKey);
 }
