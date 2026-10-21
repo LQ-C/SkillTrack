@@ -4,6 +4,7 @@ import '../../../app/router/app_router.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
 import '../models/task_priority.dart';
+import '../utils/kanban_colors.dart';
 import '../viewmodels/kanban_view_model.dart';
 import 'checklist_section.dart';
 import 'task_tag_chip.dart';
@@ -209,7 +210,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                   padding: const EdgeInsets.symmetric(horizontal: 4),
                   decoration: BoxDecoration(
                     color: _status == status
-                        ? theme.colorScheme.primary
+                        ? KanbanColors.status(status).withValues(alpha: .13)
                         : Colors.transparent,
                     borderRadius: BorderRadius.circular(12),
                   ),
@@ -219,8 +220,8 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                       status.label,
                       style: theme.textTheme.labelLarge?.copyWith(
                         color: _status == status
-                            ? theme.colorScheme.onPrimary
-                            : theme.colorScheme.onSurface,
+                            ? KanbanColors.status(status)
+                            : theme.colorScheme.onSurfaceVariant,
                         fontWeight: FontWeight.w600,
                       ),
                     ),
@@ -264,7 +265,12 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Deadline', style: theme.textTheme.labelMedium),
+                  Text(
+                    'Deadline',
+                    style: theme.textTheme.labelMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                   Text(
                     _dateLabel(context),
                     maxLines: 1,
@@ -339,7 +345,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   Widget _inputCard(ThemeData theme) => Container(
     decoration: BoxDecoration(
       color: theme.colorScheme.surface,
-      borderRadius: BorderRadius.circular(20),
+      borderRadius: BorderRadius.circular(18),
       border: Border.all(color: theme.colorScheme.outlineVariant),
     ),
     child: Column(
@@ -378,7 +384,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
         Divider(height: 1, color: theme.colorScheme.outlineVariant),
         InkWell(
           borderRadius: const BorderRadius.vertical(
-            bottom: Radius.circular(20),
+            bottom: Radius.circular(18),
           ),
           onTap: () => ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -421,6 +427,15 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                     for (final priority in TaskPriority.values)
                       ChoiceChip(
                         label: Text(priority.label),
+                        selectedColor: KanbanColors.priority(
+                          priority,
+                        ).withValues(alpha: .12),
+                        checkmarkColor: KanbanColors.priority(priority),
+                        labelStyle: theme.textTheme.labelLarge?.copyWith(
+                          color: _priority == priority
+                              ? KanbanColors.priority(priority)
+                              : theme.colorScheme.onSurfaceVariant,
+                        ),
                         selected: _priority == priority,
                         onSelected: (_) => setState(() => _priority = priority),
                       ),

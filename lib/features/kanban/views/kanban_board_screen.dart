@@ -370,7 +370,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                     ),
                     boxShadow: [
                       BoxShadow(
-                        color: Colors.black.withValues(alpha: .10),
+                        color: Theme.of(
+                          context,
+                        ).colorScheme.primary.withValues(alpha: .08),
                         blurRadius: 8,
                         offset: const Offset(0, 3),
                       ),
@@ -1192,7 +1194,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                       ),
                       Text(
                         'Kanban Board',
-                        style: Theme.of(context).textTheme.labelSmall,
+                        style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                       ),
                     ],
                   ),

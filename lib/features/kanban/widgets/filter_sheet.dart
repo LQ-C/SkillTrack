@@ -5,6 +5,7 @@ import '../../../app/router/app_router.dart';
 import '../models/kanban_filter.dart';
 import '../models/kanban_status.dart';
 import '../models/task_priority.dart';
+import '../utils/kanban_colors.dart';
 import '../viewmodels/kanban_view_model.dart';
 import 'task_tag_chip.dart';
 
@@ -76,6 +77,16 @@ class _FilterSheetState extends State<FilterSheet> {
                 .map(
                   (status) => FilterChip(
                     label: Text(status.label),
+                    selectedColor: KanbanColors.status(
+                      status,
+                    ).withValues(alpha: .13),
+                    checkmarkColor: KanbanColors.status(status),
+                    labelStyle: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(
+                          color: statuses.contains(status)
+                              ? KanbanColors.status(status)
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                     selected: statuses.contains(status),
                     onSelected: (selected) => setState(() {
                       selected ? statuses.add(status) : statuses.remove(status);
@@ -92,6 +103,16 @@ class _FilterSheetState extends State<FilterSheet> {
                 .map(
                   (priority) => FilterChip(
                     label: Text(priority.label),
+                    selectedColor: KanbanColors.priority(
+                      priority,
+                    ).withValues(alpha: .12),
+                    checkmarkColor: KanbanColors.priority(priority),
+                    labelStyle: Theme.of(context).textTheme.labelLarge
+                        ?.copyWith(
+                          color: priorities.contains(priority)
+                              ? KanbanColors.priority(priority)
+                              : Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
                     selected: priorities.contains(priority),
                     onSelected: (selected) => setState(() {
                       selected

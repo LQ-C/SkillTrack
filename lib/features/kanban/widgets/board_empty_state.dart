@@ -21,9 +21,12 @@ class BoardEmptyState extends StatelessWidget {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
-          const Text(
+          Text(
             'Try changing or clearing your filters.',
             textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
           ),
           const SizedBox(height: 16),
           FilledButton(onPressed: onAction, child: const Text('Clear filters')),

@@ -94,6 +94,9 @@ class _GeneratedTaskPreviewScreenState
             ),
             TextButton(
               onPressed: () => AppRouter.back(context, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
               child: const Text('Remove'),
             ),
           ],
@@ -178,7 +181,9 @@ class _GeneratedTaskPreviewScreenState
                             append
                                 ? 'These tasks will be added to your existing project. Your current tasks will not be changed.'
                                 : 'Review the generated plan before creating your project.',
-                            style: theme.textTheme.bodyMedium,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                           const SizedBox(height: 10),
                           Text(
@@ -216,9 +221,12 @@ class _GeneratedTaskPreviewScreenState
                           dragHandle: ReorderableDelayedDragStartListener(
                             index: index,
                             enabled: canCustomize,
-                            child: const Tooltip(
+                            child: Tooltip(
                               message: 'Hold to reorder task',
-                              child: Icon(Icons.drag_handle),
+                              child: Icon(
+                                Icons.drag_handle,
+                                color: theme.colorScheme.onSurfaceVariant,
+                              ),
                             ),
                           ),
                         ),
@@ -319,8 +327,11 @@ class _GeneratedTaskPreviewScreenState
       children: [
         Text('Revise this plan', style: theme.textTheme.titleMedium),
         const SizedBox(height: 4),
-        const Text(
+        Text(
           'The revised plan may replace your current preview changes.',
+          style: theme.textTheme.bodyMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
         ),
         const SizedBox(height: 12),
         TextField(
@@ -334,7 +345,6 @@ class _GeneratedTaskPreviewScreenState
           decoration: const InputDecoration(
             labelText: 'What should change?',
             hintText: 'Add more testing tasks and make the plan easier.',
-            border: OutlineInputBorder(),
           ),
         ),
         Align(
@@ -385,21 +395,29 @@ class _PreviewCard extends StatelessWidget {
                 Expanded(
                   child: Text(
                     'Task $number',
-                    style: theme.textTheme.labelLarge,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 ),
                 Chip(
                   label: Text(priority.label),
                   backgroundColor: color.withValues(alpha: .10),
-                  labelStyle: TextStyle(color: color),
+                  side: BorderSide.none,
+                  labelStyle: theme.textTheme.labelLarge?.copyWith(
+                    color: color,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
                 IconButton(
                   tooltip: 'Edit generated task',
+                  color: theme.colorScheme.primary,
                   onPressed: onEdit,
                   icon: const Icon(Icons.edit_outlined),
                 ),
                 IconButton(
                   tooltip: 'Remove generated task',
+                  color: theme.colorScheme.error,
                   onPressed: onRemove,
                   icon: const Icon(Icons.delete_outline),
                 ),
@@ -409,10 +427,18 @@ class _PreviewCard extends StatelessWidget {
             Text(task.title, style: theme.textTheme.titleMedium),
             if (task.description.isNotEmpty) ...[
               const SizedBox(height: 8),
-              Text(task.description),
+              Text(
+                task.description,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
             ],
             const SizedBox(height: 12),
-            Text('Deadline: ${DateFormatter.short(task.deadline)}'),
+            Text(
+              'Deadline: ${DateFormatter.short(task.deadline)}',
+              style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+            ),
             const Divider(height: 24),
             Text(
               'Checklist (${task.checklist.length})',
@@ -436,7 +462,14 @@ class _PreviewCard extends StatelessWidget {
                         color: theme.colorScheme.onSurfaceVariant,
                       ),
                       const SizedBox(width: 8),
-                      Expanded(child: Text(item)),
+                      Expanded(
+                        child: Text(
+                          item,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
                     ],
                   ),
                 ),

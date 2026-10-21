@@ -228,7 +228,9 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                             child: Material(
                               color: Colors.transparent,
                               elevation: 12,
-                              shadowColor: Colors.black45,
+                              shadowColor: Theme.of(
+                                context,
+                              ).colorScheme.primary.withValues(alpha: .24),
                               borderRadius: BorderRadius.circular(16),
                               child: SizedBox(
                                 key: Key('drag-feedback-${task.id}'),
@@ -368,14 +370,14 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
           color: Color.alphaBlend(
             KanbanColors.status(
               widget.status,
-            ).withValues(alpha: hovering ? .12 : .05),
-            const Color(0xFFF0F2F7),
+            ).withValues(alpha: hovering ? .13 : .07),
+            Theme.of(context).colorScheme.surface,
           ),
           borderRadius: BorderRadius.circular(18),
           border: Border.all(
             color: KanbanColors.status(
               widget.status,
-            ).withValues(alpha: hovering ? .9 : .5),
+            ).withValues(alpha: hovering ? .65 : .22),
             width: hovering ? 1.5 : 1,
           ),
           boxShadow: hovering
@@ -409,7 +411,7 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                         ? Duration.zero
                         : const Duration(milliseconds: 200),
                     style: Theme.of(context).textTheme.titleLarge!.copyWith(
-                      fontWeight: hovering ? FontWeight.w800 : FontWeight.w700,
+                      fontWeight: hovering ? FontWeight.w700 : FontWeight.w600,
                       color: hovering
                           ? KanbanColors.status(widget.status)
                           : Theme.of(context).colorScheme.onSurface,
@@ -423,6 +425,10 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                       : const Duration(milliseconds: 200),
                   child: Badge(
                     key: ValueKey(widget.tasks.length),
+                    backgroundColor: KanbanColors.status(
+                      widget.status,
+                    ).withValues(alpha: .13),
+                    textColor: Theme.of(context).colorScheme.onSurface,
                     label: Text('${widget.tasks.length}'),
                     child: const SizedBox(width: 24, height: 24),
                   ),
@@ -475,6 +481,11 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                                       : Text(
                                           'No ${widget.status.label.toLowerCase()} tasks',
                                           textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            color: Theme.of(
+                                              context,
+                                            ).colorScheme.onSurfaceVariant,
+                                          ),
                                         ),
                                 ),
                               )

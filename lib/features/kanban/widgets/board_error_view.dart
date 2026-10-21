@@ -30,7 +30,13 @@ class BoardErrorView extends StatelessWidget {
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),
-          Text(description, textAlign: TextAlign.center),
+          Text(
+            description,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 8),
           Text(
             message,

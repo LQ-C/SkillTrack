@@ -15,6 +15,20 @@ class NotificationTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final accent = switch (notification.type) {
+      NotificationType.stalledTask => scheme.tertiary,
+      NotificationType.deadlineReminder => scheme.primary,
+      NotificationType.learningResourceRecommendation => scheme.secondary,
+      NotificationType.unknown => scheme.onSurfaceVariant,
+    };
+    final accentContainer = switch (notification.type) {
+      NotificationType.stalledTask => scheme.tertiaryContainer,
+      NotificationType.deadlineReminder => scheme.primaryContainer,
+      NotificationType.learningResourceRecommendation =>
+        scheme.secondaryContainer,
+      NotificationType.unknown => scheme.surfaceContainerHighest,
+    };
     final local = notification.createdAt.toLocal();
     final date = MaterialLocalizations.of(context).formatMediumDate(local);
     final time = MaterialLocalizations.of(
@@ -34,8 +48,16 @@ class NotificationTile extends StatelessWidget {
       button: true,
       child: Card(
         color: notification.isUnread
-            ? theme.colorScheme.primaryContainer.withValues(alpha: .4)
-            : theme.colorScheme.surface,
+            ? Color.alphaBlend(accent.withValues(alpha: .055), scheme.surface)
+            : scheme.surface,
+        shape: RoundedRectangleBorder(
+          borderRadius: BorderRadius.circular(16),
+          side: BorderSide(
+            color: notification.isUnread
+                ? accent.withValues(alpha: .22)
+                : scheme.outlineVariant.withValues(alpha: .65),
+          ),
+        ),
         child: InkWell(
           onTap: onTap,
           borderRadius: BorderRadius.circular(16),
@@ -44,7 +66,11 @@ class NotificationTile extends StatelessWidget {
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                CircleAvatar(child: Icon(icon)),
+                CircleAvatar(
+                  backgroundColor: accentContainer,
+                  foregroundColor: accent,
+                  child: Icon(icon),
+                ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
@@ -55,13 +81,24 @@ class NotificationTile extends StatelessWidget {
                         style: theme.textTheme.titleMedium?.copyWith(
                           fontWeight: notification.isUnread
                               ? FontWeight.w700
-                              : FontWeight.w400,
+                              : FontWeight.w500,
+                          color: scheme.onSurface,
                         ),
                       ),
                       const SizedBox(height: 4),
-                      Text(notification.message),
+                      Text(
+                        notification.message,
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                       const SizedBox(height: 8),
-                      Text('$date · $time', style: theme.textTheme.bodySmall),
+                      Text(
+                        '$date · $time',
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: scheme.onSurfaceVariant,
+                        ),
+                      ),
                     ],
                   ),
                 ),
@@ -73,12 +110,13 @@ class NotificationTile extends StatelessWidget {
                       width: 8,
                       height: 8,
                       decoration: BoxDecoration(
-                        color: theme.colorScheme.primary,
+                        color: accent,
                         shape: BoxShape.circle,
                       ),
                     ),
                   ),
-                if (notification.canNavigate) const Icon(Icons.chevron_right),
+                if (notification.canNavigate)
+                  Icon(Icons.chevron_right, color: scheme.onSurfaceVariant),
               ],
             ),
           ),

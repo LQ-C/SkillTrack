@@ -19,6 +19,14 @@ class SortSheet extends StatelessWidget {
           Text('Sort tasks', style: Theme.of(context).textTheme.titleLarge),
           ...KanbanSort.values.map(
             (sort) => ListTile(
+              selected: sort == viewModel.activeSort,
+              selectedColor: Theme.of(context).colorScheme.primary,
+              selectedTileColor: Theme.of(
+                context,
+              ).colorScheme.primaryContainer.withValues(alpha: .5),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(14),
+              ),
               title: Text(sort.label),
               trailing: sort == viewModel.activeSort
                   ? const Icon(Icons.check)

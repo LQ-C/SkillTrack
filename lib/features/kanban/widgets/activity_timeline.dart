@@ -133,12 +133,16 @@ class _ActivityRow extends StatelessWidget {
               children: [
                 Text(
                   _label(activity),
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(
+                    context,
+                  ).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w500),
                 ),
                 if (description != null)
                   Text(
                     description,
-                    style: Theme.of(context).textTheme.bodySmall,
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
                 Text(
                   '${DateFormatter.short(local)} · $time',

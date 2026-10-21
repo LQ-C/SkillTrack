@@ -104,7 +104,14 @@ class _ChecklistSectionState extends State<ChecklistSection> {
                 Expanded(
                   child: CheckboxListTile(
                     value: item.isCompleted,
-                    title: Text(item.title),
+                    title: Text(
+                      item.title,
+                      style: TextStyle(
+                        color: item.isCompleted
+                            ? Theme.of(context).colorScheme.onSurfaceVariant
+                            : Theme.of(context).colorScheme.onSurface,
+                      ),
+                    ),
                     contentPadding: EdgeInsets.zero,
                     onChanged: widget.viewModel.isSaving || _isEditing
                         ? null
@@ -150,6 +157,7 @@ class _ChecklistSectionState extends State<ChecklistSection> {
             ),
             IconButton(
               tooltip: 'Add checklist item',
+              color: Theme.of(context).colorScheme.primary,
               icon: const Icon(Icons.add),
               onPressed: widget.viewModel.isSaving ? null : _add,
             ),

@@ -174,6 +174,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                         if (value != null)
                           IconButton(
                             tooltip: 'Clear $label',
+                            color: colors.onSurfaceVariant,
                             onPressed: enabled
                                 ? () => start
                                       ? _model.setStartDate(null)
@@ -272,16 +273,16 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                   children: [
                     Text(
                       editing ? 'Edit Project' : 'Create Project',
-                      style: theme.textTheme.headlineLarge?.copyWith(
-                        fontWeight: FontWeight.w800,
-                      ),
+                      style: theme.textTheme.headlineLarge,
                     ),
                     const SizedBox(height: 6),
                     Text(
                       editing
                           ? 'Update your project details.'
                           : 'Organize your learning tasks in one place.',
-                      style: theme.textTheme.bodyMedium,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: theme.colorScheme.onSurfaceVariant,
+                      ),
                     ),
                     const SizedBox(height: 28),
                     ListenableBuilder(
@@ -455,9 +456,12 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                             style: theme.textTheme.titleMedium,
                           ),
                           const SizedBox(height: 8),
-                          const Text(
+                          Text(
                             'Creating tasks and checklists…',
                             textAlign: TextAlign.center,
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                         ],
                       ),

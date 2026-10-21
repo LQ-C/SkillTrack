@@ -130,6 +130,7 @@ class _TagManagementSheetState extends State<TagManagementSheet> {
                           ),
                           IconButton(
                             tooltip: 'Delete ${tag.name}',
+                            color: Theme.of(context).colorScheme.error,
                             icon: const Icon(Icons.delete_outline),
                             onPressed: (viewModel.isSaving || _isShowingDialog)
                                 ? null

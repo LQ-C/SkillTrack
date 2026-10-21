@@ -183,6 +183,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
                     ),
                     IconButton(
                       tooltip: 'Close',
+                      color: theme.colorScheme.onSurfaceVariant,
                       onPressed: () => AppRouter.back(context),
                       icon: const Icon(Icons.close),
                     ),
@@ -256,6 +257,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
                           ),
                           IconButton(
                             tooltip: 'Remove checklist item',
+                            color: theme.colorScheme.error,
                             onPressed: () => setState(
                               () => _removedItems.add(_items.removeAt(index)),
                             ),
@@ -279,6 +281,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
                           ),
                           IconButton(
                             tooltip: 'Add checklist item',
+                            color: theme.colorScheme.primary,
                             onPressed: _addItem,
                             icon: const Icon(Icons.add),
                           ),

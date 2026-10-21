@@ -28,7 +28,7 @@ class ProjectProgressCard extends StatelessWidget {
                   child: Text(
                     'Project Progress',
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -58,6 +58,7 @@ class ProjectProgressCard extends StatelessWidget {
                 value: value,
                 minHeight: 8,
                 borderRadius: BorderRadius.circular(8),
+                backgroundColor: Theme.of(context).colorScheme.primaryContainer,
               ),
             ),
             const SizedBox(height: 10),

@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 
-import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
 import '../models/task_activity.dart';
+import '../utils/kanban_colors.dart';
 import '../viewmodels/kanban_view_model.dart';
 import 'activity_timeline.dart';
 import 'attachment_section.dart';
@@ -127,7 +127,7 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                     padding: const EdgeInsets.only(bottom: 12),
                     child: Card(
                       margin: EdgeInsets.zero,
-                      color: AppColors.warning.withValues(alpha: .10),
+                      color: Theme.of(context).colorScheme.tertiaryContainer,
                       child: Padding(
                         padding: const EdgeInsets.all(16),
                         child: Column(
@@ -136,9 +136,9 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                             Row(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                const Icon(
+                                Icon(
                                   Icons.warning_amber_rounded,
-                                  color: AppColors.warning,
+                                  color: Theme.of(context).colorScheme.tertiary,
                                   semanticLabel: 'Warning',
                                 ),
                                 const SizedBox(width: 10),
@@ -221,9 +221,23 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                           spacing: 8,
                           runSpacing: 8,
                           children: [
-                            Chip(label: Text(task.status.label)),
+                            Chip(
+                              label: Text(task.status.label),
+                              backgroundColor: KanbanColors.status(
+                                task.status,
+                              ).withValues(alpha: .12),
+                              labelStyle: TextStyle(
+                                color: KanbanColors.status(task.status),
+                              ),
+                            ),
                             Chip(
                               label: Text('${task.priority.label} priority'),
+                              backgroundColor: KanbanColors.priority(
+                                task.priority,
+                              ).withValues(alpha: .10),
+                              labelStyle: TextStyle(
+                                color: KanbanColors.priority(task.priority),
+                              ),
                             ),
                             Chip(
                               label: Text(
@@ -262,8 +276,18 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                       : ActivityTimeline(activities: snapshot.data ?? const []),
                 ),
                 const Divider(height: 28),
-                Text('Created ${DateFormatter.short(task.createdAt)}'),
-                Text('Updated ${DateFormatter.short(task.updatedAt)}'),
+                Text(
+                  'Created ${DateFormatter.short(task.createdAt)}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+                Text(
+                  'Updated ${DateFormatter.short(task.updatedAt)}',
+                  style: TextStyle(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
               ],
             ),
           ),

@@ -6,6 +6,7 @@ import '../../../core/errors/app_exception.dart';
 import '../../../app/router/app_router.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
+import '../utils/kanban_colors.dart';
 import '../viewmodels/archived_tasks_view_model.dart';
 import '../widgets/board_loading_view.dart';
 import '../widgets/task_tag_chip.dart';
@@ -276,11 +277,17 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 52),
+          Icon(icon, size: 52, color: Theme.of(context).colorScheme.primary),
           const SizedBox(height: 12),
           Text(title, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text(description, textAlign: TextAlign.center),
+          Text(
+            description,
+            textAlign: TextAlign.center,
+            style: TextStyle(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           const SizedBox(height: 20),
           FilledButton(onPressed: onPressed, child: Text(action)),
         ],
@@ -488,7 +495,7 @@ class _ArchivedTaskCard extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Card(
     margin: const EdgeInsets.only(bottom: 12),
-    color: Theme.of(context).colorScheme.surfaceContainerLow,
+    color: Theme.of(context).colorScheme.surface,
     child: InkWell(
       onTap: onDetails,
       borderRadius: BorderRadius.circular(16),
@@ -499,7 +506,11 @@ class _ArchivedTaskCard extends StatelessWidget {
           children: [
             Row(
               children: [
-                const Icon(Icons.archive_outlined, semanticLabel: 'Archived'),
+                Icon(
+                  Icons.archive_outlined,
+                  semanticLabel: 'Archived',
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
                 const SizedBox(width: 8),
                 Expanded(
                   child: Text(
@@ -507,7 +518,7 @@ class _ArchivedTaskCard extends StatelessWidget {
                     maxLines: 2,
                     overflow: TextOverflow.ellipsis,
                     style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),
@@ -547,6 +558,9 @@ class _ArchivedTaskCard extends StatelessWidget {
                 task.description,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
               ),
             ],
             const SizedBox(height: 10),
@@ -554,8 +568,24 @@ class _ArchivedTaskCard extends StatelessWidget {
               spacing: 6,
               runSpacing: 6,
               children: [
-                Chip(label: Text(task.status.label)),
-                Chip(label: Text('${task.priority.label} priority')),
+                Chip(
+                  label: Text(task.status.label),
+                  backgroundColor: KanbanColors.status(
+                    task.status,
+                  ).withValues(alpha: .12),
+                  labelStyle: TextStyle(
+                    color: KanbanColors.status(task.status),
+                  ),
+                ),
+                Chip(
+                  label: Text('${task.priority.label} priority'),
+                  backgroundColor: KanbanColors.priority(
+                    task.priority,
+                  ).withValues(alpha: .10),
+                  labelStyle: TextStyle(
+                    color: KanbanColors.priority(task.priority),
+                  ),
+                ),
                 Chip(label: Text(DateFormatter.short(task.deadline))),
                 for (final tag in task.tags.take(3))
                   TaskTagChip(tag: tag, compact: true),

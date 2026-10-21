@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../utils/kanban_colors.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
@@ -37,7 +36,7 @@ class KanbanTaskCard extends StatelessWidget {
         : task.isOverdue
         ? Theme.of(context).colorScheme.error
         : task.isDueSoon
-        ? AppColors.warning
+        ? Theme.of(context).colorScheme.tertiary
         : Theme.of(context).colorScheme.onSurfaceVariant;
     final deadlineIcon = task.isCompleted
         ? Icons.check_circle_outline
@@ -64,7 +63,7 @@ class KanbanTaskCard extends StatelessWidget {
                       maxLines: 2,
                       overflow: TextOverflow.ellipsis,
                       style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -118,7 +117,9 @@ class KanbanTaskCard extends StatelessWidget {
                   task.description,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium,
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
                 ),
               ],
               const SizedBox(height: 12),
@@ -146,7 +147,7 @@ class KanbanTaskCard extends StatelessWidget {
                           style: TextStyle(
                             color: deadlineColor,
                             fontSize: 12,
-                            fontWeight: task.isOverdue ? FontWeight.w700 : null,
+                            fontWeight: task.isOverdue ? FontWeight.w600 : null,
                           ),
                         ),
                       ),
@@ -168,7 +169,7 @@ class KanbanTaskCard extends StatelessWidget {
                       style: TextStyle(
                         fontSize: 12,
                         color: KanbanColors.priority(task.priority),
-                        fontWeight: FontWeight.w700,
+                        fontWeight: FontWeight.w600,
                       ),
                     ),
                   ),
@@ -193,7 +194,11 @@ class KanbanTaskCard extends StatelessWidget {
                 const SizedBox(height: 8),
                 Row(
                   children: [
-                    const Icon(Icons.checklist, size: 16),
+                    Icon(
+                      Icons.checklist,
+                      size: 16,
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                     const SizedBox(width: 4),
                     Expanded(
                       child: Text(

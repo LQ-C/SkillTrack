@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
 
 import '../../../core/utils/date_formatter.dart';
-import '../../../core/constants/app_constants.dart';
 import '../models/kanban_task.dart';
 
 class TaskStagnationIndicator extends StatelessWidget {
@@ -23,15 +22,15 @@ class TaskStagnationIndicator extends StatelessWidget {
     }
     final theme = Theme.of(context);
     final color = task.shouldShowStalled
-        ? theme.colorScheme.error
+        ? theme.colorScheme.tertiary
         : task.stagnationScore >= 30
-        ? AppColors.warning
+        ? theme.colorScheme.tertiary
         : theme.colorScheme.primary;
     final decoration = BoxDecoration(
-      color: color.withValues(alpha: task.shouldShowStalled ? .14 : .08),
-      borderRadius: BorderRadius.circular(compact ? 20 : 12),
+      color: color.withValues(alpha: task.shouldShowStalled ? .10 : .07),
+      borderRadius: BorderRadius.circular(compact ? 20 : 16),
       border: Border.all(
-        color: color.withValues(alpha: task.shouldShowStalled ? .5 : .25),
+        color: color.withValues(alpha: task.shouldShowStalled ? .25 : .16),
       ),
     );
     if (compact) {
@@ -54,7 +53,7 @@ class TaskStagnationIndicator extends StatelessWidget {
                     style: TextStyle(
                       color: color,
                       fontSize: 12,
-                      fontWeight: FontWeight.w700,
+                      fontWeight: FontWeight.w600,
                     ),
                   ),
                 ),

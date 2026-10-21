@@ -186,7 +186,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         key: Key('project-${project.id}'),
-        borderRadius: BorderRadius.circular(16),
+        customBorder: theme.cardTheme.shape,
         onTap: _actionsBusy ? null : () => _openProject(item),
         child: Padding(
           padding: const EdgeInsets.all(16),
@@ -198,9 +198,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                   Expanded(
                     child: Text(
                       project.name,
-                      style: theme.textTheme.titleLarge?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
+                      style: theme.textTheme.titleLarge,
                     ),
                   ),
                   if (_openingProjectId == project.id)
@@ -211,6 +209,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                     ),
                   PopupMenuButton<String>(
                     tooltip: 'Project actions',
+                    iconColor: theme.colorScheme.onSurfaceVariant,
                     enabled: !_actionsBusy,
                     onSelected: (action) => _action(item, action),
                     itemBuilder: (_) => [
@@ -243,13 +242,21 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
               Text(
                 project.status[0].toUpperCase() + project.status.substring(1),
                 style: theme.textTheme.labelMedium?.copyWith(
-                  color: theme.colorScheme.primary,
+                  color: switch (project.status) {
+                    'completed' => theme.colorScheme.secondary,
+                    'archived' => theme.colorScheme.onSurfaceVariant,
+                    _ => theme.colorScheme.primary,
+                  },
+                  fontWeight: FontWeight.w600,
                 ),
               ),
               if (project.description?.isNotEmpty == true) ...[
                 const SizedBox(height: 8),
                 Text(
                   project.description!,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: theme.colorScheme.onSurfaceVariant,
+                  ),
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
                 ),
@@ -263,6 +270,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
               const SizedBox(height: 8),
               Text(
                 '${item.completedTaskCount} of ${item.totalTaskCount} tasks completed',
+                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
               ),
             ],
           ),
@@ -286,9 +294,16 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 children: [
                   Text(
                     '${entry.$2}',
-                    style: Theme.of(context).textTheme.titleLarge,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.primary,
+                    ),
                   ),
-                  Text(entry.$1),
+                  Text(
+                    entry.$1,
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -316,7 +331,13 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
           const SizedBox(height: 12),
           Text(title, style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 8),
-          Text(message, textAlign: TextAlign.center),
+          Text(
+            message,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+              color: Theme.of(context).colorScheme.onSurfaceVariant,
+            ),
+          ),
           if (action != null) ...[
             const SizedBox(height: 18),
             FilledButton(onPressed: onTap, child: Text(action)),

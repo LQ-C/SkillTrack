@@ -138,6 +138,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
     listenable: widget.viewModel,
     builder: (context, child) {
       final model = widget.viewModel;
+      final theme = Theme.of(context);
       final items = model.visibleNotifications;
       return Scaffold(
         appBar: AppBar(
@@ -181,11 +182,21 @@ class _NotificationScreenState extends State<NotificationScreen> {
                       child: Column(
                         mainAxisSize: MainAxisSize.min,
                         children: [
-                          const Icon(Icons.cloud_off_outlined, size: 48),
+                          Icon(
+                            Icons.cloud_off_outlined,
+                            size: 48,
+                            color: theme.colorScheme.error,
+                          ),
                           const SizedBox(height: 12),
-                          const Text(AppErrorMessages.loadNotificationsFailed),
-                          const Text(
+                          Text(
+                            AppErrorMessages.loadNotificationsFailed,
+                            style: theme.textTheme.titleMedium,
+                          ),
+                          Text(
                             'Please check your connection and try again.',
+                            style: theme.textTheme.bodyMedium?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant,
+                            ),
                           ),
                           const SizedBox(height: 16),
                           FilledButton(
@@ -250,9 +261,12 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                         ),
                                         child: Text(
                                           _group(item.createdAt),
-                                          style: Theme.of(
-                                            context,
-                                          ).textTheme.titleSmall,
+                                          style: theme.textTheme.titleSmall
+                                              ?.copyWith(
+                                                color: theme
+                                                    .colorScheme
+                                                    .onSurfaceVariant,
+                                              ),
                                         ),
                                       ),
                                     NotificationTile(

@@ -121,6 +121,9 @@ class _AttachmentSectionState extends State<AttachmentSection> {
             ),
             TextButton(
               onPressed: () => AppRouter.back(dialogContext, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
               child: const Text('Delete'),
             ),
           ],
@@ -144,7 +147,10 @@ class _AttachmentSectionState extends State<AttachmentSection> {
         ...task.attachments.map(
           (attachment) => ListTile(
             contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.attach_file),
+            leading: Icon(
+              Icons.attach_file,
+              color: Theme.of(context).colorScheme.primary,
+            ),
             title: Text(attachment.fileName),
             subtitle: Text(
               '${attachment.mimeType ?? 'File'} · ${attachment.fileSizeBytes ?? 0} bytes',
@@ -154,6 +160,7 @@ class _AttachmentSectionState extends State<AttachmentSection> {
                 : () => _open(context, attachment),
             trailing: IconButton(
               tooltip: 'Delete attachment',
+              color: Theme.of(context).colorScheme.error,
               icon: const Icon(Icons.delete_outline),
               onPressed: _isShowingDeleteDialog || viewModel.isSaving
                   ? null
