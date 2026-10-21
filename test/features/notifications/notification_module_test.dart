@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/notifications/models/app_notification.dart';
@@ -35,6 +36,64 @@ AppNotification alert(
 );
 
 void main() {
+  test(
+    'individual and bulk read writes cannot overlap and can retry',
+    () async {
+      final repo = _NotificationWriteGate()
+        ..items.addAll([alert('a'), alert('b')]);
+      final badge = NotificationBadgeController(repo);
+      final model = NotificationListViewModel(
+        repo,
+        FakeProjectRepository(),
+        FakeKanbanRepository(),
+        badge,
+      );
+      addTearDown(model.dispose);
+      addTearDown(badge.dispose);
+      await model.initialize();
+      final first = model.markAsRead('a');
+      expect(await model.markAsRead('a'), isFalse);
+      await model.markAllAsRead();
+      expect(repo.readCalls, 1);
+      expect(repo.allCalls, 0);
+      repo.readGate!.completeError(StateError('offline'));
+      expect(await first, isFalse);
+      expect(model.isMarkingRead, isFalse);
+      repo.readGate = null;
+      expect(await model.markAsRead('a'), isTrue);
+      final bulk = model.markAllAsRead();
+      await model.markAllAsRead();
+      expect(await model.markAsRead('b'), isFalse);
+      expect(repo.allCalls, 1);
+      repo.allGate.complete();
+      await bulk;
+      expect(model.isMarkingAllRead, isFalse);
+      expect(model.unreadCount, 0);
+    },
+  );
+
+  test(
+    'preference switches cannot submit conflicting writes while saving',
+    () async {
+      final repo = _NotificationWriteGate();
+      final model = NotificationPreferencesViewModel(repo);
+      addTearDown(model.dispose);
+      await model.initialize();
+      final first = model.setStalledTaskEnabled(false);
+      await model.setDeadlineReminderEnabled(false);
+      expect(repo.preferenceCalls, 1);
+      expect(model.preferences.deadlineReminderEnabled, isTrue);
+      repo.preferenceGate!.completeError(StateError('offline'));
+      await first;
+      expect(model.isSaving, isFalse);
+      expect(model.preferences.stalledTaskEnabled, isTrue);
+      repo.preferenceGate = null;
+      await model.setDeadlineReminderEnabled(false);
+      expect(repo.preferenceCalls, 2);
+      expect(model.preferences.deadlineReminderEnabled, isFalse);
+    },
+  );
+
   test(
     'shared error mapping preserves app messages and hides unexpected errors',
     () {
@@ -177,4 +236,34 @@ void main() {
     expect(model.errorMessage, isNotNull);
     model.dispose();
   });
+}
+
+class _NotificationWriteGate extends FakeNotificationRepository {
+  Completer<void>? readGate = Completer<void>();
+  final allGate = Completer<void>();
+  Completer<void>? preferenceGate = Completer<void>();
+  int readCalls = 0, allCalls = 0, preferenceCalls = 0;
+
+  @override
+  Future<void> markAsRead(String id) async {
+    readCalls++;
+    await readGate?.future;
+    await super.markAsRead(id);
+  }
+
+  @override
+  Future<void> markAllAsRead() async {
+    allCalls++;
+    await allGate.future;
+    await super.markAllAsRead();
+  }
+
+  @override
+  Future<NotificationPreferences> updatePreferences(
+    NotificationPreferences next,
+  ) async {
+    preferenceCalls++;
+    await preferenceGate?.future;
+    return super.updatePreferences(next);
+  }
 }

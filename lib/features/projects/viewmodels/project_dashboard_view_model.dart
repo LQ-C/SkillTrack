@@ -12,6 +12,10 @@ class ProjectDashboardViewModel extends ChangeNotifier {
   bool _disposed = false;
   List<ProjectWithProgress> _projects = [];
   bool _isLoading = false;
+  bool _isMutating = false;
+  bool _isSigningIn = false;
+  bool get isMutating => _isMutating;
+  bool get isSigningIn => _isSigningIn;
   String? _errorMessage;
   String _search = '';
   String _status = 'current';
@@ -52,12 +56,14 @@ class ProjectDashboardViewModel extends ChangeNotifier {
   }
 
   Future<bool> signIn(String email, String password) async {
-    if (_disposed) return false;
+    if (_disposed || _isSigningIn) return false;
     if (email.trim().isEmpty || password.isEmpty) {
       _errorMessage = AppErrorMessages.credentialsRequired;
       notifyListeners();
       return false;
     }
+    _isSigningIn = true;
+    notifyListeners();
     try {
       await _repository.signIn(email.trim(), password);
       if (_disposed) return false;
@@ -65,8 +71,10 @@ class ProjectDashboardViewModel extends ChangeNotifier {
       return !_disposed && _errorMessage == null;
     } catch (error) {
       if (!_disposed) _errorMessage = AppException.messageFor(error);
-      notifyListeners();
       return false;
+    } finally {
+      _isSigningIn = false;
+      notifyListeners();
     }
   }
 
@@ -83,17 +91,20 @@ class ProjectDashboardViewModel extends ChangeNotifier {
   }
 
   Future<bool> _mutate(Future<void> Function() operation) async {
-    if (_disposed) return false;
+    if (_disposed || _isMutating) return false;
+    _isMutating = true;
+    notifyListeners();
     try {
       await operation();
       if (_disposed) return false;
       await load();
       return !_disposed;
     } catch (error) {
-      if (_disposed) return false;
-      _errorMessage = AppException.messageFor(error);
-      notifyListeners();
+      if (!_disposed) _errorMessage = AppException.messageFor(error);
       return false;
+    } finally {
+      _isMutating = false;
+      notifyListeners();
     }
   }
 

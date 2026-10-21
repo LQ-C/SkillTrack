@@ -57,6 +57,14 @@ class _NotificationPreferencesScreenState
                       ),
                     ),
                   SwitchListTile(
+                    title: const Text('Push notifications'),
+                    subtitle: const Text(
+                      'Receive notifications when SkillTrack is not open.',
+                    ),
+                    value: settings.pushEnabled,
+                    onChanged: model.isSaving ? null : model.setPushEnabled,
+                  ),
+                  SwitchListTile(
                     title: const Text('Stalled task alerts'),
                     subtitle: const Text(
                       'Notify me when an in-progress task exceeds its inactivity threshold.',

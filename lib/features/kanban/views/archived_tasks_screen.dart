@@ -32,6 +32,7 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
   Timer? _exitTimer;
   bool _exitAnimated = false;
   bool _showSearch = false;
+  bool _isShowingOverlay = false;
 
   @override
   void initState() {
@@ -85,11 +86,11 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
           content: Text(message),
           actions: [
             TextButton(
-              onPressed: () => Navigator.pop(dialogContext, false),
+              onPressed: () => AppRouter.back(dialogContext, false),
               child: const Text('Cancel'),
             ),
             FilledButton(
-              onPressed: () => Navigator.pop(dialogContext, true),
+              onPressed: () => AppRouter.back(dialogContext, true),
               style: destructive
                   ? FilledButton.styleFrom(
                       backgroundColor: Theme.of(context).colorScheme.error,
@@ -103,43 +104,73 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
       false;
 
   Future<void> _restore(KanbanTask task) async {
-    final confirmed = await _confirm(
-      title: 'Restore task?',
-      message: 'This task will return to the Kanban Board.',
-      action: 'Restore',
-    );
-    if (confirmed) {
-      await _removeWithMotion(
-        task,
-        () => widget.viewModel.restoreTask(task.id),
+    if (_isShowingOverlay ||
+        widget.viewModel.isSaving ||
+        _pendingExit != null) {
+      return;
+    }
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirmed = await _confirm(
+        title: 'Restore task?',
+        message: 'This task will return to the Kanban Board.',
+        action: 'Restore',
       );
+      if (confirmed && mounted) {
+        await _removeWithMotion(
+          task,
+          () => widget.viewModel.restoreTask(task.id),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
     }
   }
 
   Future<void> _restoreAll() async {
-    final confirmed = await _confirm(
-      title: 'Restore all tasks?',
-      message: 'All archived tasks will return to this Kanban Board.',
-      action: 'Restore All',
-    );
-    if (confirmed) await _run(widget.viewModel.restoreAllTasks);
+    if (_isShowingOverlay ||
+        widget.viewModel.isSaving ||
+        _pendingExit != null) {
+      return;
+    }
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirmed = await _confirm(
+        title: 'Restore all tasks?',
+        message: 'All archived tasks will return to this Kanban Board.',
+        action: 'Restore All',
+      );
+      if (confirmed && mounted) await _run(widget.viewModel.restoreAllTasks);
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
+    }
   }
 
   Future<void> _delete(KanbanTask task) async {
-    final confirmed = await _confirm(
-      title: 'Delete task permanently?',
-      message:
-          'This task and its checklist, attachments, tag connections, '
-          'and activity history will be permanently deleted. '
-          'This action cannot be undone.',
-      action: 'Delete Permanently',
-      destructive: true,
-    );
-    if (confirmed) {
-      await _removeWithMotion(
-        task,
-        () => widget.viewModel.deleteTaskPermanently(task.id),
+    if (_isShowingOverlay ||
+        widget.viewModel.isSaving ||
+        _pendingExit != null) {
+      return;
+    }
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirmed = await _confirm(
+        title: 'Delete task permanently?',
+        message:
+            'This task and its checklist, attachments, tag connections, '
+            'and activity history will be permanently deleted. '
+            'This action cannot be undone.',
+        action: 'Delete Permanently',
+        destructive: true,
       );
+      if (confirmed && mounted) {
+        await _removeWithMotion(
+          task,
+          () => widget.viewModel.deleteTaskPermanently(task.id),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
     }
   }
 
@@ -178,49 +209,60 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
     );
   }
 
-  void _details(KanbanTask task) => showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (context) => Padding(
-      padding: const EdgeInsets.all(24),
-      child: SingleChildScrollView(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(task.title, style: Theme.of(context).textTheme.headlineSmall),
-            const SizedBox(height: 12),
-            if (task.description.isNotEmpty) Text(task.description),
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
+  Future<void> _details(KanbanTask task) async {
+    if (_isShowingOverlay) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (context) => Padding(
+          padding: const EdgeInsets.all(24),
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Chip(label: Text('Archived')),
-                Chip(label: Text(task.status.label)),
-                Chip(label: Text('${task.priority.label} priority')),
-                Chip(
-                  label: Text(
-                    'Deadline: ${DateFormatter.short(task.deadline)}',
-                  ),
+                Text(
+                  task.title,
+                  style: Theme.of(context).textTheme.headlineSmall,
                 ),
-                for (final tag in task.tags) TaskTagChip(tag: tag),
+                const SizedBox(height: 12),
+                if (task.description.isNotEmpty) Text(task.description),
+                const SizedBox(height: 12),
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: [
+                    const Chip(label: Text('Archived')),
+                    Chip(label: Text(task.status.label)),
+                    Chip(label: Text('${task.priority.label} priority')),
+                    Chip(
+                      label: Text(
+                        'Deadline: ${DateFormatter.short(task.deadline)}',
+                      ),
+                    ),
+                    for (final tag in task.tags) TaskTagChip(tag: tag),
+                  ],
+                ),
+                if (task.checklistTotalCount > 0) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    'Checklist: ${task.checklistCompletedCount}/'
+                    '${task.checklistTotalCount} complete',
+                  ),
+                ],
+                const SizedBox(height: 20),
               ],
             ),
-            if (task.checklistTotalCount > 0) ...[
-              const SizedBox(height: 12),
-              Text(
-                'Checklist: ${task.checklistCompletedCount}/'
-                '${task.checklistTotalCount} complete',
-              ),
-            ],
-            const SizedBox(height: 20),
-          ],
+          ),
         ),
-      ),
-    ),
-  );
+      );
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
+    }
+  }
 
   Widget _message({
     required IconData icon,
@@ -306,7 +348,7 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
             ),
             PopupMenuButton<String>(
               tooltip: 'Archived tasks menu',
-              enabled: !model.isSaving,
+              enabled: !model.isSaving && !_isShowingOverlay,
               onSelected: (value) {
                 switch (value) {
                   case 'restoreAll':
@@ -404,8 +446,12 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
                                   key: Key('archived-task-${task.id}'),
                                   task: task,
                                   isSaving:
-                                      model.isSaving || _pendingExit != null,
-                                  onDetails: () => _details(task),
+                                      model.isSaving ||
+                                      _pendingExit != null ||
+                                      _isShowingOverlay,
+                                  onDetails: _isShowingOverlay
+                                      ? null
+                                      : () => _details(task),
                                   onRestore: () => _restore(task),
                                   onDelete: () => _delete(task),
                                 ),
@@ -435,7 +481,7 @@ class _ArchivedTaskCard extends StatelessWidget {
 
   final KanbanTask task;
   final bool isSaving;
-  final VoidCallback onDetails;
+  final VoidCallback? onDetails;
   final VoidCallback onRestore;
   final VoidCallback onDelete;
 
@@ -471,7 +517,7 @@ class _ArchivedTaskCard extends StatelessWidget {
                   onSelected: (value) {
                     switch (value) {
                       case 'details':
-                        onDetails();
+                        onDetails?.call();
                       case 'restore':
                         onRestore();
                       case 'delete':

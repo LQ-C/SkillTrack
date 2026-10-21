@@ -29,6 +29,8 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   late final TextEditingController _name, _description;
   String _status = 'active';
   bool _previewOpen = false;
+  bool _isPickingDate = false;
+  bool _isLeaving = false;
 
   @override
   void initState() {
@@ -54,34 +56,40 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   }
 
   Future<void> _pickDate(bool start) async {
-    if (_model.isSaving || _model.isGeneratingTasks) return;
-    final today = DateUtils.dateOnly(DateTime.now());
-    final startDate = _model.startDate;
-    final firstDate = widget.project != null
-        ? DateTime(2000)
-        : !start && startDate != null && startDate.isAfter(today)
-        ? startDate
-        : today;
-    final limit = DateTime(2100);
-    final lastDate = limit.isBefore(firstDate) ? firstDate : limit;
-    final value = (start ? _model.startDate : _model.endDate) ?? firstDate;
-    final initialDate = value.isBefore(firstDate)
-        ? firstDate
-        : value.isAfter(lastDate)
-        ? lastDate
-        : value;
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: initialDate,
-      firstDate: firstDate,
-      lastDate: lastDate,
-    );
-    if (selected != null && mounted) {
-      if (start) {
-        _model.setStartDate(selected);
-      } else {
-        _model.setEndDate(selected);
+    if (_isPickingDate) return;
+    setState(() => _isPickingDate = true);
+    try {
+      if (_model.isSaving || _model.isGeneratingTasks) return;
+      final today = DateUtils.dateOnly(DateTime.now());
+      final startDate = _model.startDate;
+      final firstDate = widget.project != null
+          ? DateTime(2000)
+          : !start && startDate != null && startDate.isAfter(today)
+          ? startDate
+          : today;
+      final limit = DateTime(2100);
+      final lastDate = limit.isBefore(firstDate) ? firstDate : limit;
+      final value = (start ? _model.startDate : _model.endDate) ?? firstDate;
+      final initialDate = value.isBefore(firstDate)
+          ? firstDate
+          : value.isAfter(lastDate)
+          ? lastDate
+          : value;
+      final selected = await showDatePicker(
+        context: context,
+        initialDate: initialDate,
+        firstDate: firstDate,
+        lastDate: lastDate,
+      );
+      if (selected != null && mounted) {
+        if (start) {
+          _model.setStartDate(selected);
+        } else {
+          _model.setEndDate(selected);
+        }
       }
+    } finally {
+      if (mounted) setState(() => _isPickingDate = false);
     }
   }
 
@@ -92,7 +100,8 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       final colors = theme.colorScheme;
       final value = start ? _model.startDate : _model.endDate;
       final error = start ? _model.startDateError : _model.endDateError;
-      final enabled = !_model.isSaving && !_model.isGeneratingTasks;
+      final enabled =
+          !_isPickingDate && !_model.isSaving && !_model.isGeneratingTasks;
       final dates = MaterialLocalizations.of(context);
       final text = value == null
           ? 'Select date'
@@ -198,16 +207,25 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
   );
 
   Future<void> _submit() async {
+    if (_isLeaving || _model.isSaving || _model.isGeneratingTasks) return;
     final result = await _model.submit(
       name: _name.text,
       description: _description.text,
       status: _status,
     );
-    if (result != null && mounted) AppRouter.back(context, result);
+    if (result != null && mounted) {
+      setState(() => _isLeaving = true);
+      AppRouter.back(context, result);
+    }
   }
 
   Future<void> _generateTasks() async {
-    if (_previewOpen || _model.isGeneratingTasks) return;
+    if (_isLeaving ||
+        _previewOpen ||
+        _model.isGeneratingTasks ||
+        _model.isSaving) {
+      return;
+    }
     _previewOpen = true;
     FocusScope.of(context).unfocus();
     try {
@@ -217,7 +235,10 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       );
       if (!mounted || drafts == null) return;
       final result = await AppRouter.generatedTaskPreview(context, _model);
-      if (mounted && result != null) AppRouter.back(context, result);
+      if (mounted && result != null) {
+        setState(() => _isLeaving = true);
+        AppRouter.back(context, result);
+      }
     } finally {
       _previewOpen = false;
     }
@@ -345,7 +366,8 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                               child: FilledButton(
                                 key: const Key('save-project-button'),
                                 onPressed:
-                                    _model.isSaving ||
+                                    _isLeaving ||
+                                        _model.isSaving ||
                                         _model.isGeneratingTasks ||
                                         _model.pendingProject != null
                                     ? null
@@ -456,7 +478,9 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                         height: 56,
                         child: FilledButton(
                           key: const Key('save-project-button'),
-                          onPressed: _model.isSaving ? null : _submit,
+                          onPressed: _isLeaving || _model.isSaving
+                              ? null
+                              : _submit,
                           child: Text(
                             _model.isSaving ? 'Saving…' : 'Save Changes',
                           ),

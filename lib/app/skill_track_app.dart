@@ -8,6 +8,8 @@ import '../features/ai_task_generation/repositories/ai_task_generation_repositor
 import '../features/notifications/repositories/notification_repository.dart';
 import '../features/notifications/viewmodels/notification_badge_controller.dart';
 import '../features/notifications/services/notification_realtime_service.dart';
+import '../features/notifications/viewmodels/push_notification_controller.dart';
+import '../features/notifications/services/push_notification_service.dart';
 import 'app_theme.dart';
 import 'router/app_router.dart';
 
@@ -20,6 +22,7 @@ class SkillTrackApp extends StatefulWidget {
     this.notificationRepository,
     this.realtimeService,
     this.authEvents,
+    this.pushController,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
@@ -27,6 +30,7 @@ class SkillTrackApp extends StatefulWidget {
   final NotificationRepository? notificationRepository;
   final NotificationRealtimeService? realtimeService;
   final Stream<Object?>? authEvents;
+  final PushNotificationController? pushController;
   @override
   State<SkillTrackApp> createState() => _SkillTrackAppState();
 }
@@ -38,11 +42,26 @@ class _SkillTrackAppState extends State<SkillTrackApp>
     widget.realtimeService,
   );
   StreamSubscription<Object?>? _authSubscription;
+  StreamSubscription<PushNotificationTap>? _pushSubscription;
+  final _navigatorKey = GlobalKey<NavigatorState>();
+  bool _pendingPushNavigation = false;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _pushSubscription = widget.pushController?.taps.listen((_) {
+      _pendingPushNavigation = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted &&
+            _pendingPushNavigation &&
+            widget.notificationRepository?.currentUserId != null &&
+            AppRouter.openNotificationsFromPush(_navigatorKey)) {
+          _pendingPushNavigation = false;
+        }
+      });
+      WidgetsBinding.instance.ensureVisualUpdate();
+    });
     _authSubscription = widget.authEvents?.listen((_) {
       unawaited(_syncSession());
     });
@@ -50,6 +69,9 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   }
 
   Future<void> _syncSession({bool resumed = false}) async {
+    unawaited(
+      widget.pushController?.syncSession(resumed: resumed) ?? Future.value(),
+    );
     final userId = widget.notificationRepository?.currentUserId;
     if (userId == null) {
       await widget.realtimeService?.stop();
@@ -84,6 +106,10 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _authSubscription?.cancel();
+    _pushSubscription?.cancel();
+    if (widget.pushController != null) {
+      unawaited(widget.pushController!.dispose());
+    }
     if (widget.realtimeService != null) {
       unawaited(widget.realtimeService!.dispose());
     }
@@ -100,8 +126,10 @@ class _SkillTrackAppState extends State<SkillTrackApp>
       notificationRepository: widget.notificationRepository,
       badgeController: _badge,
       realtime: widget.realtimeService,
+      pushPreferences: widget.pushController,
     );
     return MaterialApp(
+      navigatorKey: _navigatorKey,
       title: 'SkillTrack',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,

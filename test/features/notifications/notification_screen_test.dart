@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:skilltrack/features/notifications/widgets/notification_tile.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/app/skill_track_app.dart';
@@ -57,6 +59,77 @@ Future<void> showApp(
 }
 
 void main() {
+  testWidgets(
+    'notification taps share one navigation lock and failure allows retry',
+    (tester) async {
+      final repo = _PendingReadRepository()
+        ..items.addAll([item('a'), item('b')]);
+      await showApp(tester, repo);
+      final tiles = tester
+          .widgetList<NotificationTile>(find.byType(NotificationTile))
+          .toList();
+      final first = tiles[0].onTap!;
+      final second = tiles[1].onTap!;
+      first();
+      first();
+      second();
+      expect(repo.readCalls, 1);
+      await tester.pump();
+      expect(
+        tester
+            .widgetList<NotificationTile>(find.byType(NotificationTile))
+            .every((tile) => tile.onTap == null),
+        isTrue,
+      );
+      repo.pendingRead!.completeError(StateError('offline'));
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widgetList<NotificationTile>(find.byType(NotificationTile))
+            .every((tile) => tile.onTap != null),
+        isTrue,
+      );
+      repo.pendingRead = null;
+      await tester.tap(find.byKey(const Key('notification-a')));
+      await tester.pumpAndSettle();
+      expect(repo.readCalls, 2);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('repeated settings callback opens one preference route', (
+    tester,
+  ) async {
+    await showApp(tester, FakeNotificationRepository());
+    final open = tester
+        .widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) =>
+                widget is IconButton &&
+                widget.tooltip == 'Notification preferences',
+          ),
+        )
+        .onPressed!;
+    open();
+    open();
+    await tester.pumpAndSettle();
+    expect(find.text('Notification Preferences'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(
+      tester
+          .widget<IconButton>(
+            find.byWidgetPredicate(
+              (widget) =>
+                  widget is IconButton &&
+                  widget.tooltip == 'Notification preferences',
+            ),
+          )
+          .onPressed,
+      isNotNull,
+    );
+  });
+
   testWidgets(
     'unknown notification type displays a safe fallback alongside known types',
     (tester) async {
@@ -132,11 +205,19 @@ void main() {
     final repo = FakeNotificationRepository();
     await showApp(tester, repo);
     expect(find.text('No notifications yet'), findsOneWidget);
-    await tester.tap(find.byTooltip('Notification preferences'));
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) =>
+            widget is IconButton &&
+            widget.tooltip == 'Notification preferences',
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Notification Preferences'), findsOneWidget);
-    expect(find.byType(SwitchListTile), findsNWidgets(3));
-    await tester.tap(find.byType(SwitchListTile).first);
+    expect(find.byType(SwitchListTile), findsNWidgets(4));
+    await tester.tap(
+      find.widgetWithText(SwitchListTile, 'Stalled task alerts'),
+    );
     await tester.pumpAndSettle();
     expect((await repo.getPreferences()).stalledTaskEnabled, isFalse);
   });
@@ -360,4 +441,16 @@ void main() {
     await showApp(tester, repo, size: const Size(320, 700));
     expect(tester.takeException(), isNull);
   });
+}
+
+class _PendingReadRepository extends FakeNotificationRepository {
+  Completer<void>? pendingRead = Completer<void>();
+  int readCalls = 0;
+
+  @override
+  Future<void> markAsRead(String id) async {
+    readCalls++;
+    await pendingRead?.future;
+    await super.markAsRead(id);
+  }
 }

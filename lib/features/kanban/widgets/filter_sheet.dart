@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/router/app_router.dart';
+
 import '../models/kanban_filter.dart';
 import '../models/kanban_status.dart';
 import '../models/task_priority.dart';
@@ -19,6 +21,7 @@ class _FilterSheetState extends State<FilterSheet> {
   late Set<String> tagIds;
   late bool overdueOnly, completedOnly;
   DateTime? start, end;
+  bool _isPickingDate = false;
   @override
   void initState() {
     super.initState();
@@ -30,6 +33,30 @@ class _FilterSheetState extends State<FilterSheet> {
     completedOnly = filter.completedOnly;
     start = filter.deadlineStart;
     end = filter.deadlineEnd;
+  }
+
+  Future<void> _pickDate(bool from) async {
+    if (_isPickingDate) return;
+    setState(() => _isPickingDate = true);
+    try {
+      final date = await showDatePicker(
+        context: context,
+        initialDate: (from ? start : end) ?? DateTime.now(),
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2100),
+      );
+      if (date != null && mounted) {
+        setState(() {
+          if (from) {
+            start = date;
+          } else {
+            end = date;
+          }
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isPickingDate = false);
+    }
   }
 
   @override
@@ -107,15 +134,7 @@ class _FilterSheetState extends State<FilterSheet> {
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () async {
-                    final date = await showDatePicker(
-                      context: context,
-                      initialDate: start ?? DateTime.now(),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                    );
-                    if (date != null && mounted) setState(() => start = date);
-                  },
+                  onPressed: _isPickingDate ? null : () => _pickDate(true),
                   child: Text(
                     start == null
                         ? 'From date'
@@ -126,15 +145,7 @@ class _FilterSheetState extends State<FilterSheet> {
               const SizedBox(width: 8),
               Expanded(
                 child: OutlinedButton(
-                  onPressed: () async {
-                    final date = await showDatePicker(
-                      context: context,
-                      initialDate: end ?? DateTime.now(),
-                      firstDate: DateTime(2020),
-                      lastDate: DateTime(2100),
-                    );
-                    if (date != null && mounted) setState(() => end = date);
-                  },
+                  onPressed: _isPickingDate ? null : () => _pickDate(false),
                   child: Text(
                     end == null
                         ? 'To date'
@@ -152,7 +163,7 @@ class _FilterSheetState extends State<FilterSheet> {
               TextButton(
                 onPressed: () {
                   widget.viewModel.clearFilters();
-                  Navigator.pop(context);
+                  AppRouter.back(context);
                 },
                 child: const Text('Clear all'),
               ),
@@ -169,7 +180,7 @@ class _FilterSheetState extends State<FilterSheet> {
                       deadlineEnd: end,
                     ),
                   );
-                  Navigator.pop(context);
+                  AppRouter.back(context);
                 },
                 child: const Text('Apply filters'),
               ),

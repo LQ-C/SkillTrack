@@ -27,6 +27,7 @@ class KanbanViewModel extends ChangeNotifier {
   List<KanbanTask> _tasks = [];
   List<TaskTag> _tags = [];
   bool _isLoading = false, _isSaving = false;
+  bool _isRefreshing = false;
   String? _errorMessage, _feedbackMessage, _titleError;
   String _searchQuery = '';
   KanbanFilter _filter = KanbanFilter();
@@ -172,11 +173,12 @@ class KanbanViewModel extends ChangeNotifier {
   }
 
   Future<void> refresh({bool showLoading = true}) async {
-    if (_disposed) return;
+    if (_disposed || _isLoading || _isRefreshing) return;
     if (_boardId == null) {
       await initialize();
       return;
     }
+    _isRefreshing = true;
     if (showLoading) {
       _isLoading = true;
       notifyListeners();
@@ -187,6 +189,7 @@ class KanbanViewModel extends ChangeNotifier {
       if (!_disposed) _errorMessage = AppException.messageFor(error);
       notifyListeners();
     } finally {
+      _isRefreshing = false;
       if (showLoading) {
         _isLoading = false;
         notifyListeners();
@@ -244,7 +247,7 @@ class KanbanViewModel extends ChangeNotifier {
   }
 
   Future<bool> signIn(String email, String password) async {
-    if (_disposed) return false;
+    if (_disposed || _isSaving) return false;
     if (email.trim().isEmpty || password.isEmpty) {
       _errorMessage = AppErrorMessages.credentialsRequired;
       notifyListeners();
@@ -256,7 +259,6 @@ class KanbanViewModel extends ChangeNotifier {
     try {
       await _repository.signIn(email.trim(), password);
       if (_disposed) return false;
-      _isSaving = false;
       await initialize();
       return !_disposed && _errorMessage == null;
     } catch (error) {

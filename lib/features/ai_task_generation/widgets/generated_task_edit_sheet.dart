@@ -51,6 +51,8 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
   late String _priority;
   late DateTime _deadline;
   String? _checklistError;
+  bool _isPickingDate = false;
+  bool _isLeaving = false;
 
   @override
   void initState() {
@@ -86,14 +88,20 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
   }
 
   Future<void> _pickDate() async {
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: _deadline,
-      firstDate: DateUtils.dateOnly(widget.startDate),
-      lastDate: DateUtils.dateOnly(widget.endDate),
-    );
-    if (selected != null && mounted) {
-      setState(() => _deadline = DateUtils.dateOnly(selected));
+    if (_isPickingDate) return;
+    setState(() => _isPickingDate = true);
+    try {
+      final selected = await showDatePicker(
+        context: context,
+        initialDate: _deadline,
+        firstDate: DateUtils.dateOnly(widget.startDate),
+        lastDate: DateUtils.dateOnly(widget.endDate),
+      );
+      if (selected != null && mounted) {
+        setState(() => _deadline = DateUtils.dateOnly(selected));
+      }
+    } finally {
+      if (mounted) setState(() => _isPickingDate = false);
     }
   }
 
@@ -119,6 +127,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
   }
 
   void _save() {
+    if (_isLeaving) return;
     if (!_formKey.currentState!.validate()) return;
     final items = [
       for (final item in _items) item.text.trim(),
@@ -147,6 +156,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
       setState(() => _checklistError = error);
       return;
     }
+    _isLeaving = true;
     AppRouter.back(context, updated);
   }
 
@@ -223,7 +233,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
                     const SizedBox(height: 12),
                     OutlinedButton.icon(
                       key: const Key('generated-edit-deadline'),
-                      onPressed: _pickDate,
+                      onPressed: _isPickingDate ? null : _pickDate,
                       icon: const Icon(Icons.calendar_today_outlined),
                       label: Text(
                         'Deadline: ${DateFormatter.short(_deadline)}',

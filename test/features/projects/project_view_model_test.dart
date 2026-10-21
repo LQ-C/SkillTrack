@@ -14,6 +14,28 @@ import 'fake_project_repository.dart';
 
 void main() {
   test(
+    'dashboard mutation guard is shared and releases after failure',
+    () async {
+      final repo = _MutationGateRepository();
+      final model = ProjectDashboardViewModel(repo);
+      addTearDown(model.dispose);
+      final first = model.archive('a');
+      expect(model.isMutating, isTrue);
+      expect(await model.delete('a'), isFalse);
+      expect(await model.archive('a'), isFalse);
+      expect(repo.archiveCalls, 1);
+      expect(repo.deleteCalled, isFalse);
+      repo.gate!.completeError(StateError('offline'));
+      expect(await first, isFalse);
+      expect(model.isMutating, isFalse);
+      repo.gate = null;
+      expect(await model.archive('a'), isTrue);
+      expect(repo.archiveCalls, 2);
+      expect(model.isMutating, isFalse);
+    },
+  );
+
+  test(
     'initial preview edits and revision save only the final drafts',
     () async {
       final projects = FakeProjectRepository();
@@ -750,5 +772,18 @@ class _DelayedProjectRepository extends FakeProjectRepository {
       startDate: startDate,
       endDate: endDate,
     );
+  }
+}
+
+class _MutationGateRepository extends FakeProjectRepository {
+  _MutationGateRepository() : super(items: [sampleProject('a', 'First')]);
+  Completer<void>? gate = Completer<void>();
+  int archiveCalls = 0;
+
+  @override
+  Future<void> archiveProject(String projectId) async {
+    archiveCalls++;
+    await gate?.future;
+    await super.archiveProject(projectId);
   }
 }

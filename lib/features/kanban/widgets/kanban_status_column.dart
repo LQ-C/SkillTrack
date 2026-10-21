@@ -45,8 +45,8 @@ class KanbanStatusColumn extends StatefulWidget {
   final ValueListenable<Offset?> dragPointer;
   final KanbanStatus? hoverStatus;
   final int? hoverIndex;
-  final ValueChanged<KanbanTask> onTaskTap;
-  final void Function(KanbanTask, TaskCardAction) onTaskAction;
+  final ValueChanged<KanbanTask>? onTaskTap;
+  final void Function(KanbanTask, TaskCardAction)? onTaskAction;
   final void Function(KanbanTask, Rect) onDragStart;
   final ValueChanged<Offset> onDragUpdate;
   final ValueChanged<DraggableDetails> onDragEnd;
@@ -294,9 +294,13 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                             completed: task.status == KanbanStatus.completed,
                             child: KanbanTaskCard(
                               task: task,
-                              onTap: () => widget.onTaskTap(task),
-                              onAction: (action) =>
-                                  widget.onTaskAction(task, action),
+                              onTap: widget.onTaskTap == null
+                                  ? null
+                                  : () => widget.onTaskTap!(task),
+                              onAction: widget.onTaskAction == null
+                                  ? null
+                                  : (action) =>
+                                        widget.onTaskAction!(task, action),
                             ),
                           ),
                         ),

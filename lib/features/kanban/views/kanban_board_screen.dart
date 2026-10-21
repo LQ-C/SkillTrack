@@ -83,6 +83,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   int _edgeDirection = 0;
   bool _pageAnimating = false;
   bool _showSearch = false;
+  String? _openingRouteId;
+  bool _isShowingOverlay = false;
+  bool get _navigationBusy => _openingRouteId != null || _isShowingOverlay;
   @override
   void initState() {
     super.initState();
@@ -441,8 +444,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                 dragPointer: _dragPointer,
                 hoverStatus: _hoverStatus,
                 hoverIndex: _hoverIndex,
-                onTaskTap: _openDetails,
-                onTaskAction: _taskAction,
+                onTaskTap: _navigationBusy ? null : _openDetails,
+                onTaskAction: _navigationBusy || widget.viewModel.isSaving
+                    ? null
+                    : _taskAction,
                 onDragStart: _startTaskDrag,
                 onDragUpdate: _updateTaskDrag,
                 onDragEnd: _finishTaskDrag,
@@ -643,96 +648,121 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   }
 
   Future<void> _openForm([KanbanTask? task]) async {
-    final changed = await AppRouter.createTask(
-      context,
-      CreateTaskRouteArgs(
-        projectId: widget.projectId,
-        boardId: widget.boardId,
-        projectName: widget.projectName,
-        taskId: task?.id,
-      ),
-    );
-    if (changed == true && mounted) await _refreshWithEntrance();
+    if (_navigationBusy) return;
+    setState(() => _openingRouteId = task?.id ?? 'create');
+    try {
+      final changed = await AppRouter.createTask(
+        context,
+        CreateTaskRouteArgs(
+          projectId: widget.projectId,
+          boardId: widget.boardId,
+          projectName: widget.projectName,
+          taskId: task?.id,
+        ),
+      );
+      if (changed == true && mounted) await _refreshWithEntrance();
+    } finally {
+      if (mounted) setState(() => _openingRouteId = null);
+    }
   }
 
   Future<void> _openDetails(KanbanTask task) async {
-    await AppRouter.taskDetails(
-      context,
-      TaskDetailsRouteArgs(
-        projectId: widget.projectId,
-        boardId: widget.boardId,
-        projectName: widget.projectName,
-        taskId: task.id,
-      ),
-    );
-    if (mounted) await widget.viewModel.refresh(showLoading: false);
+    if (_navigationBusy) return;
+    setState(() => _openingRouteId = task.id);
+    try {
+      await AppRouter.taskDetails(
+        context,
+        TaskDetailsRouteArgs(
+          projectId: widget.projectId,
+          boardId: widget.boardId,
+          projectName: widget.projectName,
+          taskId: task.id,
+        ),
+      );
+      if (mounted) await widget.viewModel.refresh(showLoading: false);
+    } finally {
+      if (mounted) setState(() => _openingRouteId = null);
+    }
   }
 
   Future<void> _openArchivedTasks() async {
-    await AppRouter.archivedTasks(
-      context,
-      BoardRouteArgs(
-        projectId: widget.projectId,
-        boardId: widget.boardId,
-        projectName: widget.projectName,
-      ),
-    );
-    if (mounted) await _refreshWithEntrance();
+    if (_navigationBusy) return;
+    setState(() => _openingRouteId = 'archived');
+    try {
+      await AppRouter.archivedTasks(
+        context,
+        BoardRouteArgs(
+          projectId: widget.projectId,
+          boardId: widget.boardId,
+          projectName: widget.projectName,
+        ),
+      );
+      if (mounted) await _refreshWithEntrance();
+    } finally {
+      if (mounted) setState(() => _openingRouteId = null);
+    }
   }
 
   Future<void> _generateMoreTasks() async {
-    final append = widget.appendViewModel;
-    if (append == null || append.isGeneratingTasks) return;
-    FocusScope.of(context).unfocus();
-    final request = append.generateMoreTasks();
-    showDialog<void>(
-      context: context,
-      barrierDismissible: false,
-      builder: (dialogContext) => PopScope(
-        canPop: false,
-        child: Center(
-          child: Card(
-            margin: const EdgeInsets.all(28),
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  const CircularProgressIndicator(),
-                  const SizedBox(height: 20),
-                  Text(
-                    'Generating additional tasks…',
-                    style: Theme.of(dialogContext).textTheme.titleMedium,
-                  ),
-                ],
+    if (_navigationBusy) return;
+    setState(() => _openingRouteId = 'generate');
+    try {
+      final append = widget.appendViewModel;
+      if (append == null || append.isGeneratingTasks) return;
+      FocusScope.of(context).unfocus();
+      final request = append.generateMoreTasks();
+      showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dialogContext) => PopScope(
+          canPop: false,
+          child: Center(
+            child: Card(
+              margin: const EdgeInsets.all(28),
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const CircularProgressIndicator(),
+                    const SizedBox(height: 20),
+                    Text(
+                      'Generating additional tasks…',
+                      style: Theme.of(dialogContext).textTheme.titleMedium,
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
         ),
-      ),
-    );
-    final drafts = await request;
-    if (!mounted) return;
-    AppRouter.back(context);
-    if (drafts == null) {
-      final message = append.errorMessage;
-      if (message != null) {
+      );
+      final drafts = await request;
+      if (!mounted) return;
+      // This context belongs to the board beneath the busy dialog.
+      Navigator.of(context).pop();
+      if (drafts == null) {
+        final message = append.errorMessage;
+        if (message != null) {
+          ScaffoldMessenger.of(
+            context,
+          ).showSnackBar(SnackBar(content: Text(message)));
+        }
+        return;
+      }
+      final added = await AppRouter.additionalTaskPreview(context, append);
+      if (!mounted || added != true) return;
+      await _refreshWithEntrance();
+      if (!mounted) return;
+      final feedback = append.feedbackMessage;
+      if (feedback != null) {
         ScaffoldMessenger.of(
           context,
-        ).showSnackBar(SnackBar(content: Text(message)));
+        ).showSnackBar(SnackBar(content: Text(feedback)));
+        append.clearFeedback();
       }
-      return;
-    }
-    final added = await AppRouter.additionalTaskPreview(context, append);
-    if (!mounted || added != true) return;
-    await _refreshWithEntrance();
-    if (!mounted) return;
-    final feedback = append.feedbackMessage;
-    if (feedback != null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(feedback)));
-      append.clearFeedback();
+    } finally {
+      if (mounted) setState(() => _openingRouteId = null);
     }
   }
 
@@ -760,38 +790,55 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     );
   }
 
-  void _showSheet(Widget sheet) => showModalBottomSheet<void>(
-    context: context,
-    isScrollControlled: true,
-    useSafeArea: true,
-    builder: (_) => FractionallySizedBox(heightFactor: .76, child: sheet),
-  );
+  Future<void> _showSheet(Widget sheet) async {
+    if (_navigationBusy) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        isScrollControlled: true,
+        useSafeArea: true,
+        builder: (_) => FractionallySizedBox(heightFactor: .76, child: sheet),
+      );
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
+    }
+  }
 
-  void _showProgress() => showModalBottomSheet<void>(
-    context: context,
-    builder: (context) => SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(
-              'Project summary',
-              style: Theme.of(context).textTheme.titleLarge,
+  Future<void> _showProgress() async {
+    if (_navigationBusy) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      await showModalBottomSheet<void>(
+        context: context,
+        builder: (context) => SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 4, 24, 28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Project summary',
+                  style: Theme.of(context).textTheme.titleLarge,
+                ),
+                const SizedBox(height: 12),
+                _metric('Total tasks', widget.viewModel.totalTaskCount),
+                _metric('Completed tasks', widget.viewModel.completedTaskCount),
+                _metric('In progress', widget.viewModel.inProgressTaskCount),
+                _metric('Overdue tasks', widget.viewModel.overdueTaskCount),
+                _metric('Due soon', widget.viewModel.dueSoonTaskCount),
+              ],
             ),
-            const SizedBox(height: 12),
-            _metric('Total tasks', widget.viewModel.totalTaskCount),
-            _metric('Completed tasks', widget.viewModel.completedTaskCount),
-            _metric('In progress', widget.viewModel.inProgressTaskCount),
-            _metric('Overdue tasks', widget.viewModel.overdueTaskCount),
-            _metric('Due soon', widget.viewModel.dueSoonTaskCount),
-          ],
+          ),
         ),
-      ),
-    ),
-  );
+      );
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
+    }
+  }
+
   Widget _metric(String label, int value) => Padding(
     padding: const EdgeInsets.symmetric(vertical: 6),
     child: Row(
@@ -803,61 +850,75 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   );
 
   Future<void> _confirmArchive(KanbanTask task) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Archive task?'),
-        content: const Text('This task will be removed from the active board.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+    if (_navigationBusy || widget.viewModel.isSaving) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Archive task?'),
+          content: const Text(
+            'This task will be removed from the active board.',
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Archive'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await _removeWithMotion(
-        task,
-        () => widget.viewModel.archiveTask(task.id),
-        optimistic: true,
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => AppRouter.back(dialogContext, true),
+              child: const Text('Archive'),
+            ),
+          ],
+        ),
       );
+      if (confirm == true && mounted) {
+        await _removeWithMotion(
+          task,
+          () => widget.viewModel.archiveTask(task.id),
+          optimistic: true,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
     }
   }
 
   Future<void> _confirmDelete(KanbanTask task) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete task permanently?'),
-        content: const Text(
-          'The task and its related data cannot be recovered.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+    if (_navigationBusy || widget.viewModel.isSaving) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Delete task permanently?'),
+          content: const Text(
+            'The task and its related data cannot be recovered.',
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, false),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Delete permanently'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) {
-      await _removeWithMotion(
-        task,
-        () => widget.viewModel.deleteTask(task.id),
-        optimistic: false,
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const Text('Delete permanently'),
+            ),
+          ],
+        ),
       );
+      if (confirm == true && mounted) {
+        await _removeWithMotion(
+          task,
+          () => widget.viewModel.deleteTask(task.id),
+          optimistic: false,
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
     }
   }
 
@@ -897,24 +958,32 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   }
 
   Future<void> _confirmArchiveBoard() async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Archive board?'),
-        content: const Text('This board will be hidden from active projects.'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+    if (_navigationBusy || widget.viewModel.isSaving) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Archive board?'),
+          content: const Text(
+            'This board will be hidden from active projects.',
           ),
-          FilledButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            child: const Text('Archive'),
-          ),
-        ],
-      ),
-    );
-    if (confirm == true) await widget.viewModel.archiveBoard();
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => AppRouter.back(dialogContext, true),
+              child: const Text('Archive'),
+            ),
+          ],
+        ),
+      );
+      if (confirm == true && mounted) await widget.viewModel.archiveBoard();
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
+    }
   }
 
   Future<void> _moveFromMenu(String taskId, KanbanStatus status) async {
@@ -930,6 +999,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   }
 
   void _taskAction(KanbanTask task, TaskCardAction action) {
+    if (_navigationBusy || widget.viewModel.isSaving) return;
     switch (action) {
       case TaskCardAction.details:
         _openDetails(task);
@@ -959,6 +1029,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
   }
 
   void _overflow(String value) {
+    if (_navigationBusy) return;
     switch (value) {
       case 'filter':
         _showSheet(FilterSheet(viewModel: widget.viewModel));
@@ -1149,6 +1220,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             ),
             PopupMenuButton<String>(
               tooltip: 'Board menu',
+              enabled: !_navigationBusy,
               onSelected: _overflow,
               itemBuilder: (_) => [
                 const PopupMenuItem(
@@ -1211,7 +1283,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                         progress: model.projectProgress,
                         completed: model.completedTaskCount,
                         total: model.totalTaskCount,
-                        onTap: _showProgress,
+                        onTap: _navigationBusy ? null : _showProgress,
                       ),
                       if (model.hasActiveFilters)
                         _filterChips(model.activeFilter),
@@ -1357,7 +1429,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                 : const Duration(milliseconds: 150),
             child: FloatingActionButton.extended(
               key: const Key('new-task-button'),
-              onPressed: () => _openForm(),
+              onPressed: _navigationBusy ? null : () => _openForm(),
               icon: const Icon(Icons.add),
               label: const Text('New Task'),
             ),
@@ -1386,8 +1458,9 @@ class _SignInSheetState extends State<_SignInSheet> {
   }
 
   Future<void> _signIn() async {
+    if (widget.viewModel.isSaving) return;
     if (await widget.viewModel.signIn(_email.text, _password.text) && mounted) {
-      Navigator.pop(context);
+      AppRouter.back(context);
     }
   }
 

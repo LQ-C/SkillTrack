@@ -28,6 +28,8 @@ class NotificationScreen extends StatefulWidget {
 }
 
 class _NotificationScreenState extends State<NotificationScreen> {
+  String? _openingNotificationId;
+  bool _isOpeningPreferences = false;
   @override
   void initState() {
     super.initState();
@@ -37,34 +39,50 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Future<void> _open(AppNotification item) async {
-    final destination = await widget.viewModel.openNotification(item);
-    if (!mounted) return;
-    _showFeedback();
-    if (destination == null) return;
-    if (destination.taskId == null) {
-      final openProjects = widget.onOpenProjectDashboard;
-      if (openProjects != null) {
-        openProjects();
-        return;
+    if (_openingNotificationId != null || _isOpeningPreferences) return;
+    setState(() => _openingNotificationId = item.id);
+    try {
+      final destination = await widget.viewModel.openNotification(item);
+      if (!mounted) return;
+      _showFeedback();
+      if (destination == null) return;
+      if (destination.taskId == null) {
+        final openProjects = widget.onOpenProjectDashboard;
+        if (openProjects != null) {
+          openProjects();
+          return;
+        } else {
+          AppRouter.projectDashboard(context);
+        }
       } else {
-        AppRouter.projectDashboard(context);
+        await AppRouter.taskDetails(
+          context,
+          TaskDetailsRouteArgs(
+            projectId: destination.projectId,
+            boardId: destination.boardId,
+            projectName: destination.projectName,
+            taskId: destination.taskId!,
+            showStalledWarning: destination.showStalledWarning,
+            openRecommendations: destination.openRecommendations,
+            resourceTitles: destination.resourceTitles,
+            resourceCount: destination.resourceCount,
+          ),
+        );
       }
-    } else {
-      await AppRouter.taskDetails(
-        context,
-        TaskDetailsRouteArgs(
-          projectId: destination.projectId,
-          boardId: destination.boardId,
-          projectName: destination.projectName,
-          taskId: destination.taskId!,
-          showStalledWarning: destination.showStalledWarning,
-          openRecommendations: destination.openRecommendations,
-          resourceTitles: destination.resourceTitles,
-          resourceCount: destination.resourceCount,
-        ),
-      );
+      if (mounted) await widget.viewModel.refresh();
+    } finally {
+      if (mounted) setState(() => _openingNotificationId = null);
     }
-    if (mounted) await widget.viewModel.refresh();
+  }
+
+  Future<void> _openPreferences() async {
+    if (_isOpeningPreferences || _openingNotificationId != null) return;
+    setState(() => _isOpeningPreferences = true);
+    try {
+      await AppRouter.notificationPreferences(context);
+    } finally {
+      if (mounted) setState(() => _isOpeningPreferences = false);
+    }
   }
 
   void _showFeedback() {
@@ -77,6 +95,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Future<void> _markAll() async {
+    if (widget.viewModel.isMarkingAllRead) return;
     await widget.viewModel.markAllAsRead();
     _showFeedback();
   }
@@ -97,7 +116,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
         if (model.loadMoreError != null)
           Text(model.loadMoreError!, textAlign: TextAlign.center),
         TextButton.icon(
-          onPressed: model.isLoadingMore ? null : model.loadMore,
+          onPressed:
+              model.isLoadingMore || model.isRefreshing || model.isLoading
+              ? null
+              : model.loadMore,
           icon: model.isLoadingMore
               ? const SizedBox(
                   width: 18,
@@ -123,7 +145,9 @@ class _NotificationScreenState extends State<NotificationScreen> {
           actions: [
             IconButton(
               tooltip: 'Notification preferences',
-              onPressed: () => AppRouter.notificationPreferences(context),
+              onPressed: _isOpeningPreferences || _openingNotificationId != null
+                  ? null
+                  : _openPreferences,
               icon: const Icon(Icons.settings_outlined),
             ),
             PopupMenuButton<String>(
@@ -132,7 +156,10 @@ class _NotificationScreenState extends State<NotificationScreen> {
               itemBuilder: (_) => [
                 PopupMenuItem(
                   value: 'read',
-                  enabled: model.unreadCount > 0 && !model.isMarkingAllRead,
+                  enabled:
+                      model.unreadCount > 0 &&
+                      !model.isMarkingAllRead &&
+                      !model.isMarkingRead,
                   child: const Text('Mark all as read'),
                 ),
               ],
@@ -231,7 +258,11 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                     NotificationTile(
                                       key: Key('notification-${item.id}'),
                                       notification: item,
-                                      onTap: () => _open(item),
+                                      onTap:
+                                          _openingNotificationId != null ||
+                                              _isOpeningPreferences
+                                          ? null
+                                          : () => _open(item),
                                     ),
                                   ],
                                 );

@@ -55,7 +55,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   }
 
   Future<void> loadArchivedTasks(String boardId) async {
-    if (_disposed) return;
+    if (_disposed || _isLoading) return;
     _boardId = boardId;
     _isLoading = true;
     _errorMessage = null;

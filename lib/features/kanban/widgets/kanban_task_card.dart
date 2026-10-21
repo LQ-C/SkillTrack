@@ -27,8 +27,8 @@ class KanbanTaskCard extends StatelessWidget {
     required this.onAction,
   });
   final KanbanTask task;
-  final VoidCallback onTap;
-  final ValueChanged<TaskCardAction> onAction;
+  final VoidCallback? onTap;
+  final ValueChanged<TaskCardAction>? onAction;
 
   @override
   Widget build(BuildContext context) {
@@ -70,6 +70,7 @@ class KanbanTaskCard extends StatelessWidget {
                   ),
                   PopupMenuButton<TaskCardAction>(
                     tooltip: 'Task actions',
+                    enabled: onAction != null,
                     onSelected: onAction,
                     itemBuilder: (_) => [
                       const PopupMenuItem(

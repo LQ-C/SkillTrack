@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/router/app_router.dart';
+
 import '../models/kanban_sort.dart';
 import '../viewmodels/kanban_view_model.dart';
 
@@ -23,7 +25,7 @@ class SortSheet extends StatelessWidget {
                   : null,
               onTap: () {
                 viewModel.setSort(sort);
-                Navigator.pop(context);
+                AppRouter.back(context);
               },
             ),
           ),

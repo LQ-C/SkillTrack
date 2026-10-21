@@ -1,3 +1,4 @@
+import 'package:skilltrack/features/projects/models/project_with_progress.dart';
 import 'dart:async';
 import 'dart:ui' show SemanticsAction;
 
@@ -93,6 +94,82 @@ void main() {
     }
     await showProjectAction(tester, 'generate-tasks-button');
   }
+
+  testWidgets('project navigation is exclusive until board lookup and return', (
+    tester,
+  ) async {
+    final projects = _BoardLookupRepository();
+    await showApp(tester, projects);
+    final first = tester
+        .widget<InkWell>(find.byKey(const Key('project-a')))
+        .onTap!;
+    final second = tester
+        .widget<InkWell>(find.byKey(const Key('project-b')))
+        .onTap!;
+    first();
+    first();
+    second();
+    expect(projects.boardCalls, 1);
+    await tester.pump();
+    expect(
+      tester.widget<InkWell>(find.byKey(const Key('project-b'))).onTap,
+      isNull,
+    );
+    expect(find.byType(CircularProgressIndicator), findsOneWidget);
+    projects.boardLookup.complete('board-a');
+    await tester.pumpAndSettle();
+    expect(find.text('Kanban Board'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(projects.loadCalls, 2);
+    expect(
+      tester.widget<InkWell>(find.byKey(const Key('project-b'))).onTap,
+      isNotNull,
+    );
+  });
+
+  testWidgets('missing board releases navigation and shows feedback', (
+    tester,
+  ) async {
+    final projects = _BoardLookupRepository();
+    await showApp(tester, projects);
+    await tester.tap(find.byKey(const Key('project-a')));
+    projects.boardLookup.complete(null);
+    await tester.pumpAndSettle();
+    expect(find.text('Board unavailable.'), findsOneWidget);
+    expect(find.text('Kanban Board'), findsNothing);
+    expect(
+      tester.widget<InkWell>(find.byKey(const Key('project-b'))).onTap,
+      isNotNull,
+    );
+  });
+
+  testWidgets('repeated create-project callbacks open one form', (
+    tester,
+  ) async {
+    await showApp(tester, FakeProjectRepository());
+    final open = tester
+        .widget<FloatingActionButton>(
+          find.byKey(const Key('new-project-button')),
+        )
+        .onPressed!;
+    open();
+    open();
+    await tester.pumpAndSettle();
+    expect(find.byType(CreateProjectScreen), findsOneWidget);
+    final back = tester
+        .widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) => widget is IconButton && widget.tooltip == 'Back',
+          ),
+        )
+        .onPressed!;
+    back();
+    back();
+    await tester.pumpAndSettle();
+    expect(find.text('My Projects'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
 
   testWidgets(
     'Generate previews drafts, then Confirm creates the project and board',
@@ -425,7 +502,11 @@ void main() {
       expect(projects.stored.single.project.startDate, future);
       expect(projects.stored.single.project.endDate, future);
       expect(find.text('Kanban Board'), findsOneWidget);
-      await tester.tap(find.byTooltip('Back'));
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Back',
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('My Projects'), findsOneWidget);
       expect(tester.takeException(), isNull);
@@ -628,7 +709,11 @@ void main() {
       expect(find.text('Flutter'), findsOneWidget);
       expect(find.text('Kanban Board'), findsOneWidget);
       expect(find.byKey(const Key('new-task-button')), findsOneWidget);
-      await tester.tap(find.byTooltip('Back'));
+      await tester.tap(
+        find.byWidgetPredicate(
+          (widget) => widget is IconButton && widget.tooltip == 'Back',
+        ),
+      );
       await tester.pumpAndSettle();
       expect(find.text('My Projects'), findsOneWidget);
       expect(find.text('Flutter'), findsOneWidget);
@@ -655,7 +740,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Flutter task'), findsOneWidget);
     expect(find.text('Python task'), findsNothing);
-    await tester.tap(find.byTooltip('Back'));
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) => widget is IconButton && widget.tooltip == 'Back',
+      ),
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const Key('project-2')));
     await tester.pumpAndSettle();
@@ -781,7 +870,11 @@ void main() {
           ?.text,
       'Flutter',
     );
-    await tester.tap(find.byTooltip('Back'));
+    await tester.tap(
+      find.byWidgetPredicate(
+        (widget) => widget is IconButton && widget.tooltip == 'Back',
+      ),
+    );
     await tester.pumpAndSettle();
     expect(find.text('My Projects'), findsOneWidget);
   });
@@ -935,4 +1028,23 @@ void main() {
     expect(descriptionController.text, 'Keep this edit');
     expect(model.pendingGeneratedTasks.first.title, 'Step 1');
   });
+}
+
+class _BoardLookupRepository extends FakeProjectRepository {
+  _BoardLookupRepository()
+    : super(items: [sampleProject('a', 'First'), sampleProject('b', 'Second')]);
+  final boardLookup = Completer<String?>();
+  int boardCalls = 0, loadCalls = 0;
+
+  @override
+  Future<String?> getProjectBoard(String projectId) {
+    boardCalls++;
+    return boardLookup.future;
+  }
+
+  @override
+  Future<List<ProjectWithProgress>> getProjectsWithProgress() {
+    loadCalls++;
+    return super.getProjectsWithProgress();
+  }
 }

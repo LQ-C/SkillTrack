@@ -30,6 +30,8 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   late bool _hasTime;
   late Set<String> _tagIds;
   bool _moreOptions = false;
+  bool _isShowingDialog = false;
+  bool _isLeaving = false;
 
   @override
   void initState() {
@@ -55,7 +57,11 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   }
 
   Future<void> _submit() async {
-    if (!_formKey.currentState!.validate() || widget.viewModel.isSaving) return;
+    if (_isLeaving ||
+        widget.viewModel.isSaving ||
+        !_formKey.currentState!.validate()) {
+      return;
+    }
     final availableIds = widget.viewModel.availableTags
         .map((tag) => tag.id)
         .toSet();
@@ -83,59 +89,80 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             deadline: _deadline,
             tagIds: selectedTagIds,
           );
-    if (ok && mounted) AppRouter.back(context, true);
+    if (ok && mounted) {
+      setState(() => _isLeaving = true);
+      AppRouter.back(context, true);
+    }
   }
 
   Future<void> _createTag() async {
-    final created = await showTaskTagEditor(context, widget.viewModel);
-    if (created != null && mounted) {
-      setState(() => _tagIds.add(created.id));
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('Tag created')));
+    if (_isShowingDialog || widget.viewModel.isSaving) return;
+    setState(() => _isShowingDialog = true);
+    try {
+      final created = await showTaskTagEditor(context, widget.viewModel);
+      if (created != null && mounted) {
+        setState(() => _tagIds.add(created.id));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Tag created')));
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingDialog = false);
     }
   }
 
   Future<void> _pickDate() async {
-    final selected = await showDatePicker(
-      context: context,
-      initialDate: _deadline ?? DateTime.now(),
-      firstDate: DateTime(2020),
-      lastDate: DateTime(2100),
-    );
-    if (selected != null && mounted) {
-      setState(() {
-        final old = _deadline;
-        _deadline = DateTime(
-          selected.year,
-          selected.month,
-          selected.day,
-          _hasTime ? old?.hour ?? 0 : 0,
-          _hasTime ? old?.minute ?? 0 : 0,
-        );
-      });
+    if (_isShowingDialog || widget.viewModel.isSaving) return;
+    setState(() => _isShowingDialog = true);
+    try {
+      final selected = await showDatePicker(
+        context: context,
+        initialDate: _deadline ?? DateTime.now(),
+        firstDate: DateTime(2020),
+        lastDate: DateTime(2100),
+      );
+      if (selected != null && mounted) {
+        setState(() {
+          final old = _deadline;
+          _deadline = DateTime(
+            selected.year,
+            selected.month,
+            selected.day,
+            _hasTime ? old?.hour ?? 0 : 0,
+            _hasTime ? old?.minute ?? 0 : 0,
+          );
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingDialog = false);
     }
   }
 
   Future<void> _pickTime() async {
-    final selected = await showTimePicker(
-      context: context,
-      initialTime: _hasTime && _deadline != null
-          ? TimeOfDay.fromDateTime(_deadline!)
-          : TimeOfDay.now(),
-    );
-    if (selected != null && mounted) {
-      setState(() {
-        final date = _deadline ?? DateTime.now();
-        _deadline = DateTime(
-          date.year,
-          date.month,
-          date.day,
-          selected.hour,
-          selected.minute,
-        );
-        _hasTime = true;
-      });
+    if (_isShowingDialog || widget.viewModel.isSaving) return;
+    setState(() => _isShowingDialog = true);
+    try {
+      final selected = await showTimePicker(
+        context: context,
+        initialTime: _hasTime && _deadline != null
+            ? TimeOfDay.fromDateTime(_deadline!)
+            : TimeOfDay.now(),
+      );
+      if (selected != null && mounted) {
+        setState(() {
+          final date = _deadline ?? DateTime.now();
+          _deadline = DateTime(
+            date.year,
+            date.month,
+            date.day,
+            selected.hour,
+            selected.minute,
+          );
+          _hasTime = true;
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingDialog = false);
     }
   }
 
@@ -230,7 +257,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
         const SizedBox(width: 8),
         Expanded(
           child: InkWell(
-            onTap: _pickDate,
+            onTap: _isShowingDialog ? null : _pickDate,
             borderRadius: BorderRadius.circular(12),
             child: Padding(
               padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 7),
@@ -252,7 +279,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
           ),
         ),
         TextButton(
-          onPressed: _pickTime,
+          onPressed: _isShowingDialog ? null : _pickTime,
           child: Text(
             _hasTime && _deadline != null
                 ? TimeOfDay.fromDateTime(_deadline!).format(context)
@@ -298,7 +325,10 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                 ),
                 const SizedBox(width: 8),
               ],
-              ActionChip(label: const Text('+ New Tag'), onPressed: _createTag),
+              ActionChip(
+                label: const Text('+ New Tag'),
+                onPressed: _isShowingDialog ? null : _createTag,
+              ),
             ],
           ),
         ),
@@ -578,7 +608,8 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                   child: FilledButton(
                     key: const Key('save-task-button'),
                     onPressed:
-                        widget.viewModel.isSaving ||
+                        _isLeaving ||
+                            widget.viewModel.isSaving ||
                             (isNew && widget.viewModel.boardId == null)
                         ? null
                         : _submit,

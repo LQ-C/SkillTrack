@@ -22,6 +22,13 @@ class GeneratedTaskPreviewScreen extends StatefulWidget {
 class _GeneratedTaskPreviewScreenState
     extends State<GeneratedTaskPreviewScreen> {
   final _feedback = TextEditingController();
+  bool _isShowingOverlay = false;
+  bool _isLeaving = false;
+  bool get _busy =>
+      _isLeaving ||
+      _isShowingOverlay ||
+      viewModel.isConfirmingGeneratedTasks ||
+      viewModel.isRevisingGeneratedTasks;
   final _taskKeys = <Key>[];
   GeneratedTaskPreviewState get viewModel => widget.viewModel;
 
@@ -32,15 +39,19 @@ class _GeneratedTaskPreviewScreenState
   }
 
   Future<void> _confirm(BuildContext context) async {
+    if (_busy) return;
     final result = await viewModel.confirmGeneratedTasks();
-    if (context.mounted && result != null) AppRouter.back(context, result);
+    if (context.mounted && result != null) {
+      setState(() => _isLeaving = true);
+      AppRouter.back(context, result);
+    }
   }
 
   void _cancel(BuildContext context) {
-    if (viewModel.isConfirmingGeneratedTasks ||
-        viewModel.isRevisingGeneratedTasks) {
+    if (_busy) {
       return;
     }
+    setState(() => _isLeaving = true);
     viewModel.cancelGeneratedTaskPreview();
     AppRouter.back(context);
   }
@@ -50,48 +61,62 @@ class _GeneratedTaskPreviewScreenState
     int index,
     GeneratedTaskDraft task,
   ) async {
-    await showGeneratedTaskEditSheet(
-      context,
-      task: task,
-      startDate: viewModel.generationStartDate,
-      endDate: viewModel.generationEndDate,
-      onSave: (updated) => viewModel.updateGeneratedTask(index, updated)
-          ? null
-          : viewModel.errorMessage ?? 'Unable to update this task.',
-    );
+    if (_busy) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      await showGeneratedTaskEditSheet(
+        context,
+        task: task,
+        startDate: viewModel.generationStartDate,
+        endDate: viewModel.generationEndDate,
+        onSave: (updated) => viewModel.updateGeneratedTask(index, updated)
+            ? null
+            : viewModel.errorMessage ?? 'Unable to update this task.',
+      );
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
+    }
   }
 
   Future<void> _remove(BuildContext context, int index) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Remove generated task?'),
-        content: const Text('This task has not been saved yet.'),
-        actions: [
-          TextButton(
-            onPressed: () => AppRouter.back(context, false),
-            child: const Text('Keep task'),
-          ),
-          TextButton(
-            onPressed: () => AppRouter.back(context, true),
-            child: const Text('Remove'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed == true && mounted) {
-      _taskKeys.removeAt(index);
-      viewModel.removeGeneratedTask(index);
+    if (_busy) return;
+    setState(() => _isShowingOverlay = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Remove generated task?'),
+          content: const Text('This task has not been saved yet.'),
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(context, false),
+              child: const Text('Keep task'),
+            ),
+            TextButton(
+              onPressed: () => AppRouter.back(context, true),
+              child: const Text('Remove'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed == true && mounted) {
+        _taskKeys.removeAt(index);
+        viewModel.removeGeneratedTask(index);
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingOverlay = false);
     }
   }
 
   void _reorder(int oldIndex, int newIndex) {
+    if (_busy || !viewModel.canCustomizeGeneratedTasks) return;
     final key = _taskKeys.removeAt(oldIndex);
     _taskKeys.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, key);
     viewModel.reorderGeneratedTask(oldIndex, newIndex);
   }
 
   Future<void> _revise(BuildContext context) async {
+    if (_busy) return;
     FocusScope.of(context).unfocus();
     if (await viewModel.reviseGeneratedTasks(_feedback.text) && mounted) {
       _feedback.clear();
@@ -111,8 +136,9 @@ class _GeneratedTaskPreviewScreenState
       }
       final saving = viewModel.isConfirmingGeneratedTasks;
       final revising = viewModel.isRevisingGeneratedTasks;
-      final busy = saving || revising;
-      final canCustomize = !busy && viewModel.canCustomizeGeneratedTasks;
+      final busy = saving || revising || _isLeaving;
+      final canCustomize =
+          !busy && !_isShowingOverlay && viewModel.canCustomizeGeneratedTasks;
       final append = viewModel.generationMode == TaskGenerationMode.append;
       final theme = Theme.of(context);
       return PopScope<Object?>(
@@ -244,7 +270,7 @@ class _GeneratedTaskPreviewScreenState
                       );
                       final confirm = FilledButton(
                         key: const Key('confirm-generated-tasks-button'),
-                        onPressed: busy || tasks.isEmpty
+                        onPressed: busy || _isShowingOverlay || tasks.isEmpty
                             ? null
                             : () => _confirm(context),
                         child: Text(

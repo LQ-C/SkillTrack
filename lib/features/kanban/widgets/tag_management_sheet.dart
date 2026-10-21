@@ -1,50 +1,76 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/router/app_router.dart';
+
 import '../../../core/errors/app_exception.dart';
 import '../models/task_tag.dart';
 import '../utils/task_tag_color_utils.dart';
 import '../viewmodels/kanban_view_model.dart';
 import 'task_tag_color_picker.dart';
 
-class TagManagementSheet extends StatelessWidget {
+class TagManagementSheet extends StatefulWidget {
   const TagManagementSheet({super.key, required this.viewModel});
 
   final KanbanViewModel viewModel;
 
+  @override
+  State<TagManagementSheet> createState() => _TagManagementSheetState();
+}
+
+class _TagManagementSheetState extends State<TagManagementSheet> {
+  bool _isShowingDialog = false;
+  KanbanViewModel get viewModel => widget.viewModel;
+
+  Future<void> _edit([TaskTag? tag]) async {
+    if (_isShowingDialog || viewModel.isSaving) return;
+    setState(() => _isShowingDialog = true);
+    try {
+      await showTaskTagEditor(context, viewModel, tag: tag);
+    } finally {
+      if (mounted) setState(() => _isShowingDialog = false);
+    }
+  }
+
   Future<void> _delete(BuildContext context, TaskTag tag) async {
-    final confirm = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete tag?'),
-        content: Text(
-          'Remove “${tag.name}” from every task? Tasks will remain.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
-            ),
-            child: const Text('Delete'),
-          ),
-        ],
-      ),
-    );
-    if (confirm != true) return;
-    final ok = await viewModel.deleteTag(tag.id);
-    if (!ok && context.mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
+    if (_isShowingDialog || viewModel.isSaving) return;
+    setState(() => _isShowingDialog = true);
+    try {
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Delete tag?'),
           content: Text(
-            viewModel.errorMessage ?? AppErrorMessages.deleteTagFailed,
+            'Remove “${tag.name}” from every task? Tasks will remain.',
           ),
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const Text('Delete'),
+            ),
+          ],
         ),
       );
-      viewModel.clearError();
+      if (confirm != true || !context.mounted) return;
+      final ok = await viewModel.deleteTag(tag.id);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              viewModel.errorMessage ?? AppErrorMessages.deleteTagFailed,
+            ),
+          ),
+        );
+        viewModel.clearError();
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingDialog = false);
     }
   }
 
@@ -70,13 +96,9 @@ class TagManagementSheet extends StatelessWidget {
                       leading: Tooltip(
                         message: 'Edit ${tag.name} color',
                         child: InkWell(
-                          onTap: viewModel.isSaving
+                          onTap: (viewModel.isSaving || _isShowingDialog)
                               ? null
-                              : () => showTaskTagEditor(
-                                  context,
-                                  viewModel,
-                                  tag: tag,
-                                ),
+                              : () => _edit(tag),
                           customBorder: const CircleBorder(),
                           child: Container(
                             width: 48,
@@ -102,18 +124,14 @@ class TagManagementSheet extends StatelessWidget {
                           IconButton(
                             tooltip: 'Edit ${tag.name}',
                             icon: const Icon(Icons.edit_outlined),
-                            onPressed: viewModel.isSaving
+                            onPressed: (viewModel.isSaving || _isShowingDialog)
                                 ? null
-                                : () => showTaskTagEditor(
-                                    context,
-                                    viewModel,
-                                    tag: tag,
-                                  ),
+                                : () => _edit(tag),
                           ),
                           IconButton(
                             tooltip: 'Delete ${tag.name}',
                             icon: const Icon(Icons.delete_outline),
-                            onPressed: viewModel.isSaving
+                            onPressed: (viewModel.isSaving || _isShowingDialog)
                                 ? null
                                 : () => _delete(context, tag),
                           ),
@@ -125,9 +143,9 @@ class TagManagementSheet extends StatelessWidget {
             ),
             const SizedBox(height: 12),
             FilledButton.icon(
-              onPressed: viewModel.isSaving
+              onPressed: (viewModel.isSaving || _isShowingDialog)
                   ? null
-                  : () => showTaskTagEditor(context, viewModel),
+                  : () => _edit(),
               icon: const Icon(Icons.add),
               label: const Text('Create tag'),
             ),

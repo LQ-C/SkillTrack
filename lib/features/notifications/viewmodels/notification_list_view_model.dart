@@ -64,6 +64,8 @@ class NotificationListViewModel extends ChangeNotifier {
   bool _loadStarted = false;
   bool _hasInitialized = false;
   bool _disposed = false;
+  final Set<String> _markingReadIds = {};
+  bool get isMarkingRead => _markingReadIds.isNotEmpty;
   int _loadVersion = 0;
   String? errorMessage, feedbackMessage, loadMoreError;
   NotificationListFilter selectedFilter = NotificationListFilter.all;
@@ -255,10 +257,16 @@ class NotificationListViewModel extends ChangeNotifier {
   }
 
   Future<bool> markAsRead(String notificationId) async {
+    if (_disposed ||
+        isMarkingAllRead ||
+        _markingReadIds.contains(notificationId)) {
+      return false;
+    }
     final index = _items.indexWhere((item) => item.id == notificationId);
     if (index < 0 || _items[index].isRead) return true;
     final previous = _items[index];
     final version = _loadVersion;
+    _markingReadIds.add(notificationId);
     _items[index] = previous.copyWith(
       isRead: true,
       readAt: DateTime.now().toUtc(),
@@ -280,8 +288,10 @@ class NotificationListViewModel extends ChangeNotifier {
       if (current >= 0) _items[current] = previous;
       _badge.restoreUnread(notificationId);
       feedbackMessage = AppErrorMessages.updateNotificationsFailed;
-      notifyListeners();
       return false;
+    } finally {
+      _markingReadIds.remove(notificationId);
+      if (!_disposed) notifyListeners();
     }
   }
 
@@ -335,7 +345,9 @@ class NotificationListViewModel extends ChangeNotifier {
   }
 
   Future<void> markAllAsRead() async {
-    if (isMarkingAllRead || unreadCount == 0) return;
+    if (_disposed || isMarkingAllRead || isMarkingRead || unreadCount == 0) {
+      return;
+    }
     final version = _loadVersion;
     final userId = _repository.currentUserId;
     isMarkingAllRead = true;

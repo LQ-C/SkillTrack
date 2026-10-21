@@ -1,3 +1,10 @@
+import 'package:skilltrack/features/kanban/widgets/kanban_task_card.dart';
+import 'package:skilltrack/features/kanban/widgets/project_progress_card.dart';
+import 'dart:async';
+import 'package:skilltrack/features/kanban/models/task_attachment.dart';
+import 'package:skilltrack/features/kanban/models/task_checklist_item.dart';
+import 'package:skilltrack/features/kanban/widgets/checklist_section.dart';
+import 'package:skilltrack/features/kanban/widgets/attachment_section.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/app/app_theme.dart';
@@ -50,6 +57,187 @@ void main() {
     await tester.pumpAndSettle();
     return model;
   }
+
+  testWidgets(
+    'checklist add and toggle reject duplicate callbacks and allow retry',
+    (tester) async {
+      final repo = _ChecklistGateRepository();
+      final model = KanbanViewModel(repo);
+      await model.initialize();
+      addTearDown(model.dispose);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: ListenableBuilder(
+              listenable: model,
+              builder: (context, child) => ChecklistSection(
+                task: model.allTasks.single,
+                viewModel: model,
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.enterText(find.byType(TextField), 'One item');
+      final addFinder = find.byWidgetPredicate(
+        (w) => w is IconButton && w.tooltip == 'Add checklist item',
+      );
+      final add = tester.widget<IconButton>(addFinder).onPressed!;
+      add();
+      add();
+      expect(repo.createCalls, 1);
+      await tester.pump();
+      expect(tester.widget<IconButton>(addFinder).onPressed, isNull);
+      repo.createGate!.completeError(StateError('offline'));
+      await tester.pumpAndSettle();
+      expect(tester.widget<IconButton>(addFinder).onPressed, isNotNull);
+      repo.createGate = null;
+      await tester.tap(addFinder);
+      await tester.pumpAndSettle();
+      expect(model.allTasks.single.checklistItems, hasLength(1));
+      expect(
+        tester.widget<TextField>(find.byType(TextField)).controller!.text,
+        isEmpty,
+      );
+      final toggle = tester
+          .widget<CheckboxListTile>(find.byType(CheckboxListTile))
+          .onChanged!;
+      toggle(true);
+      toggle(true);
+      expect(repo.toggleCalls, 1);
+      await tester.pump();
+      expect(
+        tester
+            .widget<CheckboxListTile>(find.byType(CheckboxListTile))
+            .onChanged,
+        isNull,
+      );
+      repo.toggleGate.complete();
+      await tester.pumpAndSettle();
+      expect(model.allTasks.single.checklistItems.single.isCompleted, isTrue);
+      expect(
+        tester
+            .widget<CheckboxListTile>(find.byType(CheckboxListTile))
+            .onChanged,
+        isNotNull,
+      );
+    },
+  );
+
+  testWidgets(
+    'attachment delete confirmation opens once and cancel preserves its parent',
+    (tester) async {
+      final repo = FakeKanbanRepository(
+        tasks: [sampleTask('a', 'Plan', KanbanStatus.todo)],
+      );
+      final model = KanbanViewModel(repo);
+      await model.initialize();
+      addTearDown(model.dispose);
+      final task = model.allTasks.single.copyWith(
+        attachments: [
+          const TaskAttachment(
+            id: 'file',
+            taskId: 'a',
+            fileName: 'notes.txt',
+            storagePath: 'notes.txt',
+          ),
+        ],
+      );
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: AttachmentSection(task: task, viewModel: model),
+          ),
+        ),
+      );
+      final deleteFinder = find.byWidgetPredicate(
+        (w) => w is IconButton && w.tooltip == 'Delete attachment',
+      );
+      final open = tester.widget<IconButton>(deleteFinder).onPressed!;
+      open();
+      open();
+      await tester.pumpAndSettle();
+      expect(find.text('Delete attachment?'), findsOneWidget);
+      final cancel = tester
+          .widget<TextButton>(find.widgetWithText(TextButton, 'Cancel'))
+          .onPressed!;
+      cancel();
+      cancel();
+      await tester.pumpAndSettle();
+      expect(find.text('notes.txt'), findsOneWidget);
+      expect(tester.widget<IconButton>(deleteFinder).onPressed, isNotNull);
+      expect(tester.takeException(), isNull);
+    },
+  );
+
+  testWidgets('repeated New Task and stale Back callbacks preserve the board', (
+    tester,
+  ) async {
+    await showBoard(tester, FakeKanbanRepository());
+    final open = tester
+        .widget<FloatingActionButton>(find.byKey(const Key('new-task-button')))
+        .onPressed!;
+    open();
+    open();
+    await tester.pumpAndSettle();
+    expect(find.text('Add New Task'), findsOneWidget);
+    final back = tester
+        .widget<IconButton>(
+          find.byWidgetPredicate(
+            (widget) => widget is IconButton && widget.tooltip == 'Back',
+          ),
+        )
+        .onPressed!;
+    back();
+    back();
+    await tester.pumpAndSettle();
+    expect(find.text('Kanban Board'), findsOneWidget);
+    expect(
+      tester
+          .widget<FloatingActionButton>(
+            find.byKey(const Key('new-task-button')),
+          )
+          .onPressed,
+      isNotNull,
+    );
+    expect(tester.takeException(), isNull);
+  });
+
+  testWidgets(
+    'task taps and project summary cannot open duplicate routes or sheets',
+    (tester) async {
+      await showBoard(
+        tester,
+        FakeKanbanRepository(
+          tasks: [sampleTask('a', 'Plan', KanbanStatus.todo)],
+        ),
+      );
+      final card = tester.widget<KanbanTaskCard>(
+        find.byType(KanbanTaskCard).first,
+      );
+      card.onTap!();
+      card.onTap!();
+      await tester.pumpAndSettle();
+      expect(find.text('Task Details'), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      final progress = tester.widget<ProjectProgressCard>(
+        find.byType(ProjectProgressCard),
+      );
+      progress.onTap!();
+      progress.onTap!();
+      await tester.pumpAndSettle();
+      expect(find.text('Project summary'), findsOneWidget);
+      Navigator.of(tester.element(find.text('Project summary'))).pop();
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<ProjectProgressCard>(find.byType(ProjectProgressCard))
+            .onTap,
+        isNotNull,
+      );
+    },
+  );
 
   testWidgets('board shows progress, fixed columns and project name', (
     tester,
@@ -1498,4 +1686,30 @@ void main() {
       1,
     );
   });
+}
+
+class _ChecklistGateRepository extends FakeKanbanRepository {
+  _ChecklistGateRepository()
+    : super(tasks: [sampleTask('a', 'Plan', KanbanStatus.todo)]);
+  Completer<void>? createGate = Completer<void>();
+  final toggleGate = Completer<void>();
+  int createCalls = 0, toggleCalls = 0;
+
+  @override
+  Future<TaskChecklistItem> createChecklistItem(
+    String taskId,
+    String title,
+    int position,
+  ) async {
+    createCalls++;
+    await createGate?.future;
+    return super.createChecklistItem(taskId, title, position);
+  }
+
+  @override
+  Future<TaskChecklistItem> updateChecklistItem(TaskChecklistItem item) async {
+    toggleCalls++;
+    await toggleGate.future;
+    return super.updateChecklistItem(item);
+  }
 }

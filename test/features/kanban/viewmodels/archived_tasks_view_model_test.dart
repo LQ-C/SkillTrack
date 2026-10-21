@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'package:skilltrack/features/kanban/models/kanban_task.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
@@ -6,6 +8,24 @@ import 'package:skilltrack/features/kanban/viewmodels/archived_tasks_view_model.
 import '../fake_repository.dart';
 
 void main() {
+  test('archive refresh is exclusive and failure permits retry', () async {
+    final repo = _ArchivedLoadGate();
+    final model = ArchivedTasksViewModel(repo);
+    addTearDown(model.dispose);
+    final load = model.loadArchivedTasks('board-1');
+    await model.refresh();
+    await model.loadArchivedTasks('board-1');
+    expect(repo.loadCalls, 1);
+    expect(model.isLoading, isTrue);
+    repo.gate!.completeError(StateError('offline'));
+    await load;
+    expect(model.isLoading, isFalse);
+    repo.gate = null;
+    await model.refresh();
+    expect(repo.loadCalls, 2);
+    expect(model.errorMessage, isNull);
+  });
+
   test('loads only archived tasks from the selected board', () async {
     final repository = FakeKanbanRepository(
       tasks: [
@@ -198,4 +218,16 @@ void main() {
     expect(repository.stored, isEmpty);
     model.dispose();
   });
+}
+
+class _ArchivedLoadGate extends FakeKanbanRepository {
+  Completer<void>? gate = Completer<void>();
+  int loadCalls = 0;
+
+  @override
+  Future<List<KanbanTask>> getArchivedTasks(String boardId) async {
+    loadCalls++;
+    await gate?.future;
+    return super.getArchivedTasks(boardId);
+  }
 }

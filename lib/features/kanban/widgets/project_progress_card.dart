@@ -10,7 +10,7 @@ class ProjectProgressCard extends StatelessWidget {
   });
   final double progress;
   final int completed, total;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
   @override
   Widget build(BuildContext context) => Card(
     margin: const EdgeInsets.fromLTRB(16, 8, 16, 16),

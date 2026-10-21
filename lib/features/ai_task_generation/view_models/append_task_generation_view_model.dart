@@ -62,7 +62,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       UnmodifiableListView(_pending ?? const <GeneratedTaskDraft>[]);
 
   Future<List<GeneratedTaskDraft>?> generateMoreTasks() async {
-    if (_disposed || _isGenerating || _isConfirming) return null;
+    if (_disposed || _isGenerating || _isConfirming || _isRevising) return null;
     if (_pending != null) return pendingGeneratedTasks;
     _isGenerating = true;
     _errorMessage = null;

@@ -25,7 +25,7 @@ class TaskDetailsSheet extends StatefulWidget {
   });
   final String taskId;
   final KanbanViewModel viewModel;
-  final ValueChanged<KanbanTask> onEdit;
+  final ValueChanged<KanbanTask>? onEdit;
   final bool fullScreen;
   final bool showStalledWarning;
   final bool showRecommendations;
@@ -203,7 +203,11 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                             ),
                             IconButton(
                               tooltip: 'Edit task',
-                              onPressed: () => widget.onEdit(task),
+                              onPressed:
+                                  widget.viewModel.isSaving ||
+                                      widget.onEdit == null
+                                  ? null
+                                  : () => widget.onEdit!(task),
                               icon: const Icon(Icons.edit_outlined),
                             ),
                           ],

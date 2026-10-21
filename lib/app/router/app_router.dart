@@ -24,6 +24,7 @@ import '../../features/notifications/services/notification_realtime_service.dart
 import '../../features/notifications/viewmodels/notification_preferences_view_model.dart';
 import '../../features/notifications/views/notification_preferences_screen.dart';
 import '../views/main_module_shell.dart';
+import '../../features/notifications/viewmodels/push_notification_controller.dart';
 
 class AppRoutes {
   static const projectDashboard = '/projects';
@@ -109,6 +110,7 @@ class AppRouter {
     this.notificationRepository,
     this.badgeController,
     this.realtime,
+    this.pushPreferences,
   });
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
@@ -116,6 +118,7 @@ class AppRouter {
   final NotificationRepository? notificationRepository;
   final NotificationBadgeController? badgeController;
   final NotificationChangeSource? realtime;
+  final PushPreferenceActions? pushPreferences;
 
   Route<dynamic> onGenerateRoute(RouteSettings settings) {
     final arguments = settings.arguments;
@@ -146,6 +149,7 @@ class AppRouter {
             ? const _RouteUnavailable()
             : _NotificationPreferencesRoute(
                 repository: notificationRepository!,
+                push: pushPreferences,
               );
       case AppRoutes.createProject:
         page = CreateProjectScreen(
@@ -263,8 +267,23 @@ class AppRouter {
     ).pushNamed<dynamic>(AppRoutes.archivedTasks, arguments: args);
   }
 
-  static void back<T extends Object?>(BuildContext context, [T? result]) =>
-      Navigator.of(context).pop<T>(result);
+  static void back<T extends Object?>(BuildContext context, [T? result]) {
+    // A second callback from a closing route must not pop the page beneath it.
+    if (ModalRoute.of(context)?.isCurrent == false) return;
+    Navigator.of(context).pop<T>(result);
+  }
+
+  static bool openNotificationsFromPush(
+    GlobalKey<NavigatorState> navigatorKey,
+  ) {
+    final navigator = navigatorKey.currentState;
+    if (navigator == null) return false;
+    navigator.pushNamedAndRemoveUntil<void>(
+      AppRoutes.notifications,
+      (_) => false,
+    );
+    return true;
+  }
 
   static Future<void> notifications(BuildContext context) =>
       Navigator.of(context).pushNamed<void>(AppRoutes.notifications);
@@ -278,7 +297,8 @@ class AppRouter {
 }
 
 class _NotificationPreferencesRoute extends StatefulWidget {
-  const _NotificationPreferencesRoute({required this.repository});
+  const _NotificationPreferencesRoute({required this.repository, this.push});
+  final PushPreferenceActions? push;
   final NotificationRepository repository;
   @override
   State<_NotificationPreferencesRoute> createState() =>
@@ -288,7 +308,7 @@ class _NotificationPreferencesRoute extends StatefulWidget {
 class _NotificationPreferencesRouteState
     extends State<_NotificationPreferencesRoute> {
   late final NotificationPreferencesViewModel _model =
-      NotificationPreferencesViewModel(widget.repository);
+      NotificationPreferencesViewModel(widget.repository, push: widget.push);
   @override
   void dispose() {
     _model.dispose();
@@ -493,6 +513,7 @@ class _TaskDetailsRoute extends StatefulWidget {
 }
 
 class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
+  bool _isOpeningEdit = false;
   late final KanbanViewModel _model = KanbanViewModel(widget.repository);
   late final Future<void> _ready = _model.initialize(widget.args.boardId);
 
@@ -503,16 +524,22 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
   }
 
   Future<void> _edit(KanbanTask task) async {
-    final changed = await AppRouter.createTask(
-      context,
-      CreateTaskRouteArgs(
-        projectId: widget.args.projectId,
-        boardId: widget.args.boardId,
-        projectName: widget.args.projectName,
-        taskId: task.id,
-      ),
-    );
-    if (changed == true) await _model.refresh();
+    if (_isOpeningEdit) return;
+    setState(() => _isOpeningEdit = true);
+    try {
+      final changed = await AppRouter.createTask(
+        context,
+        CreateTaskRouteArgs(
+          projectId: widget.args.projectId,
+          boardId: widget.args.boardId,
+          projectName: widget.args.projectName,
+          taskId: task.id,
+        ),
+      );
+      if (changed == true && mounted) await _model.refresh();
+    } finally {
+      if (mounted) setState(() => _isOpeningEdit = false);
+    }
   }
 
   @override
@@ -533,7 +560,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
         body: TaskDetailsSheet(
           taskId: widget.args.taskId,
           viewModel: _model,
-          onEdit: _edit,
+          onEdit: _isOpeningEdit ? null : _edit,
           fullScreen: true,
           showStalledWarning: widget.args.showStalledWarning,
           showRecommendations: widget.args.openRecommendations,

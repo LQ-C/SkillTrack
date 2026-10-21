@@ -30,6 +30,17 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   NotificationBadgeController? _fallbackBadge;
   final _search = TextEditingController();
   bool _showSearch = false;
+  String? _openingProjectId;
+  bool _isOpeningForm = false;
+  bool _isShowingDeleteDialog = false;
+  bool _isShowingSignIn = false;
+  bool _isOpeningNotifications = false;
+  bool get _actionsBusy =>
+      _openingProjectId != null ||
+      _isOpeningForm ||
+      _isShowingDeleteDialog ||
+      _isOpeningNotifications ||
+      _model.isMutating;
 
   @override
   void initState() {
@@ -53,66 +64,89 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   ).showSnackBar(SnackBar(content: Text(message)));
 
   Future<void> _openProject(ProjectWithProgress item) async {
-    String? boardId;
+    if (_actionsBusy) return;
+    setState(() => _openingProjectId = item.project.id);
     try {
-      boardId = await _model.boardFor(item.project.id);
-    } catch (_) {
-      boardId = null;
+      String? boardId;
+      try {
+        boardId = await _model.boardFor(item.project.id);
+      } catch (_) {
+        boardId = null;
+      }
+      if (!mounted) return;
+      if (boardId == null || boardId.trim().isEmpty) {
+        _snack('Board unavailable.');
+        return;
+      }
+      await AppRouter.kanbanBoard(
+        context,
+        BoardRouteArgs(
+          projectId: item.project.id,
+          boardId: boardId,
+          projectName: item.project.name,
+          projectStatus: item.project.status,
+        ),
+      );
+      if (mounted) await _model.load();
+    } finally {
+      if (mounted) setState(() => _openingProjectId = null);
     }
-    if (!mounted) return;
-    await AppRouter.kanbanBoard(
-      context,
-      BoardRouteArgs(
-        projectId: item.project.id,
-        boardId: boardId ?? '',
-        projectName: item.project.name,
-        projectStatus: item.project.status,
-      ),
-    );
-    if (mounted) await _model.load();
   }
 
   Future<void> _openForm([ProjectWithProgress? item]) async {
-    final future = item == null
-        ? AppRouter.createProject(context)
-        : AppRouter.editProject(context, item.project.id);
-    final created = await future;
-    if (created == null || !mounted) return;
-    await _model.load();
-    if (!mounted) return;
-    _snack(item == null ? 'Project created successfully' : 'Project updated');
-    if (item == null) await _openProject(created);
+    if (_actionsBusy) return;
+    setState(() => _isOpeningForm = true);
+    ProjectWithProgress? created;
+    try {
+      created = await (item == null
+          ? AppRouter.createProject(context)
+          : AppRouter.editProject(context, item.project.id));
+      if (created == null || !mounted) return;
+      await _model.load();
+      if (!mounted) return;
+      _snack(item == null ? 'Project created successfully' : 'Project updated');
+    } finally {
+      if (mounted) setState(() => _isOpeningForm = false);
+    }
+    if (mounted && item == null) await _openProject(created);
   }
 
   Future<void> _delete(ProjectWithProgress item) async {
-    final confirmed = await showDialog<bool>(
-      context: context,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Delete project?'),
-        content: const Text(
-          'This will permanently delete the project, its Kanban board, tasks, checklists, tags assigned to tasks, attachments metadata, and task activity.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, false),
-            child: const Text('Cancel'),
+    if (_actionsBusy) return;
+    setState(() => _isShowingDeleteDialog = true);
+    try {
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Delete project?'),
+          content: const Text(
+            'This will permanently delete the project, its Kanban board, tasks, checklists, tags assigned to tasks, attachments metadata, and task activity.',
           ),
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext, true),
-            style: TextButton.styleFrom(
-              foregroundColor: Theme.of(context).colorScheme.error,
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, false),
+              child: const Text('Cancel'),
             ),
-            child: const Text('Delete Project'),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    final ok = await _model.delete(item.project.id);
-    if (mounted) _snack(ok ? 'Project deleted' : 'Unable to delete project');
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, true),
+              style: TextButton.styleFrom(
+                foregroundColor: Theme.of(context).colorScheme.error,
+              ),
+              child: const Text('Delete Project'),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !mounted) return;
+      final ok = await _model.delete(item.project.id);
+      if (mounted) _snack(ok ? 'Project deleted' : 'Unable to delete project');
+    } finally {
+      if (mounted) setState(() => _isShowingDeleteDialog = false);
+    }
   }
 
   Future<void> _action(ProjectWithProgress item, String action) async {
+    if (_actionsBusy) return;
     switch (action) {
       case 'open':
         await _openProject(item);
@@ -153,7 +187,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       child: InkWell(
         key: Key('project-${project.id}'),
         borderRadius: BorderRadius.circular(16),
-        onTap: () => _openProject(item),
+        onTap: _actionsBusy ? null : () => _openProject(item),
         child: Padding(
           padding: const EdgeInsets.all(16),
           child: Column(
@@ -169,8 +203,15 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                       ),
                     ),
                   ),
+                  if (_openingProjectId == project.id)
+                    const SizedBox(
+                      width: 20,
+                      height: 20,
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
                   PopupMenuButton<String>(
                     tooltip: 'Project actions',
+                    enabled: !_actionsBusy,
                     onSelected: (action) => _action(item, action),
                     itemBuilder: (_) => [
                       const PopupMenuItem(
@@ -286,11 +327,27 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   );
 
   Future<void> _signIn() async {
-    await showDialog<void>(
-      context: context,
-      builder: (_) => _SignInDialog(viewModel: _model),
-    );
-    await widget.badgeController?.refresh();
+    if (_isShowingSignIn) return;
+    setState(() => _isShowingSignIn = true);
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (_) => _SignInDialog(viewModel: _model),
+      );
+      await widget.badgeController?.refresh();
+    } finally {
+      if (mounted) setState(() => _isShowingSignIn = false);
+    }
+  }
+
+  Future<void> _openNotifications() async {
+    if (_isOpeningNotifications) return;
+    _isOpeningNotifications = true;
+    try {
+      await AppRouter.notifications(context);
+    } finally {
+      _isOpeningNotifications = false;
+    }
   }
 
   @override
@@ -329,7 +386,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 'Sign in to view projects',
                 'Your projects are linked to your account.',
                 action: 'Sign in',
-                onTap: _signIn,
+                onTap: _isShowingSignIn ? null : _signIn,
               )
             : _model.isLoading
             ? const Center(child: CircularProgressIndicator())
@@ -345,7 +402,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 'No projects yet',
                 'Create a project to organize your learning tasks.',
                 action: 'Create Project',
-                onTap: _openForm,
+                onTap: _actionsBusy ? null : _openForm,
               )
             : Column(
                 children: [
@@ -404,7 +461,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
         floatingActionButton: _model.isSignedIn
             ? FloatingActionButton.extended(
                 key: const Key('new-project-button'),
-                onPressed: _openForm,
+                onPressed: _actionsBusy ? null : _openForm,
                 icon: const Icon(Icons.add),
                 label: const Text('New Project'),
               )
@@ -415,7 +472,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                     widget.badgeController ??
                     (_fallbackBadge ??= NotificationBadgeController(null)),
                 onProject: () {},
-                onNotifications: () => AppRouter.notifications(context),
+                onNotifications: _openNotifications,
                 onUnavailable: (name) =>
                     _snack('$name is not available in this prototype.'),
               )
@@ -437,7 +494,7 @@ class _SignInDialog extends StatefulWidget {
 class _SignInDialogState extends State<_SignInDialog> {
   final _email = TextEditingController();
   final _password = TextEditingController();
-  bool _busy = false;
+  bool get _busy => widget.viewModel.isSigningIn;
   String? _error;
 
   @override
@@ -450,59 +507,60 @@ class _SignInDialogState extends State<_SignInDialog> {
   Future<void> _submit() async {
     if (_busy) return;
     setState(() {
-      _busy = true;
       _error = null;
     });
     final ok = await widget.viewModel.signIn(_email.text, _password.text);
     if (!mounted) return;
     if (ok) {
-      Navigator.pop(context);
+      AppRouter.back(context);
     } else {
       setState(() {
-        _busy = false;
         _error = widget.viewModel.errorMessage ?? 'Unable to sign in';
       });
     }
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
-    title: const Text('Sign in to SkillTrack'),
-    content: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        TextField(
-          controller: _email,
-          keyboardType: TextInputType.emailAddress,
-          autofillHints: const [AutofillHints.email],
-          decoration: const InputDecoration(labelText: 'Email'),
-        ),
-        const SizedBox(height: 12),
-        TextField(
-          controller: _password,
-          obscureText: true,
-          autofillHints: const [AutofillHints.password],
-          onSubmitted: (_) => _submit(),
-          decoration: const InputDecoration(labelText: 'Password'),
-        ),
-        if (_error != null) ...[
-          const SizedBox(height: 12),
-          Text(
-            _error!,
-            style: TextStyle(color: Theme.of(context).colorScheme.error),
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.viewModel,
+    builder: (context, child) => AlertDialog(
+      title: const Text('Sign in to SkillTrack'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          TextField(
+            controller: _email,
+            keyboardType: TextInputType.emailAddress,
+            autofillHints: const [AutofillHints.email],
+            decoration: const InputDecoration(labelText: 'Email'),
           ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _password,
+            obscureText: true,
+            autofillHints: const [AutofillHints.password],
+            onSubmitted: (_) => _submit(),
+            decoration: const InputDecoration(labelText: 'Password'),
+          ),
+          if (_error != null) ...[
+            const SizedBox(height: 12),
+            Text(
+              _error!,
+              style: TextStyle(color: Theme.of(context).colorScheme.error),
+            ),
+          ],
         ],
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => AppRouter.back(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _submit,
+          child: _busy ? const Text('Signing in…') : const Text('Sign in'),
+        ),
       ],
     ),
-    actions: [
-      TextButton(
-        onPressed: _busy ? null : () => Navigator.pop(context),
-        child: const Text('Cancel'),
-      ),
-      FilledButton(
-        onPressed: _busy ? null : _submit,
-        child: _busy ? const Text('Signing in…') : const Text('Sign in'),
-      ),
-    ],
   );
 }

@@ -10,7 +10,7 @@ class NotificationTile extends StatelessWidget {
     required this.onTap,
   });
   final AppNotification notification;
-  final VoidCallback onTap;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {

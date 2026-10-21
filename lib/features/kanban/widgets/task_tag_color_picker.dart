@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../../../app/router/app_router.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
@@ -31,6 +33,7 @@ class _TagEditorDialogState extends State<_TagEditorDialog> {
   late final TextEditingController _name;
   late String _colorHex;
   bool _saving = false;
+  bool _isShowingCustomColor = false;
   String? _error;
 
   @override
@@ -49,47 +52,56 @@ class _TagEditorDialogState extends State<_TagEditorDialog> {
   }
 
   Future<void> _customColor() async {
-    final selected = await showDialog<String>(
-      context: context,
-      builder: (_) => _CustomColorDialog(initialHex: _colorHex),
-    );
-    if (selected == null || !mounted) return;
-    setState(() => _colorHex = selected);
-    SemanticsService.sendAnnouncement(
-      View.of(context),
-      'Custom color ${selected.substring(1)} selected',
-      TextDirection.ltr,
-    );
+    if (_isShowingCustomColor || _saving) return;
+    setState(() => _isShowingCustomColor = true);
+    try {
+      final selected = await showDialog<String>(
+        context: context,
+        builder: (_) => _CustomColorDialog(initialHex: _colorHex),
+      );
+      if (selected == null || !mounted) return;
+      setState(() => _colorHex = selected);
+      SemanticsService.sendAnnouncement(
+        View.of(context),
+        'Custom color ${selected.substring(1)} selected',
+        TextDirection.ltr,
+      );
+    } finally {
+      if (mounted) setState(() => _isShowingCustomColor = false);
+    }
   }
 
   Future<void> _save() async {
-    if (_saving) return;
+    if (_saving || widget.viewModel.isSaving) return;
     setState(() {
       _saving = true;
       _error = null;
     });
-    final name = _name.text.trim();
-    final tag = widget.tag;
-    final ok = tag == null
-        ? await widget.viewModel.createTag(name, _colorHex)
-        : await widget.viewModel.updateTag(tag, name, _colorHex);
-    if (!mounted) return;
-    if (ok) {
-      final saved = widget.viewModel.availableTags
-          .where(
-            (item) => tag == null
-                ? item.name.toLowerCase() == name.toLowerCase()
-                : item.id == tag.id,
-          )
-          .firstOrNull;
-      Navigator.pop(context, saved);
-    } else {
-      setState(() {
-        _saving = false;
-        _error =
-            widget.viewModel.errorMessage ?? AppErrorMessages.saveTagFailed;
-      });
-      widget.viewModel.clearError();
+    try {
+      final name = _name.text.trim();
+      final tag = widget.tag;
+      final ok = tag == null
+          ? await widget.viewModel.createTag(name, _colorHex)
+          : await widget.viewModel.updateTag(tag, name, _colorHex);
+      if (!mounted) return;
+      if (ok) {
+        final saved = widget.viewModel.availableTags
+            .where(
+              (item) => tag == null
+                  ? item.name.toLowerCase() == name.toLowerCase()
+                  : item.id == tag.id,
+            )
+            .firstOrNull;
+        AppRouter.back(context, saved);
+      } else {
+        setState(() {
+          _error =
+              widget.viewModel.errorMessage ?? AppErrorMessages.saveTagFailed;
+        });
+        widget.viewModel.clearError();
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
     }
   }
 
@@ -178,7 +190,9 @@ class _TagEditorDialogState extends State<_TagEditorDialog> {
                 message: 'Choose a custom tag color',
                 child: OutlinedButton.icon(
                   key: const Key('custom-color-button'),
-                  onPressed: _customColor,
+                  onPressed: _isShowingCustomColor || _saving
+                      ? null
+                      : _customColor,
                   icon: Icon(
                     Icons.palette_outlined,
                     color: TaskTagColorUtils.base(_colorHex),
@@ -201,7 +215,7 @@ class _TagEditorDialogState extends State<_TagEditorDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: _saving ? null : () => Navigator.pop(context),
+          onPressed: _saving ? null : () => AppRouter.back(context),
           child: const Text('Cancel'),
         ),
         FilledButton(
@@ -401,12 +415,14 @@ class _CustomColorDialogState extends State<_CustomColorDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: () => AppRouter.back(context),
           child: const Text('Cancel'),
         ),
         FilledButton(
           key: const Key('apply-custom-color'),
-          onPressed: valid == null ? null : () => Navigator.pop(context, valid),
+          onPressed: valid == null
+              ? null
+              : () => AppRouter.back(context, valid),
           child: const Text('Apply Color'),
         ),
       ],
