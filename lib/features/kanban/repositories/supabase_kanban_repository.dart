@@ -239,7 +239,6 @@ class SupabaseKanbanRepository implements KanbanRepository {
           'is_stalled': false,
           'stagnation_score': 0,
           'stalled_at': null,
-          'last_activity_at': now,
           'updated_at': now,
         })
         .eq('id', task.id)
