@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/widgets/app_content.dart';
+
 import '../../../app/router/app_router.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
@@ -548,54 +550,56 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
           ),
         ],
       ),
-      body: Form(
-        key: _formKey,
-        child: SafeArea(
-          top: false,
-          bottom: false,
-          child: SingleChildScrollView(
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(
-                  isNew ? 'Add New Task' : 'Edit Task',
-                  style: theme.textTheme.headlineLarge?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    color: theme.colorScheme.onSurface,
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  isNew
-                      ? 'Plan the next step in your learning journey.'
-                      : 'Update your learning task.',
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.onSurfaceVariant,
-                  ),
-                ),
-                const SizedBox(height: 24),
-                _statusSelector(theme),
-                const SizedBox(height: 22),
-                _deadlineRow(theme),
-                const SizedBox(height: 22),
-                _tagRow(theme),
-                const SizedBox(height: 18),
-                _inputCard(theme),
-                const SizedBox(height: 22),
-                Center(
-                  child: FilledButton.tonalIcon(
-                    onPressed: () =>
-                        setState(() => _moreOptions = !_moreOptions),
-                    icon: Icon(
-                      _moreOptions ? Icons.expand_less : Icons.expand_more,
+      body: AppContent(
+        child: Form(
+          key: _formKey,
+          child: SafeArea(
+            top: false,
+            bottom: false,
+            child: SingleChildScrollView(
+              keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    isNew ? 'Add New Task' : 'Edit Task',
+                    style: theme.textTheme.headlineLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: theme.colorScheme.onSurface,
                     ),
-                    label: const Text('More Options'),
                   ),
-                ),
-                _moreOptionsSection(theme),
-              ],
+                  const SizedBox(height: 6),
+                  Text(
+                    isNew
+                        ? 'Plan the next step in your learning journey.'
+                        : 'Update your learning task.',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(height: 24),
+                  _statusSelector(theme),
+                  const SizedBox(height: 22),
+                  _deadlineRow(theme),
+                  const SizedBox(height: 22),
+                  _tagRow(theme),
+                  const SizedBox(height: 18),
+                  _inputCard(theme),
+                  const SizedBox(height: 22),
+                  Center(
+                    child: FilledButton.tonalIcon(
+                      onPressed: () =>
+                          setState(() => _moreOptions = !_moreOptions),
+                      icon: Icon(
+                        _moreOptions ? Icons.expand_less : Icons.expand_more,
+                      ),
+                      label: const Text('More Options'),
+                    ),
+                  ),
+                  _moreOptionsSection(theme),
+                ],
+              ),
             ),
           ),
         ),

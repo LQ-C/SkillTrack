@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/widgets/app_content.dart';
+
 import '../../../app/router/app_router.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../models/learning_project.dart';
@@ -268,169 +270,174 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
               SafeArea(
                 top: false,
                 bottom: !editing,
-                child: ListView(
-                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                  children: [
-                    Text(
-                      editing ? 'Edit Project' : 'Create Project',
-                      style: theme.textTheme.headlineLarge,
-                    ),
-                    const SizedBox(height: 6),
-                    Text(
-                      editing
-                          ? 'Update your project details.'
-                          : 'Organize your learning tasks in one place.',
-                      style: theme.textTheme.bodyMedium?.copyWith(
-                        color: theme.colorScheme.onSurfaceVariant,
+                child: AppContent(
+                  child: ListView(
+                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                    children: [
+                      Text(
+                        editing ? 'Edit Project' : 'Create Project',
+                        style: theme.textTheme.headlineLarge,
                       ),
-                    ),
-                    const SizedBox(height: 28),
-                    ListenableBuilder(
-                      listenable: _model,
-                      builder: (context, child) => TextField(
-                        key: const Key('project-name-field'),
-                        controller: _name,
-                        readOnly: _model.isGeneratingTasks,
-                        maxLength: 150,
-                        textCapitalization: TextCapitalization.words,
-                        decoration: InputDecoration(
-                          labelText: 'Project Name *',
-                          hintText: 'Enter project name',
-                          errorText: _model.nameError,
+                      const SizedBox(height: 6),
+                      Text(
+                        editing
+                            ? 'Update your project details.'
+                            : 'Organize your learning tasks in one place.',
+                        style: theme.textTheme.bodyMedium?.copyWith(
+                          color: theme.colorScheme.onSurfaceVariant,
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 12),
-                    ListenableBuilder(
-                      listenable: _model,
-                      builder: (context, child) => TextField(
-                        key: const Key('project-description-field'),
-                        controller: _description,
-                        readOnly: _model.isGeneratingTasks,
-                        minLines: 3,
-                        maxLines: 5,
-                        decoration: InputDecoration(
-                          labelText: 'Description',
-                          hintText: 'What do you want to accomplish?',
-                          errorText: _model.descriptionError,
-                        ),
-                      ),
-                    ),
-                    _dateField('Start date', true),
-                    _dateField('End date', false),
-                    if (editing) ...[
-                      const SizedBox(height: 16),
-                      DropdownButtonFormField<String>(
-                        initialValue: _status,
-                        decoration: const InputDecoration(labelText: 'Status'),
-                        items: const [
-                          DropdownMenuItem(
-                            value: 'active',
-                            child: Text('Active'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'completed',
-                            child: Text('Completed'),
-                          ),
-                          DropdownMenuItem(
-                            value: 'archived',
-                            child: Text('Archived'),
-                          ),
-                        ],
-                        onChanged: (value) =>
-                            setState(() => _status = value ?? _status),
-                      ),
-                    ],
-                    ListenableBuilder(
-                      listenable: _model,
-                      builder: (context, child) => _model.errorMessage == null
-                          ? const SizedBox.shrink()
-                          : Padding(
-                              padding: const EdgeInsets.only(top: 16),
-                              child: Text(
-                                _model.errorMessage!,
-                                style: TextStyle(
-                                  color: theme.colorScheme.error,
-                                ),
-                              ),
-                            ),
-                    ),
-                    if (!editing) ...[
-                      const SizedBox(height: 24),
+                      const SizedBox(height: 28),
                       ListenableBuilder(
                         listenable: _model,
-                        builder: (context, child) => Column(
-                          children: [
-                            SizedBox(
-                              height: 56,
-                              width: double.infinity,
-                              child: FilledButton(
-                                key: const Key('save-project-button'),
-                                onPressed:
-                                    _isLeaving ||
-                                        _model.isSaving ||
-                                        _model.isGeneratingTasks ||
-                                        _model.pendingProject != null
-                                    ? null
-                                    : _submit,
-                                child: Text(
-                                  _model.isSaving && !_model.isGeneratingTasks
-                                      ? 'Creating…'
-                                      : 'Create Empty Project',
-                                ),
-                              ),
-                            ),
-                            const SizedBox(height: 16),
-                            Row(
-                              children: [
-                                const Expanded(child: Divider()),
-                                Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                    horizontal: 12,
-                                  ),
-                                  child: Text(
-                                    'OR',
-                                    style: theme.textTheme.labelMedium,
-                                  ),
-                                ),
-                                const Expanded(child: Divider()),
-                              ],
-                            ),
-                            const SizedBox(height: 16),
-                            SizedBox(
-                              height: 56,
-                              width: double.infinity,
-                              child: OutlinedButton(
-                                key: const Key('generate-tasks-button'),
-                                onPressed:
-                                    _model.isSaving || _model.isGeneratingTasks
-                                    ? null
-                                    : _generateTasks,
-                                child: Text(
-                                  _model.pendingProject != null
-                                      ? 'Retry Saving Tasks'
-                                      : 'Generate Tasks',
-                                ),
-                              ),
-                            ),
-                            if (_model.pendingProject != null) ...[
-                              const SizedBox(height: 12),
-                              TextButton(
-                                key: const Key('open-empty-project-button'),
-                                onPressed: _model.isSaving
-                                    ? null
-                                    : () => AppRouter.back(
-                                        context,
-                                        _model.pendingProject,
-                                      ),
-                                child: const Text('Open empty project'),
-                              ),
-                            ],
-                          ],
+                        builder: (context, child) => TextField(
+                          key: const Key('project-name-field'),
+                          controller: _name,
+                          readOnly: _model.isGeneratingTasks,
+                          maxLength: 150,
+                          textCapitalization: TextCapitalization.words,
+                          decoration: InputDecoration(
+                            labelText: 'Project Name *',
+                            hintText: 'Enter project name',
+                            errorText: _model.nameError,
+                          ),
                         ),
                       ),
+                      const SizedBox(height: 12),
+                      ListenableBuilder(
+                        listenable: _model,
+                        builder: (context, child) => TextField(
+                          key: const Key('project-description-field'),
+                          controller: _description,
+                          readOnly: _model.isGeneratingTasks,
+                          minLines: 3,
+                          maxLines: 5,
+                          decoration: InputDecoration(
+                            labelText: 'Description',
+                            hintText: 'What do you want to accomplish?',
+                            errorText: _model.descriptionError,
+                          ),
+                        ),
+                      ),
+                      _dateField('Start date', true),
+                      _dateField('End date', false),
+                      if (editing) ...[
+                        const SizedBox(height: 16),
+                        DropdownButtonFormField<String>(
+                          initialValue: _status,
+                          decoration: const InputDecoration(
+                            labelText: 'Status',
+                          ),
+                          items: const [
+                            DropdownMenuItem(
+                              value: 'active',
+                              child: Text('Active'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'completed',
+                              child: Text('Completed'),
+                            ),
+                            DropdownMenuItem(
+                              value: 'archived',
+                              child: Text('Archived'),
+                            ),
+                          ],
+                          onChanged: (value) =>
+                              setState(() => _status = value ?? _status),
+                        ),
+                      ],
+                      ListenableBuilder(
+                        listenable: _model,
+                        builder: (context, child) => _model.errorMessage == null
+                            ? const SizedBox.shrink()
+                            : Padding(
+                                padding: const EdgeInsets.only(top: 16),
+                                child: Text(
+                                  _model.errorMessage!,
+                                  style: TextStyle(
+                                    color: theme.colorScheme.error,
+                                  ),
+                                ),
+                              ),
+                      ),
+                      if (!editing) ...[
+                        const SizedBox(height: 24),
+                        ListenableBuilder(
+                          listenable: _model,
+                          builder: (context, child) => Column(
+                            children: [
+                              SizedBox(
+                                height: 56,
+                                width: double.infinity,
+                                child: FilledButton(
+                                  key: const Key('save-project-button'),
+                                  onPressed:
+                                      _isLeaving ||
+                                          _model.isSaving ||
+                                          _model.isGeneratingTasks ||
+                                          _model.pendingProject != null
+                                      ? null
+                                      : _submit,
+                                  child: Text(
+                                    _model.isSaving && !_model.isGeneratingTasks
+                                        ? 'Creating…'
+                                        : 'Create Empty Project',
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 16),
+                              Row(
+                                children: [
+                                  const Expanded(child: Divider()),
+                                  Padding(
+                                    padding: const EdgeInsets.symmetric(
+                                      horizontal: 12,
+                                    ),
+                                    child: Text(
+                                      'OR',
+                                      style: theme.textTheme.labelMedium,
+                                    ),
+                                  ),
+                                  const Expanded(child: Divider()),
+                                ],
+                              ),
+                              const SizedBox(height: 16),
+                              SizedBox(
+                                height: 56,
+                                width: double.infinity,
+                                child: OutlinedButton(
+                                  key: const Key('generate-tasks-button'),
+                                  onPressed:
+                                      _model.isSaving ||
+                                          _model.isGeneratingTasks
+                                      ? null
+                                      : _generateTasks,
+                                  child: Text(
+                                    _model.pendingProject != null
+                                        ? 'Retry Saving Tasks'
+                                        : 'Generate Tasks',
+                                  ),
+                                ),
+                              ),
+                              if (_model.pendingProject != null) ...[
+                                const SizedBox(height: 12),
+                                TextButton(
+                                  key: const Key('open-empty-project-button'),
+                                  onPressed: _model.isSaving
+                                      ? null
+                                      : () => AppRouter.back(
+                                          context,
+                                          _model.pendingProject,
+                                        ),
+                                  child: const Text('Open empty project'),
+                                ),
+                              ],
+                            ],
+                          ),
+                        ),
+                      ],
                     ],
-                  ],
+                  ),
                 ),
               ),
               if (_model.isGeneratingTasks) ...[

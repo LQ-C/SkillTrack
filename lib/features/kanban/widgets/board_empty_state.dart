@@ -10,14 +10,16 @@ class BoardEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.filter_alt_off,
-            size: 48,
-            color: Theme.of(context).colorScheme.primary,
+          CircleAvatar(
+            radius: 36,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+            child: const Icon(Icons.filter_alt_off, size: 36),
           ),
           const SizedBox(height: 12),
           Text(
             'No matching tasks',
+            textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),

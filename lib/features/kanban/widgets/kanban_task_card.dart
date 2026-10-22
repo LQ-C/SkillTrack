@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../utils/kanban_colors.dart';
+import '../../../app/app_theme.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_status.dart';
 import '../models/kanban_task.dart';
@@ -46,173 +47,214 @@ class KanbanTaskCard extends StatelessWidget {
     return Card(
       key: Key('task-${task.id}'),
       margin: const EdgeInsets.only(bottom: 12),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(16),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Row(
+      clipBehavior: Clip.antiAlias,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: IgnorePointer(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Container(
+                  width: 3,
+                  color: KanbanColors.status(task.status),
+                ),
+              ),
+            ),
+          ),
+          InkWell(
+            onTap: onTap,
+            borderRadius: AppTheme.cardRadius,
+            splashColor: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: .08),
+            highlightColor: Theme.of(
+              context,
+            ).colorScheme.primary.withValues(alpha: .04),
+            child: Padding(
+              padding: const EdgeInsets.all(14),
+              child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text(
-                      task.title,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                  PopupMenuButton<TaskCardAction>(
-                    tooltip: 'Task actions',
-                    enabled: onAction != null,
-                    onSelected: onAction,
-                    itemBuilder: (_) => [
-                      const PopupMenuItem(
-                        value: TaskCardAction.details,
-                        child: Text('View details'),
-                      ),
-                      const PopupMenuItem(
-                        value: TaskCardAction.edit,
-                        child: Text('Edit task'),
-                      ),
-                      if (task.status != KanbanStatus.todo)
-                        const PopupMenuItem(
-                          value: TaskCardAction.todo,
-                          child: Text('Move to To-Do'),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Text(
+                          task.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context).textTheme.titleMedium
+                              ?.copyWith(fontWeight: FontWeight.w600),
                         ),
-                      if (task.status != KanbanStatus.inProgress)
-                        const PopupMenuItem(
-                          value: TaskCardAction.inProgress,
-                          child: Text('Move to In Progress'),
-                        ),
-                      if (task.status != KanbanStatus.completed)
-                        const PopupMenuItem(
-                          value: TaskCardAction.completed,
-                          child: Text('Move to Completed'),
-                        ),
-                      const PopupMenuItem(
-                        value: TaskCardAction.duplicate,
-                        child: Text('Duplicate'),
                       ),
-                      const PopupMenuItem(
-                        value: TaskCardAction.archive,
-                        child: Text('Archive'),
-                      ),
-                      const PopupMenuItem(
-                        value: TaskCardAction.delete,
-                        child: Text('Delete permanently'),
+                      PopupMenuButton<TaskCardAction>(
+                        tooltip: 'Task actions',
+                        enabled: onAction != null,
+                        onSelected: onAction,
+                        itemBuilder: (_) => [
+                          const PopupMenuItem(
+                            value: TaskCardAction.details,
+                            child: Text('View details'),
+                          ),
+                          const PopupMenuItem(
+                            value: TaskCardAction.edit,
+                            child: Text('Edit task'),
+                          ),
+                          if (task.status != KanbanStatus.todo)
+                            const PopupMenuItem(
+                              value: TaskCardAction.todo,
+                              child: Text('Move to To-Do'),
+                            ),
+                          if (task.status != KanbanStatus.inProgress)
+                            const PopupMenuItem(
+                              value: TaskCardAction.inProgress,
+                              child: Text('Move to In Progress'),
+                            ),
+                          if (task.status != KanbanStatus.completed)
+                            const PopupMenuItem(
+                              value: TaskCardAction.completed,
+                              child: Text('Move to Completed'),
+                            ),
+                          const PopupMenuItem(
+                            value: TaskCardAction.duplicate,
+                            child: Text('Duplicate'),
+                          ),
+                          const PopupMenuItem(
+                            value: TaskCardAction.archive,
+                            child: Text('Archive'),
+                          ),
+                          const PopupMenuItem(
+                            value: TaskCardAction.delete,
+                            child: Text('Delete permanently'),
+                          ),
+                        ],
                       ),
                     ],
                   ),
-                ],
-              ),
-              if (task.description.isNotEmpty) ...[
-                const SizedBox(height: 4),
-                Text(
-                  task.description,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-                ),
-              ],
-              const SizedBox(height: 12),
-              Wrap(
-                spacing: 8,
-                runSpacing: 6,
-                crossAxisAlignment: WrapCrossAlignment.center,
-                children: [
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
+                  if (task.description.isNotEmpty) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      task.description,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                  const SizedBox(height: 12),
+                  Wrap(
+                    spacing: 8,
+                    runSpacing: 6,
+                    crossAxisAlignment: WrapCrossAlignment.center,
                     children: [
-                      Icon(deadlineIcon, size: 16, color: deadlineColor),
-                      const SizedBox(width: 4),
-                      Flexible(
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(deadlineIcon, size: 16, color: deadlineColor),
+                          const SizedBox(width: 4),
+                          Flexible(
+                            child: Text(
+                              task.isCompleted
+                                  ? 'Completed · ${DateFormatter.short(task.deadline)}'
+                                  : task.isOverdue
+                                  ? 'Overdue · ${DateFormatter.short(task.deadline)}'
+                                  : task.isDueSoon
+                                  ? 'Due soon · ${DateFormatter.short(task.deadline)}'
+                                  : DateFormatter.short(task.deadline),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                color: deadlineColor,
+                                fontSize: 12,
+                                fontWeight: task.isOverdue
+                                    ? FontWeight.w600
+                                    : null,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 9,
+                          vertical: 4,
+                        ),
+                        decoration: BoxDecoration(
+                          color: KanbanColors.priority(
+                            task.priority,
+                          ).withValues(alpha: .10),
+                          borderRadius: BorderRadius.circular(20),
+                        ),
                         child: Text(
-                          task.isCompleted
-                              ? 'Completed · ${DateFormatter.short(task.deadline)}'
-                              : task.isOverdue
-                              ? 'Overdue · ${DateFormatter.short(task.deadline)}'
-                              : task.isDueSoon
-                              ? 'Due soon · ${DateFormatter.short(task.deadline)}'
-                              : DateFormatter.short(task.deadline),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
+                          task.priority.label,
                           style: TextStyle(
-                            color: deadlineColor,
                             fontSize: 12,
-                            fontWeight: task.isOverdue ? FontWeight.w600 : null,
+                            color: KanbanColors.priority(task.priority),
+                            fontWeight: FontWeight.w600,
                           ),
                         ),
                       ),
+                      if (task.shouldShowStagnation)
+                        TaskStagnationIndicator(task: task, compact: true),
                     ],
                   ),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 9,
-                      vertical: 4,
+                  if (task.tags.isNotEmpty) ...[
+                    const SizedBox(height: 8),
+                    Wrap(
+                      spacing: 6,
+                      runSpacing: 4,
+                      children: [
+                        for (final tag in task.tags.take(3))
+                          TaskTagChip(tag: tag, compact: true),
+                        if (task.tags.length > 3)
+                          Chip(label: Text('+${task.tags.length - 3}')),
+                      ],
                     ),
-                    decoration: BoxDecoration(
-                      color: KanbanColors.priority(
-                        task.priority,
-                      ).withValues(alpha: .10),
-                      borderRadius: BorderRadius.circular(20),
+                  ],
+                  if (task.checklistTotalCount > 0) ...[
+                    const SizedBox(height: 8),
+                    Row(
+                      children: [
+                        Icon(
+                          Icons.checklist,
+                          size: 16,
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                        const SizedBox(width: 4),
+                        Expanded(
+                          child: Text(
+                            '${task.checklistCompletedCount}/${task.checklistTotalCount} checklist items',
+                            style: Theme.of(context).textTheme.bodySmall,
+                          ),
+                        ),
+                      ],
                     ),
-                    child: Text(
-                      task.priority.label,
-                      style: TextStyle(
-                        fontSize: 12,
-                        color: KanbanColors.priority(task.priority),
-                        fontWeight: FontWeight.w600,
+                    const SizedBox(height: 6),
+                    TweenAnimationBuilder<double>(
+                      tween: Tween(
+                        begin:
+                            task.checklistCompletedCount /
+                            task.checklistTotalCount,
+                        end:
+                            task.checklistCompletedCount /
+                            task.checklistTotalCount,
                       ),
+                      duration: AppTheme.motionDuration(context),
+                      curve: AppTheme.transitionCurve,
+                      builder: (context, value, child) =>
+                          LinearProgressIndicator(
+                            value: value,
+                            minHeight: 3,
+                            semanticsLabel: 'Checklist completion',
+                          ),
                     ),
-                  ),
-                  if (task.shouldShowStagnation)
-                    TaskStagnationIndicator(task: task, compact: true),
+                  ],
                 ],
               ),
-              if (task.tags.isNotEmpty) ...[
-                const SizedBox(height: 8),
-                Wrap(
-                  spacing: 6,
-                  runSpacing: 4,
-                  children: [
-                    for (final tag in task.tags.take(3))
-                      TaskTagChip(tag: tag, compact: true),
-                    if (task.tags.length > 3)
-                      Chip(label: Text('+${task.tags.length - 3}')),
-                  ],
-                ),
-              ],
-              if (task.checklistTotalCount > 0) ...[
-                const SizedBox(height: 8),
-                Row(
-                  children: [
-                    Icon(
-                      Icons.checklist,
-                      size: 16,
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-                    const SizedBox(width: 4),
-                    Expanded(
-                      child: Text(
-                        '${task.checklistCompletedCount}/${task.checklistTotalCount} checklist items',
-                        overflow: TextOverflow.ellipsis,
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  ],
-                ),
-              ],
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

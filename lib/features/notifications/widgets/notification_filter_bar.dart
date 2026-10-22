@@ -15,7 +15,7 @@ class NotificationFilterBar extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => SizedBox(
-    height: 58,
+    height: 44 + MediaQuery.textScalerOf(context).scale(14),
     child: ListView(
       scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.symmetric(horizontal: 16),

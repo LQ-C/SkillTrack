@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/router/app_router.dart';
+import '../../../app/app_theme.dart';
+import '../../../app/widgets/app_content.dart';
+import '../../../app/widgets/card_loading_view.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../../app/widgets/skilltrack_bottom_navigation.dart';
 import '../models/project_with_progress.dart';
@@ -182,7 +185,13 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
     final project = item.project;
     final theme = Theme.of(context);
     final dates = _dates(item);
+    final statusColor = switch (project.status) {
+      'completed' => theme.colorScheme.secondary,
+      'archived' => theme.colorScheme.onSurfaceVariant,
+      _ => theme.colorScheme.primary,
+    };
     return Card(
+      key: ValueKey('project-card-${project.id}'),
       margin: const EdgeInsets.only(bottom: 12),
       child: InkWell(
         key: Key('project-${project.id}'),
@@ -195,6 +204,19 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
             children: [
               Row(
                 children: [
+                  Container(
+                    width: AppTheme.iconSize,
+                    height: AppTheme.iconSize,
+                    margin: const EdgeInsets.only(right: 12),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.primaryContainer,
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Icon(
+                      Icons.folder_outlined,
+                      color: theme.colorScheme.onPrimaryContainer,
+                    ),
+                  ),
                   Expanded(
                     child: Text(
                       project.name,
@@ -239,15 +261,21 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                   ),
                 ],
               ),
-              Text(
-                project.status[0].toUpperCase() + project.status.substring(1),
-                style: theme.textTheme.labelMedium?.copyWith(
-                  color: switch (project.status) {
-                    'completed' => theme.colorScheme.secondary,
-                    'archived' => theme.colorScheme.onSurfaceVariant,
-                    _ => theme.colorScheme.primary,
-                  },
-                  fontWeight: FontWeight.w600,
+              Container(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 10,
+                  vertical: 4,
+                ),
+                decoration: BoxDecoration(
+                  color: statusColor.withValues(alpha: .10),
+                  borderRadius: BorderRadius.circular(20),
+                ),
+                child: Text(
+                  project.status[0].toUpperCase() + project.status.substring(1),
+                  style: theme.textTheme.labelMedium?.copyWith(
+                    color: statusColor,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
               ),
               if (project.description?.isNotEmpty == true) ...[
@@ -263,14 +291,46 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
               ],
               if (dates.isNotEmpty) ...[
                 const SizedBox(height: 8),
-                Text(dates, style: theme.textTheme.bodySmall),
+                Row(
+                  children: [
+                    Icon(
+                      Icons.calendar_today_outlined,
+                      size: 16,
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                    const SizedBox(width: 6),
+                    Expanded(
+                      child: Text(dates, style: theme.textTheme.bodySmall),
+                    ),
+                  ],
+                ),
               ],
               const SizedBox(height: 14),
-              LinearProgressIndicator(value: item.progress, minHeight: 8),
+              TweenAnimationBuilder<double>(
+                tween: Tween(begin: item.progress, end: item.progress),
+                duration: AppTheme.motionDuration(context),
+                curve: AppTheme.transitionCurve,
+                builder: (context, value, child) =>
+                    LinearProgressIndicator(value: value, minHeight: 8),
+              ),
               const SizedBox(height: 8),
-              Text(
-                '${item.completedTaskCount} of ${item.totalTaskCount} tasks completed',
-                style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Text(
+                      '${item.completedTaskCount} of ${item.totalTaskCount} tasks completed',
+                      style: theme.textTheme.bodySmall,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    '${(item.progress * 100).round()}%',
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
+                ],
               ),
             ],
           ),
@@ -288,6 +348,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       ])
         Expanded(
           child: Card(
+            color: Theme.of(context).colorScheme.surfaceContainerLow,
             child: Padding(
               padding: const EdgeInsets.symmetric(vertical: 14, horizontal: 8),
               child: Column(
@@ -300,6 +361,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                   ),
                   Text(
                     entry.$1,
+                    textAlign: TextAlign.center,
                     style: TextStyle(
                       color: Theme.of(context).colorScheme.onSurfaceVariant,
                     ),
@@ -315,6 +377,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   Widget _state(
     String title,
     String message, {
+    IconData icon = Icons.folder_outlined,
     String? action,
     VoidCallback? onTap,
   }) => Center(
@@ -323,13 +386,18 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.folder_outlined,
-            size: 54,
-            color: Theme.of(context).colorScheme.primary,
+          CircleAvatar(
+            radius: 36,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+            child: Icon(icon, size: 36),
           ),
           const SizedBox(height: 12),
-          Text(title, style: Theme.of(context).textTheme.titleLarge),
+          Text(
+            title,
+            textAlign: TextAlign.center,
+            style: Theme.of(context).textTheme.titleLarge,
+          ),
           const SizedBox(height: 8),
           Text(
             message,
@@ -402,83 +470,105 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
             ),
           ],
         ),
-        body: !_model.isSignedIn
-            ? _state(
-                'Sign in to view projects',
-                'Your projects are linked to your account.',
-                action: 'Sign in',
-                onTap: _isShowingSignIn ? null : _signIn,
-              )
-            : _model.isLoading
-            ? const Center(child: CircularProgressIndicator())
-            : _model.errorMessage != null
-            ? _state(
-                'Unable to load projects',
-                'Please check your connection and try again.',
-                action: 'Retry',
-                onTap: _model.load,
-              )
-            : _model.projects.isEmpty
-            ? _state(
-                'No projects yet',
-                'Create a project to organize your learning tasks.',
-                action: 'Create Project',
-                onTap: _actionsBusy ? null : _openForm,
-              )
-            : Column(
-                children: [
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
-                    child: _summary(),
-                  ),
-                  SizedBox(
-                    height: 54,
-                    child: ListView(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      children: [
-                        for (final filter in const [
-                          'current',
-                          'active',
-                          'completed',
-                          'archived',
-                          'all',
-                        ])
-                          Padding(
-                            padding: const EdgeInsets.only(right: 8),
-                            child: ChoiceChip(
-                              label: Text(
-                                filter[0].toUpperCase() + filter.substring(1),
-                              ),
-                              selected: _model.statusFilter == filter,
-                              onSelected: (_) => _model.filter(filter),
-                            ),
-                          ),
-                      ],
+        body: AppContent(
+          child: !_model.isSignedIn
+              ? _state(
+                  'Sign in to view projects',
+                  'Your projects are linked to your account.',
+                  action: 'Sign in',
+                  onTap: _isShowingSignIn ? null : _signIn,
+                )
+              : _model.isLoading
+              ? const CardLoadingView(
+                  label: 'Loading your projects',
+                  summaryCount: 3,
+                  showLeading: true,
+                )
+              : _model.errorMessage != null
+              ? _state(
+                  'Unable to load projects',
+                  'Please check your connection and try again.',
+                  icon: Icons.cloud_off_outlined,
+                  action: 'Retry',
+                  onTap: _model.load,
+                )
+              : _model.projects.isEmpty
+              ? _state(
+                  'No projects yet',
+                  'Create a project to organize your learning tasks.',
+                  action: 'Create Project',
+                  onTap: _actionsBusy ? null : _openForm,
+                )
+              : Column(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
+                      child: _summary(),
                     ),
-                  ),
-                  Expanded(
-                    child: visible.isEmpty
-                        ? _state(
-                            _search.text.isNotEmpty
-                                ? 'No matching projects'
-                                : 'No projects in this view',
-                            _search.text.isNotEmpty
-                                ? 'Try a different project name.'
-                                : 'Choose another status filter to view your projects.',
-                          )
-                        : RefreshIndicator(
-                            onRefresh: _model.load,
-                            child: ListView.builder(
-                              padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
-                              itemCount: visible.length,
-                              itemBuilder: (_, index) =>
-                                  _projectCard(visible[index]),
+                    SizedBox(
+                      height: 40 + MediaQuery.textScalerOf(context).scale(14),
+                      child: ListView(
+                        scrollDirection: Axis.horizontal,
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        children: [
+                          for (final filter in const [
+                            'current',
+                            'active',
+                            'completed',
+                            'archived',
+                            'all',
+                          ])
+                            Padding(
+                              padding: const EdgeInsets.only(right: 8),
+                              child: ChoiceChip(
+                                label: Text(
+                                  filter[0].toUpperCase() + filter.substring(1),
+                                ),
+                                selected: _model.statusFilter == filter,
+                                onSelected: (_) => _model.filter(filter),
+                              ),
                             ),
-                          ),
-                  ),
-                ],
-              ),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: visible.isEmpty
+                          ? _state(
+                              _search.text.isNotEmpty
+                                  ? 'No matching projects'
+                                  : 'No projects in this view',
+                              _search.text.isNotEmpty
+                                  ? 'Try a different project name.'
+                                  : 'Choose another status filter to view your projects.',
+                            )
+                          : RefreshIndicator(
+                              onRefresh: _model.load,
+                              child: ListView.builder(
+                                padding: const EdgeInsets.fromLTRB(
+                                  16,
+                                  8,
+                                  16,
+                                  96,
+                                ),
+                                findChildIndexCallback: (key) {
+                                  final index = visible.indexWhere(
+                                    (item) =>
+                                        ValueKey(
+                                          'project-card-${item.project.id}',
+                                        ) ==
+                                        key,
+                                  );
+                                  return index < 0 ? null : index;
+                                },
+                                itemCount: visible.length,
+                                itemBuilder: (_, index) =>
+                                    _projectCard(visible[index]),
+                              ),
+                            ),
+                    ),
+                  ],
+                ),
+        ),
         floatingActionButton: _model.isSignedIn
             ? FloatingActionButton.extended(
                 key: const Key('new-project-button'),

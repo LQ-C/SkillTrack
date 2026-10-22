@@ -19,14 +19,16 @@ class BoardErrorView extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(
-            Icons.cloud_off_outlined,
-            size: 48,
-            color: Theme.of(context).colorScheme.error,
+          CircleAvatar(
+            radius: 36,
+            backgroundColor: Theme.of(context).colorScheme.errorContainer,
+            foregroundColor: Theme.of(context).colorScheme.onErrorContainer,
+            child: const Icon(Icons.cloud_off_outlined, size: 36),
           ),
           const SizedBox(height: 12),
           Text(
             'Unable to load the board',
+            textAlign: TextAlign.center,
             style: Theme.of(context).textTheme.titleLarge,
           ),
           const SizedBox(height: 8),

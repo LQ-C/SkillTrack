@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../app_theme.dart';
+
 import '../../features/notifications/viewmodels/notification_badge_controller.dart';
 
 class SkillTrackBottomNavigation extends StatelessWidget {
@@ -43,6 +45,7 @@ class SkillTrackBottomNavigation extends StatelessWidget {
         ),
       ),
       child: NavigationBar(
+        animationDuration: AppTheme.motionDuration(context),
         selectedIndex: selectedIndex,
         height: 72,
         onDestinationSelected: (index) {

@@ -17,7 +17,12 @@ class NotificationEmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 52, color: Theme.of(context).colorScheme.primary),
+          CircleAvatar(
+            radius: 36,
+            backgroundColor: Theme.of(context).colorScheme.primaryContainer,
+            foregroundColor: Theme.of(context).colorScheme.onPrimaryContainer,
+            child: Icon(icon, size: 36),
+          ),
           const SizedBox(height: 12),
           Text(
             title,

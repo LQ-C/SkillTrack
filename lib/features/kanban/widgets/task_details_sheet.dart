@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/widgets/app_content.dart';
+
 import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
@@ -105,190 +107,198 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
       if (task == null) return const Center(child: Text('Task unavailable'));
       final showStalled =
           task.isStalled && !task.isCompleted && !task.isArchived;
-      return Padding(
-        padding: EdgeInsets.fromLTRB(
-          16,
-          0,
-          16,
-          MediaQuery.viewInsetsOf(context).bottom + 16,
-        ),
-        child: SafeArea(
-          top: false,
-          child: SizedBox(
-            height: widget.fullScreen
-                ? MediaQuery.sizeOf(context).height -
-                      kToolbarHeight -
-                      MediaQuery.paddingOf(context).top
-                : MediaQuery.sizeOf(context).height * .78,
-            child: ListView(
-              children: [
-                if (showStalled)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: Card(
-                      margin: EdgeInsets.zero,
-                      color: Theme.of(context).colorScheme.tertiaryContainer,
-                      child: Padding(
-                        padding: const EdgeInsets.all(16),
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Row(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Icon(
-                                  Icons.warning_amber_rounded,
-                                  color: Theme.of(context).colorScheme.tertiary,
-                                  semanticLabel: 'Warning',
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: Column(
-                                    crossAxisAlignment:
-                                        CrossAxisAlignment.start,
-                                    children: [
-                                      Text(
-                                        'Task marked as stalled',
-                                        style: Theme.of(
-                                          context,
-                                        ).textTheme.titleMedium,
-                                      ),
-                                      const SizedBox(height: 4),
-                                      const Text(
-                                        'No recent progress was detected.',
-                                      ),
-                                    ],
+      return AppContent(
+        child: Padding(
+          padding: EdgeInsets.fromLTRB(
+            16,
+            0,
+            16,
+            MediaQuery.viewInsetsOf(context).bottom + 16,
+          ),
+          child: SafeArea(
+            top: false,
+            child: SizedBox(
+              height: widget.fullScreen
+                  ? MediaQuery.sizeOf(context).height -
+                        kToolbarHeight -
+                        MediaQuery.paddingOf(context).top
+                  : MediaQuery.sizeOf(context).height * .78,
+              child: ListView(
+                children: [
+                  if (showStalled)
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 12),
+                      child: Card(
+                        margin: EdgeInsets.zero,
+                        color: Theme.of(context).colorScheme.tertiaryContainer,
+                        child: Padding(
+                          padding: const EdgeInsets.all(16),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Icon(
+                                    Icons.warning_amber_rounded,
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.tertiary,
+                                    semanticLabel: 'Warning',
                                   ),
-                                ),
-                              ],
-                            ),
-                            const SizedBox(height: 12),
-                            OutlinedButton.icon(
-                              onPressed: _resuming ? null : () => _resume(task),
-                              icon: _resuming
-                                  ? const SizedBox(
-                                      width: 18,
-                                      height: 18,
-                                      child: CircularProgressIndicator(
-                                        strokeWidth: 2,
-                                      ),
-                                    )
-                                  : const Icon(Icons.play_arrow),
-                              label: Text(
-                                _resuming ? 'Resuming…' : 'Resume Task',
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Column(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'Task marked as stalled',
+                                          style: Theme.of(
+                                            context,
+                                          ).textTheme.titleMedium,
+                                        ),
+                                        const SizedBox(height: 4),
+                                        const Text(
+                                          'No recent progress was detected.',
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ],
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 12),
+                              OutlinedButton.icon(
+                                onPressed: _resuming
+                                    ? null
+                                    : () => _resume(task),
+                                icon: _resuming
+                                    ? const SizedBox(
+                                        width: 18,
+                                        height: 18,
+                                        child: CircularProgressIndicator(
+                                          strokeWidth: 2,
+                                        ),
+                                      )
+                                    : const Icon(Icons.play_arrow),
+                                label: Text(
+                                  _resuming ? 'Resuming…' : 'Resume Task',
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
-                  ),
-                Card(
-                  margin: EdgeInsets.zero,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                task.title,
-                                style: Theme.of(
-                                  context,
-                                ).textTheme.headlineSmall,
-                              ),
-                            ),
-                            IconButton(
-                              tooltip: 'Edit task',
-                              onPressed:
-                                  widget.viewModel.isSaving ||
-                                      widget.onEdit == null
-                                  ? null
-                                  : () => widget.onEdit!(task),
-                              icon: const Icon(Icons.edit_outlined),
-                            ),
-                          ],
-                        ),
-                        if (task.description.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Text(task.description),
-                        ],
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 8,
-                          runSpacing: 8,
-                          children: [
-                            Chip(
-                              label: Text(task.status.label),
-                              backgroundColor: KanbanColors.status(
-                                task.status,
-                              ).withValues(alpha: .12),
-                              labelStyle: TextStyle(
-                                color: KanbanColors.status(task.status),
-                              ),
-                            ),
-                            Chip(
-                              label: Text('${task.priority.label} priority'),
-                              backgroundColor: KanbanColors.priority(
-                                task.priority,
-                              ).withValues(alpha: .10),
-                              labelStyle: TextStyle(
-                                color: KanbanColors.priority(task.priority),
-                              ),
-                            ),
-                            Chip(
-                              label: Text(
-                                'Deadline: ${DateFormatter.short(task.deadline)}',
-                              ),
-                            ),
-                          ],
-                        ),
-                        if (task.tags.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Wrap(
-                            spacing: 6,
-                            runSpacing: 6,
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              for (final tag in task.tags)
-                                TaskTagChip(tag: tag),
+                              Expanded(
+                                child: Text(
+                                  task.title,
+                                  style: Theme.of(
+                                    context,
+                                  ).textTheme.headlineSmall,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: 'Edit task',
+                                onPressed:
+                                    widget.viewModel.isSaving ||
+                                        widget.onEdit == null
+                                    ? null
+                                    : () => widget.onEdit!(task),
+                                icon: const Icon(Icons.edit_outlined),
+                              ),
                             ],
                           ),
+                          if (task.description.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Text(task.description),
+                          ],
+                          const SizedBox(height: 12),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: 8,
+                            children: [
+                              Chip(
+                                label: Text(task.status.label),
+                                backgroundColor: KanbanColors.status(
+                                  task.status,
+                                ).withValues(alpha: .12),
+                                labelStyle: TextStyle(
+                                  color: KanbanColors.status(task.status),
+                                ),
+                              ),
+                              Chip(
+                                label: Text('${task.priority.label} priority'),
+                                backgroundColor: KanbanColors.priority(
+                                  task.priority,
+                                ).withValues(alpha: .10),
+                                labelStyle: TextStyle(
+                                  color: KanbanColors.priority(task.priority),
+                                ),
+                              ),
+                              Chip(
+                                label: Text(
+                                  'Deadline: ${DateFormatter.short(task.deadline)}',
+                                ),
+                              ),
+                            ],
+                          ),
+                          if (task.tags.isNotEmpty) ...[
+                            const SizedBox(height: 12),
+                            Wrap(
+                              spacing: 6,
+                              runSpacing: 6,
+                              children: [
+                                for (final tag in task.tags)
+                                  TaskTagChip(tag: tag),
+                              ],
+                            ),
+                          ],
+                          const Divider(height: 28),
+                          ChecklistSection(
+                            task: task,
+                            viewModel: widget.viewModel,
+                          ),
                         ],
-                        const Divider(height: 28),
-                        ChecklistSection(
-                          task: task,
-                          viewModel: widget.viewModel,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
-                ),
-                const SizedBox(height: 12),
-                AttachmentSection(task: task, viewModel: widget.viewModel),
-                const Divider(height: 28),
-                FutureBuilder<List<TaskActivity>>(
-                  future: _activity,
-                  builder: (context, snapshot) => snapshot.hasError
-                      ? const Text('Activity unavailable')
-                      : ActivityTimeline(activities: snapshot.data ?? const []),
-                ),
-                const Divider(height: 28),
-                Text(
-                  'Created ${DateFormatter.short(task.createdAt)}',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  const SizedBox(height: 12),
+                  AttachmentSection(task: task, viewModel: widget.viewModel),
+                  const Divider(height: 28),
+                  FutureBuilder<List<TaskActivity>>(
+                    future: _activity,
+                    builder: (context, snapshot) => snapshot.hasError
+                        ? const Text('Activity unavailable')
+                        : ActivityTimeline(
+                            activities: snapshot.data ?? const [],
+                          ),
                   ),
-                ),
-                Text(
-                  'Updated ${DateFormatter.short(task.updatedAt)}',
-                  style: TextStyle(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  const Divider(height: 28),
+                  Text(
+                    'Created ${DateFormatter.short(task.createdAt)}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
                   ),
-                ),
-              ],
+                  Text(
+                    'Updated ${DateFormatter.short(task.updatedAt)}',
+                    style: TextStyle(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
         ),

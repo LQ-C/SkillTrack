@@ -2,6 +2,8 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../../app/widgets/app_content.dart';
+
 import '../../../core/errors/app_exception.dart';
 import '../../../app/router/app_router.dart';
 import '../../../core/utils/date_formatter.dart';
@@ -384,92 +386,98 @@ class _ArchivedTasksScreenState extends State<ArchivedTasksScreen> {
             ),
           ],
         ),
-        body: SafeArea(
-          child: model.isLoading
-              ? const BoardLoadingView()
-              : model.errorMessage != null &&
-                    model.isEmpty &&
-                    _pendingExit == null
-              ? _message(
-                  icon: Icons.cloud_off_outlined,
-                  title: AppErrorMessages.loadArchivedTasksFailed,
-                  description: 'Please check your connection and try again.',
-                  action: 'Retry',
-                  onPressed: model.retry,
-                )
-              : model.isEmpty && _pendingExit == null
-              ? _message(
-                  icon: Icons.archive_outlined,
-                  title: 'No archived tasks',
-                  description:
-                      'Tasks you archive from this board will appear here.',
-                  action: 'Return to Board',
-                  onPressed: () => AppRouter.back(context),
-                )
-              : model.isSearchEmpty && _pendingExit == null
-              ? _message(
-                  icon: Icons.search_off,
-                  title: 'No matching archived tasks',
-                  description: 'Try a different search term.',
-                  action: 'Clear search',
-                  onPressed: () {
-                    _search.clear();
-                    model.setSearchQuery('');
-                  },
-                )
-              : Column(
-                  children: [
-                    if (model.isSaving)
-                      const LinearProgressIndicator(
-                        semanticsLabel: 'Saving archived tasks',
-                      ),
-                    Expanded(
-                      child: RefreshIndicator(
-                        onRefresh: model.refresh,
-                        child: ListView.builder(
-                          padding: const EdgeInsets.all(16),
-                          itemCount: displayed.length,
-                          itemBuilder: (context, index) {
-                            final task = displayed[index];
-                            final leaving =
-                                _exitAnimated &&
-                                task.id == _pendingExit?.task.id;
-                            return TweenAnimationBuilder<double>(
-                              key: ValueKey('archived-row-${task.id}'),
-                              tween: Tween(begin: 1, end: leaving ? 0 : 1),
-                              duration: MediaQuery.disableAnimationsOf(context)
-                                  ? Duration.zero
-                                  : const Duration(milliseconds: 260),
-                              curve: Curves.easeInCubic,
-                              builder: (context, value, child) => ClipRect(
-                                child: Align(
-                                  heightFactor: value,
-                                  child: Opacity(opacity: value, child: child),
+        body: AppContent(
+          child: SafeArea(
+            child: model.isLoading
+                ? const BoardLoadingView()
+                : model.errorMessage != null &&
+                      model.isEmpty &&
+                      _pendingExit == null
+                ? _message(
+                    icon: Icons.cloud_off_outlined,
+                    title: AppErrorMessages.loadArchivedTasksFailed,
+                    description: 'Please check your connection and try again.',
+                    action: 'Retry',
+                    onPressed: model.retry,
+                  )
+                : model.isEmpty && _pendingExit == null
+                ? _message(
+                    icon: Icons.archive_outlined,
+                    title: 'No archived tasks',
+                    description:
+                        'Tasks you archive from this board will appear here.',
+                    action: 'Return to Board',
+                    onPressed: () => AppRouter.back(context),
+                  )
+                : model.isSearchEmpty && _pendingExit == null
+                ? _message(
+                    icon: Icons.search_off,
+                    title: 'No matching archived tasks',
+                    description: 'Try a different search term.',
+                    action: 'Clear search',
+                    onPressed: () {
+                      _search.clear();
+                      model.setSearchQuery('');
+                    },
+                  )
+                : Column(
+                    children: [
+                      if (model.isSaving)
+                        const LinearProgressIndicator(
+                          semanticsLabel: 'Saving archived tasks',
+                        ),
+                      Expanded(
+                        child: RefreshIndicator(
+                          onRefresh: model.refresh,
+                          child: ListView.builder(
+                            padding: const EdgeInsets.all(16),
+                            itemCount: displayed.length,
+                            itemBuilder: (context, index) {
+                              final task = displayed[index];
+                              final leaving =
+                                  _exitAnimated &&
+                                  task.id == _pendingExit?.task.id;
+                              return TweenAnimationBuilder<double>(
+                                key: ValueKey('archived-row-${task.id}'),
+                                tween: Tween(begin: 1, end: leaving ? 0 : 1),
+                                duration:
+                                    MediaQuery.disableAnimationsOf(context)
+                                    ? Duration.zero
+                                    : const Duration(milliseconds: 260),
+                                curve: Curves.easeInCubic,
+                                builder: (context, value, child) => ClipRect(
+                                  child: Align(
+                                    heightFactor: value,
+                                    child: Opacity(
+                                      opacity: value,
+                                      child: child,
+                                    ),
+                                  ),
                                 ),
-                              ),
-                              child: IgnorePointer(
-                                ignoring: leaving,
-                                child: _ArchivedTaskCard(
-                                  key: Key('archived-task-${task.id}'),
-                                  task: task,
-                                  isSaving:
-                                      model.isSaving ||
-                                      _pendingExit != null ||
-                                      _isShowingOverlay,
-                                  onDetails: _isShowingOverlay
-                                      ? null
-                                      : () => _details(task),
-                                  onRestore: () => _restore(task),
-                                  onDelete: () => _delete(task),
+                                child: IgnorePointer(
+                                  ignoring: leaving,
+                                  child: _ArchivedTaskCard(
+                                    key: Key('archived-task-${task.id}'),
+                                    task: task,
+                                    isSaving:
+                                        model.isSaving ||
+                                        _pendingExit != null ||
+                                        _isShowingOverlay,
+                                    onDetails: _isShowingOverlay
+                                        ? null
+                                        : () => _details(task),
+                                    onRestore: () => _restore(task),
+                                    onDelete: () => _delete(task),
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
+                              );
+                            },
+                          ),
                         ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+          ),
         ),
       );
     },

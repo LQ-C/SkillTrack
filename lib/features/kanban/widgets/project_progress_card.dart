@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/app_theme.dart';
+
 class ProjectProgressCard extends StatelessWidget {
   const ProjectProgressCard({
     super.key,
@@ -33,9 +35,7 @@ class ProjectProgressCard extends StatelessWidget {
                   ),
                 ),
                 AnimatedSwitcher(
-                  duration: MediaQuery.disableAnimationsOf(context)
-                      ? Duration.zero
-                      : const Duration(milliseconds: 200),
+                  duration: AppTheme.motionDuration(context),
                   child: Text(
                     '${(progress * 100).round()}%',
                     key: ValueKey((progress * 100).round()),
@@ -50,10 +50,8 @@ class ProjectProgressCard extends StatelessWidget {
             const SizedBox(height: 12),
             TweenAnimationBuilder<double>(
               tween: Tween(begin: 0, end: progress),
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 220),
-              curve: Curves.easeInOutCubic,
+              duration: AppTheme.motionDuration(context),
+              curve: AppTheme.transitionCurve,
               builder: (context, value, child) => LinearProgressIndicator(
                 value: value,
                 minHeight: 8,
@@ -63,9 +61,7 @@ class ProjectProgressCard extends StatelessWidget {
             ),
             const SizedBox(height: 10),
             AnimatedSwitcher(
-              duration: MediaQuery.disableAnimationsOf(context)
-                  ? Duration.zero
-                  : const Duration(milliseconds: 200),
+              duration: AppTheme.motionDuration(context),
               child: Text(
                 '$completed of $total tasks completed',
                 key: ValueKey('$completed/$total'),

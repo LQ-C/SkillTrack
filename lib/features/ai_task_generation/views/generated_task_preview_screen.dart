@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../../app/widgets/app_content.dart';
+
 import '../../../app/router/app_router.dart';
 import '../../kanban/utils/kanban_colors.dart';
 import '../../../core/utils/date_formatter.dart';
@@ -160,97 +162,99 @@ class _GeneratedTaskPreviewScreenState
               icon: const Icon(Icons.arrow_back),
             ),
           ),
-          body: SafeArea(
-            bottom: false,
-            child: Stack(
-              children: [
-                AbsorbPointer(
-                  absorbing: busy,
-                  child: ReorderableListView.builder(
-                    key: const Key('generated-task-preview-list'),
-                    padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
-                    buildDefaultDragHandles: false,
-                    itemCount: tasks.length,
-                    onReorder: _reorder,
-                    header: Padding(
-                      padding: const EdgeInsets.only(bottom: 20),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            append
-                                ? 'These tasks will be added to your existing project. Your current tasks will not be changed.'
-                                : 'Review the generated plan before creating your project.',
-                            style: theme.textTheme.bodyMedium?.copyWith(
-                              color: theme.colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                          const SizedBox(height: 10),
-                          Text(
-                            '${tasks.length} generated ${tasks.length == 1 ? 'task' : 'tasks'}',
-                            style: theme.textTheme.titleMedium,
-                          ),
-                          if (tasks.isEmpty)
-                            const Padding(
-                              padding: EdgeInsets.only(top: 20),
-                              child: Text(
-                                'No tasks in this preview. Cancel to return.',
-                              ),
-                            ),
-                        ],
-                      ),
-                    ),
-                    footer: _revisionSection(
-                      theme,
-                      enabled: canCustomize && tasks.isNotEmpty,
-                    ),
-                    itemBuilder: (context, index) {
-                      final task = tasks[index];
-                      return Padding(
-                        key: _taskKeys[index],
-                        padding: const EdgeInsets.only(bottom: 12),
-                        child: _PreviewCard(
-                          task: task,
-                          number: index + 1,
-                          onEdit: canCustomize
-                              ? () => _edit(context, index, task)
-                              : null,
-                          onRemove: canCustomize
-                              ? () => _remove(context, index)
-                              : null,
-                          dragHandle: ReorderableDelayedDragStartListener(
-                            index: index,
-                            enabled: canCustomize,
-                            child: Tooltip(
-                              message: 'Hold to reorder task',
-                              child: Icon(
-                                Icons.drag_handle,
+          body: AppContent(
+            child: SafeArea(
+              bottom: false,
+              child: Stack(
+                children: [
+                  AbsorbPointer(
+                    absorbing: busy,
+                    child: ReorderableListView.builder(
+                      key: const Key('generated-task-preview-list'),
+                      padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
+                      buildDefaultDragHandles: false,
+                      itemCount: tasks.length,
+                      onReorder: _reorder,
+                      header: Padding(
+                        padding: const EdgeInsets.only(bottom: 20),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              append
+                                  ? 'These tasks will be added to your existing project. Your current tasks will not be changed.'
+                                  : 'Review the generated plan before creating your project.',
+                              style: theme.textTheme.bodyMedium?.copyWith(
                                 color: theme.colorScheme.onSurfaceVariant,
                               ),
                             ),
-                          ),
-                        ),
-                      );
-                    },
-                  ),
-                ),
-                if (revising)
-                  Positioned.fill(
-                    child: ColoredBox(
-                      color: theme.colorScheme.surface.withValues(alpha: .82),
-                      child: const Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            CircularProgressIndicator(),
-                            SizedBox(height: 16),
-                            Text('Revising plan…'),
+                            const SizedBox(height: 10),
+                            Text(
+                              '${tasks.length} generated ${tasks.length == 1 ? 'task' : 'tasks'}',
+                              style: theme.textTheme.titleMedium,
+                            ),
+                            if (tasks.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.only(top: 20),
+                                child: Text(
+                                  'No tasks in this preview. Cancel to return.',
+                                ),
+                              ),
                           ],
                         ),
                       ),
+                      footer: _revisionSection(
+                        theme,
+                        enabled: canCustomize && tasks.isNotEmpty,
+                      ),
+                      itemBuilder: (context, index) {
+                        final task = tasks[index];
+                        return Padding(
+                          key: _taskKeys[index],
+                          padding: const EdgeInsets.only(bottom: 12),
+                          child: _PreviewCard(
+                            task: task,
+                            number: index + 1,
+                            onEdit: canCustomize
+                                ? () => _edit(context, index, task)
+                                : null,
+                            onRemove: canCustomize
+                                ? () => _remove(context, index)
+                                : null,
+                            dragHandle: ReorderableDelayedDragStartListener(
+                              index: index,
+                              enabled: canCustomize,
+                              child: Tooltip(
+                                message: 'Hold to reorder task',
+                                child: Icon(
+                                  Icons.drag_handle,
+                                  color: theme.colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
                     ),
                   ),
-              ],
+                  if (revising)
+                    Positioned.fill(
+                      child: ColoredBox(
+                        color: theme.colorScheme.surface.withValues(alpha: .82),
+                        child: const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              CircularProgressIndicator(),
+                              SizedBox(height: 16),
+                              Text('Revising plan…'),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
           bottomNavigationBar: SafeArea(

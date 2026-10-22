@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
+import '../../../app/widgets/app_content.dart';
+
 import '../../../app/router/app_router.dart';
 import '../../ai_task_generation/view_models/append_task_generation_view_model.dart';
 import '../utils/kanban_colors.dart';
@@ -1253,175 +1255,182 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             ),
           ],
         ),
-        body: SafeArea(
-          child: AnimatedSwitcher(
-            duration: MediaQuery.disableAnimationsOf(context)
-                ? Duration.zero
-                : const Duration(milliseconds: 200),
-            child: model.isLoading
-                ? const BoardLoadingView(key: ValueKey('loading'))
-                : model.errorMessage != null && model.allTasks.isEmpty
-                ? BoardErrorView(
-                    key: const ValueKey('error'),
-                    message: model.errorMessage!,
-                    actionLabel: model.isBoardArchived
-                        ? 'Restore board'
-                        : model.isSignedIn
-                        ? 'Retry'
-                        : 'Sign in',
-                    description: model.isBoardArchived
-                        ? 'Restore it to continue working on these tasks.'
-                        : model.isSignedIn
-                        ? 'Please check your connection and try again.'
-                        : 'Sign in to open your project board.',
-                    onRetry: model.isBoardArchived
-                        ? model.restoreArchivedBoard
-                        : model.isSignedIn
-                        ? model.retry
-                        : () => _showSheet(_SignInSheet(viewModel: model)),
-                  )
-                : Column(
-                    key: const ValueKey('board'),
-                    children: [
-                      ProjectProgressCard(
-                        progress: model.projectProgress,
-                        completed: model.completedTaskCount,
-                        total: model.totalTaskCount,
-                        onTap: _navigationBusy ? null : _showProgress,
-                      ),
-                      if (model.hasActiveFilters)
-                        _filterChips(model.activeFilter),
-                      if (model.activeSort != KanbanSort.custom)
-                        TextButton.icon(
-                          onPressed: () => model.setSort(KanbanSort.custom),
-                          icon: const Icon(Icons.drag_indicator),
-                          label: const Text('Use Custom order to drag tasks'),
+        body: AppContent(
+          child: SafeArea(
+            child: AnimatedSwitcher(
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 200),
+              child: model.isLoading
+                  ? const BoardLoadingView(key: ValueKey('loading'))
+                  : model.errorMessage != null && model.allTasks.isEmpty
+                  ? BoardErrorView(
+                      key: const ValueKey('error'),
+                      message: model.errorMessage!,
+                      actionLabel: model.isBoardArchived
+                          ? 'Restore board'
+                          : model.isSignedIn
+                          ? 'Retry'
+                          : 'Sign in',
+                      description: model.isBoardArchived
+                          ? 'Restore it to continue working on these tasks.'
+                          : model.isSignedIn
+                          ? 'Please check your connection and try again.'
+                          : 'Sign in to open your project board.',
+                      onRetry: model.isBoardArchived
+                          ? model.restoreArchivedBoard
+                          : model.isSignedIn
+                          ? model.retry
+                          : () => _showSheet(_SignInSheet(viewModel: model)),
+                    )
+                  : Column(
+                      key: const ValueKey('board'),
+                      children: [
+                        ProjectProgressCard(
+                          progress: model.projectProgress,
+                          completed: model.completedTaskCount,
+                          total: model.totalTaskCount,
+                          onTap: _navigationBusy ? null : _showProgress,
                         ),
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, constraints) {
-                            final viewportWidth = constraints.maxWidth;
-                            final largeText =
-                                MediaQuery.textScalerOf(context).scale(1) > 1.6;
-                            final columnWidth = largeText
-                                ? viewportWidth * .9
-                                : (viewportWidth - 96).clamp(
-                                    220.0,
-                                    viewportWidth,
-                                  );
-                            final trackWidth =
-                                columnWidth * KanbanStatus.values.length +
-                                _columnGap * (KanbanStatus.values.length - 1);
-                            return Stack(
-                              key: _overviewKey,
-                              fit: StackFit.expand,
-                              children: [
-                                ClipRect(
-                                  child: IgnorePointer(
-                                    ignoring: noResults,
-                                    child: GestureDetector(
-                                      key: const Key('board-swipe-area'),
-                                      behavior: HitTestBehavior.translucent,
-                                      onHorizontalDragStart:
-                                          _draggedTaskId == null
-                                          ? (_) => _swipeDistance = 0
-                                          : null,
-                                      onHorizontalDragUpdate:
-                                          _draggedTaskId == null
-                                          ? (details) => _swipeDistance +=
-                                                details.primaryDelta ?? 0
-                                          : null,
-                                      onHorizontalDragEnd:
-                                          _draggedTaskId == null
-                                          ? _onSwipeEnd
-                                          : null,
-                                      child: AnimatedBuilder(
-                                        animation: _boardController,
-                                        child: _boardTrack(columnWidth),
-                                        builder: (context, child) {
-                                          final scale = _boardScale.value;
-                                          final selectedCenter =
-                                              _boardFocus.value *
-                                                  (columnWidth + _columnGap) +
-                                              columnWidth / 2;
-                                          final offset =
-                                              viewportWidth / 2 -
-                                              selectedCenter * scale;
-                                          return Stack(
-                                            fit: StackFit.expand,
-                                            clipBehavior: Clip.none,
-                                            children: [
-                                              Positioned(
-                                                left: 0,
-                                                top: 0,
-                                                width: trackWidth,
-                                                height:
-                                                    constraints.maxHeight /
-                                                    scale,
-                                                child: Transform.translate(
-                                                  key: const Key(
-                                                    'board-track-offset',
-                                                  ),
-                                                  offset: Offset(offset, 0),
-                                                  child: Transform.scale(
+                        if (model.hasActiveFilters)
+                          _filterChips(model.activeFilter),
+                        if (model.activeSort != KanbanSort.custom)
+                          TextButton.icon(
+                            onPressed: () => model.setSort(KanbanSort.custom),
+                            icon: const Icon(Icons.drag_indicator),
+                            label: const Text('Use Custom order to drag tasks'),
+                          ),
+                        Expanded(
+                          child: LayoutBuilder(
+                            builder: (context, constraints) {
+                              final viewportWidth = constraints.maxWidth;
+                              final largeText =
+                                  MediaQuery.textScalerOf(context).scale(1) >
+                                  1.6;
+                              final columnWidth = largeText
+                                  ? viewportWidth * .9
+                                  : (viewportWidth - 96).clamp(
+                                      220.0,
+                                      viewportWidth,
+                                    );
+                              final trackWidth =
+                                  columnWidth * KanbanStatus.values.length +
+                                  _columnGap * (KanbanStatus.values.length - 1);
+                              return Stack(
+                                key: _overviewKey,
+                                fit: StackFit.expand,
+                                children: [
+                                  ClipRect(
+                                    child: IgnorePointer(
+                                      ignoring: noResults,
+                                      child: GestureDetector(
+                                        key: const Key('board-swipe-area'),
+                                        behavior: HitTestBehavior.translucent,
+                                        onHorizontalDragStart:
+                                            _draggedTaskId == null
+                                            ? (_) => _swipeDistance = 0
+                                            : null,
+                                        onHorizontalDragUpdate:
+                                            _draggedTaskId == null
+                                            ? (details) => _swipeDistance +=
+                                                  details.primaryDelta ?? 0
+                                            : null,
+                                        onHorizontalDragEnd:
+                                            _draggedTaskId == null
+                                            ? _onSwipeEnd
+                                            : null,
+                                        child: AnimatedBuilder(
+                                          animation: _boardController,
+                                          child: _boardTrack(columnWidth),
+                                          builder: (context, child) {
+                                            final scale = _boardScale.value;
+                                            final selectedCenter =
+                                                _boardFocus.value *
+                                                    (columnWidth + _columnGap) +
+                                                columnWidth / 2;
+                                            final offset =
+                                                viewportWidth / 2 -
+                                                selectedCenter * scale;
+                                            return Stack(
+                                              fit: StackFit.expand,
+                                              clipBehavior: Clip.none,
+                                              children: [
+                                                Positioned(
+                                                  left: 0,
+                                                  top: 0,
+                                                  width: trackWidth,
+                                                  height:
+                                                      constraints.maxHeight /
+                                                      scale,
+                                                  child: Transform.translate(
                                                     key: const Key(
-                                                      'drag-overview-scale',
+                                                      'board-track-offset',
                                                     ),
-                                                    scale: scale,
-                                                    alignment:
-                                                        Alignment.topLeft,
-                                                    child: child,
+                                                    offset: Offset(offset, 0),
+                                                    child: Transform.scale(
+                                                      key: const Key(
+                                                        'drag-overview-scale',
+                                                      ),
+                                                      scale: scale,
+                                                      alignment:
+                                                          Alignment.topLeft,
+                                                      child: child,
+                                                    ),
                                                   ),
                                                 ),
-                                              ),
-                                            ],
-                                          );
-                                        },
+                                              ],
+                                            );
+                                          },
+                                        ),
                                       ),
                                     ),
                                   ),
-                                ),
-                                _edgeGuide(context, -1),
-                                _edgeGuide(context, 1),
-                                Positioned.fill(
-                                  child: IgnorePointer(
-                                    ignoring: !noResults,
-                                    child: AnimatedSwitcher(
-                                      duration:
-                                          MediaQuery.disableAnimationsOf(
-                                            context,
-                                          )
-                                          ? Duration.zero
-                                          : const Duration(milliseconds: 200),
-                                      switchInCurve: Curves.easeOutCubic,
-                                      switchOutCurve: Curves.easeInCubic,
-                                      child: noResults
-                                          ? ColoredBox(
-                                              key: const ValueKey('no-results'),
-                                              color: Theme.of(
-                                                context,
-                                              ).scaffoldBackgroundColor,
-                                              child: BoardEmptyState(
-                                                onAction: () {
-                                                  model.clearFilters();
-                                                  _search.clear();
-                                                  model.setSearchQuery('');
-                                                },
-                                              ),
+                                  _edgeGuide(context, -1),
+                                  _edgeGuide(context, 1),
+                                  Positioned.fill(
+                                    child: IgnorePointer(
+                                      ignoring: !noResults,
+                                      child: AnimatedSwitcher(
+                                        duration:
+                                            MediaQuery.disableAnimationsOf(
+                                              context,
                                             )
-                                          : const SizedBox.shrink(
-                                              key: ValueKey('results-visible'),
-                                            ),
+                                            ? Duration.zero
+                                            : const Duration(milliseconds: 200),
+                                        switchInCurve: Curves.easeOutCubic,
+                                        switchOutCurve: Curves.easeInCubic,
+                                        child: noResults
+                                            ? ColoredBox(
+                                                key: const ValueKey(
+                                                  'no-results',
+                                                ),
+                                                color: Theme.of(
+                                                  context,
+                                                ).scaffoldBackgroundColor,
+                                                child: BoardEmptyState(
+                                                  onAction: () {
+                                                    model.clearFilters();
+                                                    _search.clear();
+                                                    model.setSearchQuery('');
+                                                  },
+                                                ),
+                                              )
+                                            : const SizedBox.shrink(
+                                                key: ValueKey(
+                                                  'results-visible',
+                                                ),
+                                              ),
+                                      ),
                                     ),
                                   ),
-                                ),
-                              ],
-                            );
-                          },
+                                ],
+                              );
+                            },
+                          ),
                         ),
-                      ),
-                    ],
-                  ),
+                      ],
+                    ),
+            ),
           ),
         ),
         floatingActionButton: IgnorePointer(

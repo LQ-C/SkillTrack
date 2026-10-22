@@ -117,6 +117,88 @@ AppNotification alert(
 Future<void> flushEvents() => Future<void>.delayed(Duration.zero);
 
 void main() {
+  for (final reducedMotion in [false, true]) {
+    testWidgets(
+      'notification entrance plays once; reduced motion: $reducedMotion',
+      (tester) async {
+        tester.platformDispatcher.accessibilityFeaturesTestValue =
+            FakeAccessibilityFeatures(disableAnimations: reducedMotion);
+        addTearDown(
+          tester.platformDispatcher.clearAccessibilityFeaturesTestValue,
+        );
+        final yesterday = DateTime.now().toUtc().subtract(
+          const Duration(days: 1),
+        );
+        final repo = CountingRepository(currentUserId: 'user')
+          ..items.add(alert('existing', date: yesterday));
+        final transport = FakeTransport();
+        final service = NotificationRealtimeService(transport);
+        await tester.pumpWidget(
+          SkillTrackApp(
+            projectRepository: FakeProjectRepository(),
+            kanbanRepository: FakeKanbanRepository(),
+            notificationRepository: repo,
+            realtimeService: service,
+          ),
+        );
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Notifications'));
+        await tester.pumpAndSettle();
+
+        double opacity(String id) => tester
+            .widget<Opacity>(
+              find
+                  .descendant(
+                    of: find.byKey(ValueKey('notification-row-$id')),
+                    matching: find.byType(Opacity),
+                  )
+                  .first,
+            )
+            .opacity;
+        expect(opacity('existing'), 1);
+        final incoming = alert('incoming', date: DateTime.now().toUtc());
+        transport.emit(PostgresChangeEvent.insert, newRecord: incoming.toMap());
+        await tester.pump();
+        await tester.pump();
+        if (reducedMotion) {
+          expect(opacity('incoming'), 1);
+        } else {
+          expect(opacity('incoming'), lessThan(1));
+          await tester.pump(const Duration(milliseconds: 100));
+          expect(opacity('incoming'), allOf(greaterThan(0), lessThan(1)));
+        }
+        await tester.pumpAndSettle();
+        expect(opacity('incoming'), 1);
+
+        // Updates and duplicate inserts keep the settled row visible.
+        transport.emit(
+          PostgresChangeEvent.update,
+          newRecord: incoming.copyWith(isRead: true).toMap(),
+        );
+        await tester.pump();
+        expect(opacity('incoming'), 1);
+        await tester.pumpAndSettle();
+        transport.emit(PostgresChangeEvent.insert, newRecord: incoming.toMap());
+        await tester.pump();
+        await tester.pump();
+        expect(opacity('incoming'), 1);
+        await tester.pumpAndSettle();
+
+        // Recreating a filtered row must not replay its entrance.
+        await tester.tap(find.text('Deadlines'));
+        await tester.pumpAndSettle();
+        expect(find.byKey(const Key('notification-incoming')), findsNothing);
+        await tester.tap(find.text('All'));
+        await tester.pump();
+        expect(opacity('incoming'), 1);
+        await tester.pumpAndSettle();
+        expect(transport.starts, 1);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+      },
+    );
+  }
+
   test(
     'one channel per user; switching and logout remove the old channel',
     () async {

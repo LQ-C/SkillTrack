@@ -1,6 +1,23 @@
 import 'package:flutter/material.dart';
 
 class AppTheme {
+  static const contentPadding = EdgeInsets.all(16);
+  static const cardRadius = BorderRadius.all(Radius.circular(16));
+  static const iconSize = 40.0;
+  static const contentMaxWidth = 760.0;
+  static const componentDuration = Duration(milliseconds: 200);
+  static const contentDuration = Duration(milliseconds: 280);
+  static const transitionCurve = Curves.easeOutCubic;
+
+  static Duration motionDuration(
+    BuildContext context, [
+    Duration duration = componentDuration,
+  ]) =>
+      MediaQuery.disableAnimationsOf(context) ||
+          MediaQuery.accessibleNavigationOf(context)
+      ? Duration.zero
+      : duration;
+
   static ThemeData get light {
     const primary = Color(0xFF6558A6);
     const background = Color(0xFFF7F6FC);
@@ -65,7 +82,7 @@ class AppTheme {
       labelSmall: type.labelSmall?.copyWith(color: secondaryText),
     );
     final cardShape = RoundedRectangleBorder(
-      borderRadius: BorderRadius.circular(16),
+      borderRadius: cardRadius,
       side: BorderSide(color: scheme.outlineVariant),
     );
     final fieldBorder = OutlineInputBorder(
