@@ -10,6 +10,11 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const invalidGenerationConstraints =
+      'Constraints must be 1000 characters or fewer.';
+  static const taskChanged = 'Task changed. Refresh it and try again.';
+  static const updateTaskTimerFailed =
+      'Unable to update the timer. Please try again.';
   static const attachmentTooLarge =
       'Choose a non-empty file of 10 MB or smaller.';
   static const savedRefreshFailed =

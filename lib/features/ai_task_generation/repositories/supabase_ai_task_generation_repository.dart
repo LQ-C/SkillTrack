@@ -15,6 +15,7 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     required DateTime endDate,
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   }) async => GeneratedTaskDraft.parseTasks(
     await _service.generateRaw(
       title: title,
@@ -22,6 +23,7 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
       endDate: endDate,
       mode: mode,
       existingTasks: existingTasks,
+      constraints: constraints,
     ),
     startDate: startDate,
     endDate: endDate,
@@ -38,6 +40,7 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     required String feedback,
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   }) async => GeneratedTaskDraft.parseTasks(
     await _service.reviseRaw(
       title: title,
@@ -47,6 +50,7 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
       feedback: feedback,
       currentDraft: currentDraft,
       existingTasks: existingTasks,
+      constraints: constraints,
     ),
     startDate: startDate,
     endDate: endDate,

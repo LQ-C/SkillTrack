@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/operation_id.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
@@ -37,6 +38,7 @@ class CreateProjectViewModel extends ChangeNotifier
   ProjectWithProgress? _pendingProject;
   List<GeneratedTaskDraft>? _pendingTasks;
   String? _pendingName, _pendingDescription;
+  String _pendingConstraints = '';
   DateTime? _startDate, _endDate;
   String? _nameError,
       _descriptionError,
@@ -218,11 +220,19 @@ class CreateProjectViewModel extends ChangeNotifier
   Future<List<GeneratedTaskDraft>?> generateTaskPreview({
     required String name,
     required String description,
+    String constraints = '',
   }) async {
     if (_disposed || _isSaving || _isGeneratingTasks || original != null) {
       return null;
     }
     if (_pendingTasks != null) return pendingGeneratedTasks;
+    final trimmedConstraints = constraints.trim();
+    if (trimmedConstraints.length >
+        AppLimits.maxTaskGenerationConstraintsLength) {
+      _errorMessage = AppErrorMessages.invalidGenerationConstraints;
+      notifyListeners();
+      return null;
+    }
     if (!_validateForm(name, description, requireDates: true)) return null;
     if (_repository.currentUserId == null) {
       _errorMessage = 'Sign in to generate tasks.';
@@ -241,6 +251,7 @@ class CreateProjectViewModel extends ChangeNotifier
       final generated = await _generationRepository.generate(
         title: name.trim(),
         description: description.trim(),
+        constraints: trimmedConstraints,
         startDate: _startDate!,
         endDate: _endDate!,
       );
@@ -252,6 +263,7 @@ class CreateProjectViewModel extends ChangeNotifier
       _pendingTasks = List.unmodifiable(generated);
       _pendingName = name.trim();
       _pendingDescription = description.trim();
+      _pendingConstraints = trimmedConstraints;
       return pendingGeneratedTasks;
     } catch (error) {
       if (!_disposed) {
@@ -340,6 +352,7 @@ class CreateProjectViewModel extends ChangeNotifier
           _pendingTasks!,
           requestId: _saveRequestId,
         );
+        _pendingConstraints = '';
         return _disposed ? null : project;
       } catch (_) {
         _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
@@ -397,6 +410,7 @@ class CreateProjectViewModel extends ChangeNotifier
       final revised = await _generationRepository.revise(
         title: _pendingName!,
         description: _pendingDescription!,
+        constraints: _pendingConstraints,
         startDate: generationStartDate,
         endDate: generationEndDate,
         sourceMode: TaskGenerationMode.initial,
@@ -441,6 +455,7 @@ class CreateProjectViewModel extends ChangeNotifier
     _pendingTasks = null;
     _pendingName = null;
     _pendingDescription = null;
+    _pendingConstraints = '';
     _errorMessage = null;
     notifyListeners();
   }

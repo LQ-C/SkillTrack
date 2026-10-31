@@ -16,7 +16,7 @@ import 'features/notifications/services/notification_realtime_service.dart';
 import 'features/notifications/repositories/supabase_push_device_repository.dart';
 import 'features/notifications/services/push_notification_service.dart';
 import 'features/notifications/viewmodels/push_notification_controller.dart';
-import 'firebase_options.dart';
+import 'core/config/firebase_options.dart';
 
 @pragma('vm:entry-point')
 Future<void> firebaseMessagingBackgroundHandler(RemoteMessage message) async {

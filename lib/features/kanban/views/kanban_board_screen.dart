@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../ai_task_generation/widgets/task_generation_constraints_field.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
@@ -714,7 +716,12 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       final append = widget.appendViewModel;
       if (append == null || append.isGeneratingTasks) return;
       FocusScope.of(context).unfocus();
-      final request = append.generateMoreTasks();
+      final constraints = await showDialog<String>(
+        context: context,
+        builder: (_) => const TaskGenerationConstraintsDialog(),
+      );
+      if (!mounted || constraints == null) return;
+      final request = append.generateMoreTasks(constraints: constraints);
       showDialog<void>(
         context: context,
         barrierDismissible: false,

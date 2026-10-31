@@ -18,9 +18,11 @@ class AiTaskGenerationService {
     required DateTime endDate,
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   }) => _invoke({
     'projectName': title,
     'description': description,
+    if (constraints.trim().isNotEmpty) 'constraints': constraints.trim(),
     'deadline': endDate.toIso8601String().split('T').first,
     if (mode == TaskGenerationMode.append) ...{
       'generationMode': 'append',
@@ -36,6 +38,7 @@ class AiTaskGenerationService {
     required String feedback,
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   }) {
     if (sourceMode == TaskGenerationMode.revise) {
       throw ArgumentError.value(sourceMode, 'sourceMode');
@@ -43,6 +46,7 @@ class AiTaskGenerationService {
     return _invoke({
       'projectName': title,
       'description': description,
+      if (constraints.trim().isNotEmpty) 'constraints': constraints.trim(),
       'deadline': endDate.toIso8601String().split('T').first,
       'generationMode': 'revise',
       'sourceMode': sourceMode.name,

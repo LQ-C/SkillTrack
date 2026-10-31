@@ -9,6 +9,7 @@ abstract class TaskGenerationRepository {
     required DateTime endDate,
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   });
   Future<List<GeneratedTaskDraft>> revise({
     required String title,
@@ -19,5 +20,6 @@ abstract class TaskGenerationRepository {
     required String feedback,
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   });
 }

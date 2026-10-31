@@ -204,6 +204,42 @@ void main() {
       'revisionFeedback': 'Add security checks',
       'existingTasks': [task.toRequestJson()],
     });
+    for (final mode in [
+      TaskGenerationMode.initial,
+      TaskGenerationMode.append,
+    ]) {
+      await service.generateRaw(
+        title: 'Project',
+        description: 'Description',
+        endDate: DateTime(2026, 12, 1),
+        mode: mode,
+        existingTasks: [task],
+        constraints: '  Flutter only  ',
+      );
+      expect(bodies.last['constraints'], 'Flutter only');
+      if (mode == TaskGenerationMode.append) {
+        expect(bodies.last['existingTasks'], [task.toRequestJson()]);
+      }
+      await service.reviseRaw(
+        title: 'Project',
+        description: 'Description',
+        endDate: DateTime(2026, 12, 1),
+        sourceMode: mode,
+        feedback: 'Add tests',
+        currentDraft: [draft],
+        existingTasks: [task],
+        constraints: '  Flutter only  ',
+      );
+      expect(bodies.last['constraints'], 'Flutter only');
+      expect(bodies.last['revisionFeedback'], 'Add tests');
+    }
+    await service.generateRaw(
+      title: 'Project',
+      description: 'Description',
+      endDate: DateTime(2026, 12, 1),
+      constraints: '   ',
+    );
+    expect(bodies.last, isNot(contains('constraints')));
   });
 
   Future<(FakeProjectRepository, String)> project({DateTime? endDate}) async {

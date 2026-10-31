@@ -788,14 +788,49 @@ void main() {
       await showApp(tester, projects, kanban: kanban, generation: generation);
       await tester.tap(find.byKey(Key('project-${created.project.id}')));
       await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('Board menu'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Generate More Tasks'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const Key('task-generation-constraints-field')),
+        'Discard this',
+      );
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(generation.calls, 0);
       Future<void> openPreview() async {
+        final callsBefore = generation.calls;
         await tester.tap(find.byTooltip('Board menu'));
         await tester.pumpAndSettle();
         await tester.tap(find.text('Generate More Tasks'));
         await tester.pumpAndSettle();
+        expect(generation.calls, callsBefore);
+        expect(
+          tester
+              .widget<TextField>(
+                find.byKey(const Key('task-generation-constraints-field')),
+              )
+              .controller!
+              .text,
+          isEmpty,
+        );
+        await tester.enterText(
+          find.byKey(const Key('task-generation-constraints-field')),
+          'Flutter only',
+        );
+        final button = find.byKey(
+          const Key('generate-additional-tasks-button'),
+        );
+        final submit = tester.widget<FilledButton>(button).onPressed!;
+        await tester.tap(button);
+        submit(); // A second callback must not create a second request or pop a route.
+        await tester.pumpAndSettle();
+        expect(generation.calls, callsBefore + 1);
         expect(find.byType(GeneratedTaskPreviewScreen), findsOneWidget);
         expect(find.text('Review Additional Tasks'), findsOneWidget);
         expect(find.text('Additional task'), findsOneWidget);
+        expect(generation.lastConstraints, 'Flutter only');
       }
 
       await openPreview();

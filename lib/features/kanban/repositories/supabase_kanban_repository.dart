@@ -34,6 +34,12 @@ class SupabaseKanbanRepository implements KanbanRepository {
       rethrow;
     } on AuthException {
       throw const AppException(AppErrorMessages.signInFailed);
+    } on PostgrestException catch (error) {
+      throw AppException(
+        error.code == '40001'
+            ? AppErrorMessages.taskChanged
+            : AppErrorMessages.requestFailed,
+      );
     } on StorageException {
       throw const AppException(AppErrorMessages.storageFailed);
     } catch (_) {
@@ -173,13 +179,22 @@ class SupabaseKanbanRepository implements KanbanRepository {
   @override
   Future<KanbanTask> createTask(KanbanTask task) => _guard(() async {
     final data = task.toMap()..remove('id');
+    if (task.status == KanbanStatus.inProgress) data['status'] = 'todo';
     final row = await _client
         .from('kanban_tasks')
         .insert(data)
         .select()
         .single();
-    final created = KanbanTask.fromMap(row);
+    var created = KanbanTask.fromMap(row);
     try {
+      if (task.status == KanbanStatus.inProgress) {
+        created = await _updateTracking(
+          created,
+          'move',
+          status: KanbanStatus.inProgress,
+          order: task.sortOrder,
+        );
+      }
       await addActivity(
         created.id,
         'created',
@@ -216,7 +231,10 @@ class SupabaseKanbanRepository implements KanbanRepository {
         .update(
           task.toMap()
             ..remove('id')
-            ..remove('board_id'),
+            ..remove('board_id')
+            ..remove('status')
+            ..remove('sort_order')
+            ..remove('completed_at'),
         )
         .eq('id', task.id)
         .select()
@@ -256,6 +274,15 @@ class SupabaseKanbanRepository implements KanbanRepository {
 
   @override
   Future<void> archiveTask(String taskId, bool archived) => _guard(() async {
+    if (archived) {
+      final row = await _client
+          .from('kanban_tasks')
+          .select()
+          .eq('id', taskId)
+          .single();
+      final task = KanbanTask.fromMap(row);
+      if (task.isTracking) await _updateTracking(task, 'pause');
+    }
     await _client
         .from('kanban_tasks')
         .update({
@@ -281,23 +308,42 @@ class SupabaseKanbanRepository implements KanbanRepository {
   });
 
   @override
-  Future<void> moveTask(
+  Future<KanbanTask> moveTask(
     KanbanTask task,
     KanbanStatus status,
     int order, {
     DateTime? completedAt,
-  }) => _guard(() async {
-    await _client
-        .from('kanban_tasks')
-        .update({
-          'status': status.value,
-          'sort_order': order,
-          'completed_at': status == KanbanStatus.completed
-              ? (completedAt ?? DateTime.now().toUtc()).toIso8601String()
-              : null,
-        })
-        .eq('id', task.id);
-  });
+  }) =>
+      _guard(() => _updateTracking(task, 'move', status: status, order: order));
+
+  @override
+  Future<KanbanTask> setTaskTimerPaused(KanbanTask task, bool paused) =>
+      _guard(() => _updateTracking(task, paused ? 'pause' : 'resume'));
+
+  Future<KanbanTask> _updateTracking(
+    KanbanTask task,
+    String action, {
+    KanbanStatus? status,
+    int? order,
+  }) async {
+    final data = await _client.rpc(
+      'update_kanban_task_tracking',
+      params: {
+        'p_task_id': task.id,
+        'p_action': action,
+        'p_expected_updated_at': task.updatedAt.toUtc().toIso8601String(),
+        if (status != null) 'p_status': status.value,
+        'p_sort_order': ?order,
+      },
+    );
+    final row = data is List ? data.single : data;
+    return KanbanTask.fromMap(
+      Map<String, dynamic>.from(row as Map),
+      tags: task.tags,
+      checklistItems: task.checklistItems,
+      attachments: task.attachments,
+    );
+  }
 
   @override
   Future<void> reorderTasks(List<KanbanTask> tasks) => _guard(() async {

@@ -116,6 +116,11 @@ void main() {
       expect(find.textContaining('/100'), findsNothing);
       expect(find.byType(TaskStagnationIndicator), findsNothing);
       expect(find.text('Checklist (0/0)'), findsOneWidget);
+      await tester.scrollUntilVisible(
+        find.text('No activity recorded yet.'),
+        120,
+        scrollable: find.byType(Scrollable).first,
+      );
       expect(find.text('No activity recorded yet.'), findsOneWidget);
       expect(tester.takeException(), isNull);
     },

@@ -9,6 +9,8 @@ import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_gene
 
 class FakeTaskGenerationRepository implements TaskGenerationRepository {
   int calls = 0;
+  String lastConstraints = '';
+  String lastRevisionConstraints = '';
   bool fail = false;
   Completer<List<GeneratedTaskDraft>>? pending;
   List<GeneratedTaskDraft>? result;
@@ -32,8 +34,10 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     required DateTime endDate,
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   }) async {
     calls++;
+    lastConstraints = constraints;
     lastMode = mode;
     lastExistingTasks = existingTasks;
     lastStartDate = startDate;
@@ -63,8 +67,10 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     required String feedback,
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
   }) async {
     revisionCalls++;
+    lastRevisionConstraints = constraints;
     lastSourceMode = sourceMode;
     lastFeedback = feedback;
     lastCurrentDraft = List.of(currentDraft);

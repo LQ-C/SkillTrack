@@ -17,6 +17,8 @@ class KanbanTask {
     this.deadline,
     required this.sortOrder,
     this.completedAt,
+    this.elapsedSeconds = 0,
+    this.trackingStartedAt,
     this.isArchived = false,
     int stagnationScore = 0,
     this.isStalled = false,
@@ -37,6 +39,8 @@ class KanbanTask {
   final KanbanStatus status;
   final TaskPriority priority;
   final DateTime? deadline, completedAt;
+  final int elapsedSeconds;
+  final DateTime? trackingStartedAt;
   final int sortOrder;
   final bool isArchived;
   final int stagnationScore;
@@ -47,6 +51,19 @@ class KanbanTask {
   final List<TaskTag> tags;
   final List<TaskChecklistItem> checklistItems;
   final List<TaskAttachment> attachments;
+
+  bool get isTracking =>
+      status == KanbanStatus.inProgress &&
+      !isArchived &&
+      trackingStartedAt != null;
+
+  Duration trackedDurationAt(DateTime now) {
+    final saved = elapsedSeconds < 0 ? 0 : elapsedSeconds;
+    final session = isTracking
+        ? now.toUtc().difference(trackingStartedAt!).inSeconds
+        : 0;
+    return Duration(seconds: saved + (session < 0 ? 0 : session));
+  }
 
   bool get isCompleted => status == KanbanStatus.completed;
   bool get shouldShowStalled => isStalled || stagnationScore >= 70;
@@ -99,6 +116,10 @@ class KanbanTask {
     deadline: DateTime.tryParse(map['deadline']?.toString() ?? ''),
     sortOrder: (map['sort_order'] as num?)?.toInt() ?? 0,
     completedAt: DateTime.tryParse(map['completed_at']?.toString() ?? ''),
+    elapsedSeconds: _readElapsedSeconds(map['elapsed_seconds']),
+    trackingStartedAt: DateTime.tryParse(
+      map['tracking_started_at']?.toString() ?? '',
+    )?.toUtc(),
     isArchived: map['is_archived'] == true,
     stagnationScore: _readScore(map['stagnation_score']),
     isStalled: map['is_stalled'] == true,
@@ -120,7 +141,7 @@ class KanbanTask {
     attachments: attachments,
   );
 
-  // Server-managed stagnation fields are intentionally excluded from writes.
+  // Server-managed stagnation and tracking fields are excluded from writes.
   Map<String, dynamic> toMap() => {
     'id': id,
     'board_id': boardId,
@@ -145,6 +166,9 @@ class KanbanTask {
     bool clearDeadline = false,
     int? sortOrder,
     DateTime? completedAt,
+    int? elapsedSeconds,
+    DateTime? trackingStartedAt,
+    bool clearTrackingStartedAt = false,
     bool clearCompletedAt = false,
     bool? isArchived,
     int? stagnationScore,
@@ -170,6 +194,10 @@ class KanbanTask {
     deadline: clearDeadline ? null : deadline ?? this.deadline,
     sortOrder: sortOrder ?? this.sortOrder,
     completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
+    elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+    trackingStartedAt: clearTrackingStartedAt
+        ? null
+        : trackingStartedAt ?? this.trackingStartedAt,
     isArchived: isArchived ?? this.isArchived,
     stagnationScore: stagnationScore ?? this.stagnationScore,
     isStalled: isStalled ?? this.isStalled,
@@ -199,6 +227,8 @@ class KanbanTask {
       deadline == other.deadline &&
       sortOrder == other.sortOrder &&
       completedAt == other.completedAt &&
+      elapsedSeconds == other.elapsedSeconds &&
+      trackingStartedAt == other.trackingStartedAt &&
       isArchived == other.isArchived &&
       stagnationScore == other.stagnationScore &&
       isStalled == other.isStalled &&
@@ -229,10 +259,23 @@ class KanbanTask {
     lastActivityAt,
     createdAt,
     updatedAt,
-    Object.hashAll(tags),
-    Object.hashAll(checklistItems),
-    Object.hashAll(attachments),
+    Object.hash(
+      elapsedSeconds,
+      trackingStartedAt,
+      Object.hashAll(tags),
+      Object.hashAll(checklistItems),
+      Object.hashAll(attachments),
+    ),
   );
+
+  static int _readElapsedSeconds(dynamic value) {
+    final seconds = value is num
+        ? value
+        : num.tryParse(value?.toString() ?? '');
+    return seconds != null && seconds.isFinite && seconds > 0
+        ? seconds.toInt()
+        : 0;
+  }
 
   static int _readScore(dynamic value) {
     final score = value is num ? value : num.tryParse(value?.toString() ?? '');

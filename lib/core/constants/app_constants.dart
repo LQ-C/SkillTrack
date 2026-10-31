@@ -5,5 +5,6 @@ class AppColors {
 }
 
 class AppLimits {
+  static const maxTaskGenerationConstraintsLength = 1000;
   static const maxAttachmentBytes = 10 * 1024 * 1024;
 }

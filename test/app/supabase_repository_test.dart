@@ -5,6 +5,9 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:skilltrack/core/errors/app_exception.dart';
+import 'package:skilltrack/features/kanban/models/kanban_task.dart';
+import 'package:skilltrack/features/kanban/models/kanban_status.dart';
+import 'package:skilltrack/features/kanban/models/task_tag.dart';
 import 'package:skilltrack/features/kanban/repositories/supabase_kanban_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/projects/repositories/supabase_project_repository.dart';
@@ -24,6 +27,7 @@ class _ApiFixture {
   final requestBodies = <String>[];
   final tables = <String, List<Map<String, dynamic>>>{};
   bool fail = false;
+  String failCode = '42703';
   String? failInsertTable;
   bool failTaskRollback = false;
 
@@ -54,9 +58,11 @@ class _ApiFixture {
       request.response.write(
         jsonEncode({
           'message': 'internal database column details',
-          'code': '42703',
+          'code': failCode,
         }),
       );
+    } else if (table == 'update_kanban_task_tracking') {
+      request.response.write(jsonEncode(tables[table]!.single));
     } else {
       var rows = List<Map<String, dynamic>>.of(tables[table] ?? []);
       if (table == 'kanban_tasks') {
@@ -133,6 +139,92 @@ Map<String, dynamic> _task(String id, String board, {bool archived = false}) =>
     };
 
 void main() {
+  test(
+    'timer RPC uses task version and preserves authoritative fields and relations',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final row = {
+        ..._task('1', 'board-1'),
+        'status': 'in_progress',
+        'elapsed_seconds': 120,
+        'tracking_started_at': '2026-10-31T08:00:00Z',
+      };
+      api.tables['update_kanban_task_tracking'] = [row];
+      final task = KanbanTask.fromMap(
+        _task('1', 'board-1'),
+        tags: [
+          TaskTag(
+            id: 'tag',
+            ownerId: 'user',
+            name: 'Study',
+            colorHex: '#6750A4',
+          ),
+        ],
+      );
+      final repo = SupabaseKanbanRepository(client);
+      final moved = await repo.moveTask(task, KanbanStatus.inProgress, 1500);
+      expect(
+        api.requests.single.path,
+        endsWith('/rpc/update_kanban_task_tracking'),
+      );
+      final payload = jsonDecode(api.requestBodies.single) as Map;
+      expect(payload, {
+        'p_task_id': task.id,
+        'p_action': 'move',
+        'p_expected_updated_at': task.updatedAt.toUtc().toIso8601String(),
+        'p_status': 'in_progress',
+        'p_sort_order': 1500,
+      });
+      expect(moved.elapsedSeconds, 120);
+      expect(moved.trackingStartedAt, DateTime.utc(2026, 10, 31, 8));
+      expect(moved.tags, task.tags);
+      final paused = {
+        ...row,
+        'tracking_started_at': null,
+        'elapsed_seconds': 180,
+      };
+      api.tables['update_kanban_task_tracking'] = [paused];
+      expect((await repo.setTaskTimerPaused(moved, true)).elapsedSeconds, 180);
+      final pausePayload = jsonDecode(api.requestBodies.last) as Map;
+      expect(pausePayload['p_action'], 'pause');
+      expect(pausePayload.containsKey('p_status'), isFalse);
+      expect(pausePayload.containsKey('p_sort_order'), isFalse);
+      await repo.setTaskTimerPaused(moved, false);
+      expect((jsonDecode(api.requestBodies.last) as Map)['p_action'], 'resume');
+    },
+  );
+
+  test(
+    'stale timer RPC reports a refresh message without exposing backend details',
+    () async {
+      final api = await _ApiFixture.start()
+        ..fail = true
+        ..failCode = '40001';
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      await expectLater(
+        SupabaseKanbanRepository(
+          client,
+        ).setTaskTimerPaused(KanbanTask.fromMap(_task('1', 'board-1')), false),
+        throwsA(
+          isA<AppException>().having(
+            (e) => e.message,
+            'message',
+            AppErrorMessages.taskChanged,
+          ),
+        ),
+      );
+    },
+  );
+
   test(
     'task summaries include context and archived tasks in one query',
     () async {

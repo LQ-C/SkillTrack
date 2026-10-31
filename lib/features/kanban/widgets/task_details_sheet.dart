@@ -12,6 +12,7 @@ import 'activity_timeline.dart';
 import 'attachment_section.dart';
 import 'checklist_section.dart';
 import 'task_tag_chip.dart';
+import 'task_timer_section.dart';
 
 class TaskDetailsSheet extends StatefulWidget {
   const TaskDetailsSheet({
@@ -91,6 +92,22 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
     } finally {
       if (mounted) setState(() => _resuming = false);
     }
+  }
+
+  Future<void> _toggleTimer(KanbanTask task) async {
+    final saved = await widget.viewModel.setTaskTimerPaused(
+      task.id,
+      task.isTracking,
+    );
+    if (!mounted || saved || widget.viewModel.isSaving) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          widget.viewModel.errorMessage ??
+              AppErrorMessages.updateTaskTimerFailed,
+        ),
+      ),
+    );
   }
 
   void _showResumeError() => ScaffoldMessenger.of(context).showSnackBar(
@@ -264,6 +281,12 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                               ],
                             ),
                           ],
+                          const SizedBox(height: 16),
+                          TaskTimerSection(
+                            task: task,
+                            isSaving: widget.viewModel.isSaving,
+                            onToggle: () => _toggleTimer(task),
+                          ),
                           const Divider(height: 28),
                           ChecklistSection(
                             task: task,

@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/operation_id.dart';
 import '../../kanban/repositories/kanban_repository.dart';
 import '../../projects/repositories/project_repository.dart';
@@ -37,6 +38,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   List<GeneratedTaskDraft>? _pending;
   List<GeneratedTaskDraft>? _saveDraft;
   String? _saveRequestId;
+  String _pendingConstraints = '';
   String? _errorMessage;
   String? _feedbackMessage;
 
@@ -61,9 +63,18 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   List<GeneratedTaskDraft> get pendingGeneratedTasks =>
       UnmodifiableListView(_pending ?? const <GeneratedTaskDraft>[]);
 
-  Future<List<GeneratedTaskDraft>?> generateMoreTasks() async {
+  Future<List<GeneratedTaskDraft>?> generateMoreTasks({
+    String constraints = '',
+  }) async {
     if (_disposed || _isGenerating || _isConfirming || _isRevising) return null;
     if (_pending != null) return pendingGeneratedTasks;
+    final trimmedConstraints = constraints.trim();
+    if (trimmedConstraints.length >
+        AppLimits.maxTaskGenerationConstraintsLength) {
+      _errorMessage = AppErrorMessages.invalidGenerationConstraints;
+      notifyListeners();
+      return null;
+    }
     _isGenerating = true;
     _errorMessage = null;
     _feedbackMessage = null;
@@ -98,6 +109,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       final generated = await _generator.generate(
         title: project.name,
         description: description,
+        constraints: trimmedConstraints,
         startDate: start,
         endDate: end,
         mode: TaskGenerationMode.append,
@@ -110,6 +122,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         return null;
       }
       _pending = List.unmodifiable(fresh);
+      _pendingConstraints = trimmedConstraints;
       _generationStartDate = start;
       _generationEndDate = end;
       _existingSummaries = List.unmodifiable(existing);
@@ -162,6 +175,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       if (_disposed) return null;
       final fresh = _saveDraft ?? _withoutDuplicates(_pending!, current);
       if (fresh.isEmpty) {
+        _pendingConstraints = '';
         _feedbackMessage = AppErrorMessages.additionalTasksAlreadyExist;
         return true;
       }
@@ -172,6 +186,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         fresh,
         requestId: _saveRequestId,
       );
+      _pendingConstraints = '';
       return _disposed ? null : true;
     } catch (_) {
       if (!_disposed) _errorMessage = AppErrorMessages.addGeneratedTasksFailed;
@@ -239,6 +254,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       final revised = await _generator.revise(
         title: project.name,
         description: project.description?.trim() ?? '',
+        constraints: _pendingConstraints,
         startDate: generationStartDate,
         endDate: generationEndDate,
         sourceMode: TaskGenerationMode.append,
@@ -295,6 +311,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   void cancelGeneratedTaskPreview() {
     if (_disposed || _isConfirming || _isRevising || _pending == null) return;
     _pending = null;
+    _pendingConstraints = '';
     _saveDraft = null;
     _saveRequestId = null;
     _errorMessage = null;

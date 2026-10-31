@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../../ai_task_generation/widgets/task_generation_constraints_field.dart';
+
 import '../../../app/widgets/app_content.dart';
 
 import '../../../app/router/app_router.dart';
@@ -28,7 +30,7 @@ class CreateProjectScreen extends StatefulWidget {
 
 class _CreateProjectScreenState extends State<CreateProjectScreen> {
   late final CreateProjectViewModel _model;
-  late final TextEditingController _name, _description;
+  late final TextEditingController _name, _description, _constraints;
   String _status = 'active';
   bool _previewOpen = false;
   bool _isPickingDate = false;
@@ -46,6 +48,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     );
     _name = TextEditingController(text: project?.name);
     _description = TextEditingController(text: project?.description);
+    _constraints = TextEditingController();
     _status = project?.status ?? 'active';
   }
 
@@ -54,6 +57,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     _model.dispose();
     _name.dispose();
     _description.dispose();
+    _constraints.dispose();
     super.dispose();
   }
 
@@ -235,6 +239,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       final drafts = await _model.generateTaskPreview(
         name: _name.text,
         description: _description.text,
+        constraints: _constraints.text,
       );
       if (!mounted || drafts == null) return;
       final result = await AppRouter.generatedTaskPreview(context, _model);
@@ -319,6 +324,13 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                           ),
                         ),
                       ),
+                      if (!editing) ...[
+                        const SizedBox(height: 12),
+                        TaskGenerationConstraintsField(
+                          controller: _constraints,
+                          readOnly: _model.isGeneratingTasks || _model.isSaving,
+                        ),
+                      ],
                       _dateField('Start date', true),
                       _dateField('End date', false),
                       if (editing) ...[

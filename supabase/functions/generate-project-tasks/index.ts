@@ -95,6 +95,14 @@ export default {
         body.deadline,
       );
 
+      const constraints = text(body.constraints);
+      if (constraints.length > 1000) {
+        return jsonResponse(
+          { error: "Constraints must be 1000 characters or fewer." },
+          400,
+        );
+      }
+
       const mode = parseGenerationMode(
         body.generationMode,
       );
@@ -250,6 +258,7 @@ export default {
               sourceMode,
               revisionFeedback,
               currentDraft,
+              constraints,
             ),
             response_format: {
               type: "text",
@@ -281,9 +290,10 @@ export default {
         return jsonResponse(
           response,
         );
-      } catch (error) {
+      } catch {
         /*
          * Do not log:
+         * - Constraints
          * - Project description
          * - Existing task details
          * - Current draft
@@ -292,12 +302,7 @@ export default {
          * - Gemini API key
          * - Complete AI response
          */
-        console.error(
-          "Task generation failed:",
-          error instanceof Error
-            ? error.message
-            : "Unknown generation error",
-        );
+        console.error("Task generation failed.");
 
         return jsonResponse(
           {
