@@ -11,6 +11,7 @@ class KanbanFilter {
     this.deadlineEnd,
     this.overdueOnly = false,
     this.completedOnly = false,
+    this.includeStalled = false,
     this.milestoneId,
     this.noMilestoneOnly = false,
   }) : statuses = UnmodifiableSetView(statuses),
@@ -20,13 +21,14 @@ class KanbanFilter {
   final Set<TaskPriority> priorities;
   final Set<String> tagIds;
   final DateTime? deadlineStart, deadlineEnd;
-  final bool overdueOnly, completedOnly;
+  final bool overdueOnly, completedOnly, includeStalled;
   final String? milestoneId;
   final bool noMilestoneOnly;
   bool get isActive =>
       milestoneId != null ||
       noMilestoneOnly ||
       statuses.isNotEmpty ||
+      includeStalled ||
       priorities.isNotEmpty ||
       tagIds.isNotEmpty ||
       deadlineStart != null ||
@@ -43,6 +45,7 @@ class KanbanFilter {
     bool clearDeadlineEnd = false,
     bool? overdueOnly,
     bool? completedOnly,
+    bool? includeStalled,
     String? milestoneId,
     bool clearMilestone = false,
     bool? noMilestoneOnly,
@@ -50,6 +53,7 @@ class KanbanFilter {
     milestoneId: clearMilestone ? null : milestoneId ?? this.milestoneId,
     noMilestoneOnly: noMilestoneOnly ?? this.noMilestoneOnly,
     statuses: statuses ?? this.statuses,
+    includeStalled: includeStalled ?? this.includeStalled,
     priorities: priorities ?? this.priorities,
     tagIds: tagIds ?? this.tagIds,
     deadlineStart: clearDeadlineStart

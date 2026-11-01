@@ -1082,6 +1082,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       'tag' => filter.copyWith(tagIds: {...filter.tagIds}..remove(value)),
       'overdue' => filter.copyWith(overdueOnly: false),
       'completed' => filter.copyWith(completedOnly: false),
+      'stalled' => filter.copyWith(includeStalled: false),
       'start' => filter.copyWith(clearDeadlineStart: true),
       _ => filter.copyWith(clearDeadlineEnd: true),
     });
@@ -1105,6 +1106,11 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
         InputChip(
           label: Text(status.label),
           onDeleted: () => _removeFilter('status', status),
+        ),
+      if (filter.includeStalled)
+        InputChip(
+          label: const Text('Stalled'),
+          onDeleted: () => _removeFilter('stalled', true),
         ),
       for (final priority in filter.priorities)
         InputChip(

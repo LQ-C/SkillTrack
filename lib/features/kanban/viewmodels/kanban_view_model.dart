@@ -106,8 +106,9 @@ class KanbanViewModel extends ChangeNotifier {
           ].any((value) => value.toLowerCase().contains(query))) {
         return false;
       }
-      if (_filter.statuses.isNotEmpty &&
-          !_filter.statuses.contains(task.status)) {
+      if ((_filter.statuses.isNotEmpty || _filter.includeStalled) &&
+          !_filter.statuses.contains(task.status) &&
+          !(_filter.includeStalled && task.isStalled)) {
         return false;
       }
       if (_filter.priorities.isNotEmpty &&

@@ -20,7 +20,7 @@ class _FilterSheetState extends State<FilterSheet> {
   late Set<KanbanStatus> statuses;
   late Set<TaskPriority> priorities;
   late Set<String> tagIds;
-  late bool overdueOnly, completedOnly;
+  late bool overdueOnly, completedOnly, includeStalled;
   DateTime? start, end;
   String _milestone = 'all';
   bool _isPickingDate = false;
@@ -34,6 +34,7 @@ class _FilterSheetState extends State<FilterSheet> {
     tagIds = {...filter.tagIds};
     overdueOnly = filter.overdueOnly;
     completedOnly = filter.completedOnly;
+    includeStalled = filter.includeStalled;
     start = filter.deadlineStart;
     end = filter.deadlineEnd;
   }
@@ -98,27 +99,41 @@ class _FilterSheetState extends State<FilterSheet> {
           Text('Status', style: Theme.of(context).textTheme.titleSmall),
           Wrap(
             spacing: 6,
-            children: KanbanStatus.values
-                .map(
-                  (status) => FilterChip(
-                    label: Text(status.label),
-                    selectedColor: KanbanColors.status(
-                      status,
-                    ).withValues(alpha: .13),
-                    checkmarkColor: KanbanColors.status(status),
-                    labelStyle: Theme.of(context).textTheme.labelLarge
-                        ?.copyWith(
-                          color: statuses.contains(status)
-                              ? KanbanColors.status(status)
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                    selected: statuses.contains(status),
-                    onSelected: (selected) => setState(() {
-                      selected ? statuses.add(status) : statuses.remove(status);
-                    }),
+            children: [
+              ...KanbanStatus.values.map(
+                (status) => FilterChip(
+                  label: Text(status.label),
+                  selectedColor: KanbanColors.status(
+                    status,
+                  ).withValues(alpha: .13),
+                  checkmarkColor: KanbanColors.status(status),
+                  labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: statuses.contains(status)
+                        ? KanbanColors.status(status)
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                )
-                .toList(),
+                  selected: statuses.contains(status),
+                  onSelected: (selected) => setState(() {
+                    selected ? statuses.add(status) : statuses.remove(status);
+                  }),
+                ),
+              ),
+              FilterChip(
+                label: const Text('Stalled'),
+                selectedColor: Theme.of(
+                  context,
+                ).colorScheme.tertiary.withValues(alpha: .13),
+                checkmarkColor: Theme.of(context).colorScheme.tertiary,
+                labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: includeStalled
+                      ? Theme.of(context).colorScheme.tertiary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                selected: includeStalled,
+                onSelected: (selected) =>
+                    setState(() => includeStalled = selected),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Text('Priority', style: Theme.of(context).textTheme.titleSmall),
@@ -222,6 +237,7 @@ class _FilterSheetState extends State<FilterSheet> {
                           : _milestone,
                       noMilestoneOnly: _milestone == 'none',
                       statuses: statuses,
+                      includeStalled: includeStalled,
                       priorities: priorities,
                       tagIds: tagIds,
                       overdueOnly: overdueOnly,

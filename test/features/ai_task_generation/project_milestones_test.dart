@@ -571,6 +571,7 @@ void main() {
         await tester.tap(find.text('No milestone').last);
         await tester.pumpAndSettle();
         await tester.ensureVisible(find.text('Apply filters'));
+        await tester.pumpAndSettle();
         await tester.tap(find.text('Apply filters'));
         await tester.pumpAndSettle();
         expect(model.activeFilter.noMilestoneOnly, isTrue);
