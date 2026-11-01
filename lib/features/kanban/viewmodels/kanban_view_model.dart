@@ -4,6 +4,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../projects/models/project_milestone.dart';
+import '../../projects/repositories/project_repository.dart';
 import '../models/kanban_filter.dart';
 import '../models/kanban_sort.dart';
 import '../models/kanban_status.dart';
@@ -16,7 +18,27 @@ import '../models/task_tag.dart';
 import '../repositories/kanban_repository.dart';
 
 class KanbanViewModel extends ChangeNotifier {
-  KanbanViewModel(this._repository);
+  KanbanViewModel(
+    this._repository, {
+    ProjectRepository? projectRepository,
+    String? projectId,
+  }) : _projectRepository = projectRepository,
+       _projectId = projectId;
+  final ProjectRepository? _projectRepository;
+  final String? _projectId;
+  List<ProjectMilestone> _milestones = [];
+  List<ProjectMilestone> get availableMilestones =>
+      UnmodifiableListView(_milestones);
+  String? milestoneTitle(String? id) =>
+      _milestones.where((m) => m.id == id).firstOrNull?.title;
+  ({int completed, int total}) milestoneProgress(String id) {
+    final tasks = _tasks.where((t) => !t.isArchived && t.milestoneId == id);
+    return (
+      completed: tasks.where((t) => t.isCompleted).length,
+      total: tasks.length,
+    );
+  }
+
   final KanbanRepository _repository;
   static const _sortOrderStep = 1000;
   bool _disposed = false;
@@ -96,6 +118,11 @@ class KanbanViewModel extends ChangeNotifier {
           !task.tags.any((tag) => _filter.tagIds.contains(tag.id))) {
         return false;
       }
+      if (_filter.milestoneId != null &&
+          task.milestoneId != _filter.milestoneId) {
+        return false;
+      }
+      if (_filter.noMilestoneOnly && task.milestoneId != null) return false;
       if (_filter.overdueOnly && !task.isOverdue) return false;
       if (_filter.completedOnly && !task.isCompleted) return false;
       if (_filter.deadlineStart != null &&
@@ -141,6 +168,7 @@ class KanbanViewModel extends ChangeNotifier {
       if (_boardId == null) {
         _tasks = [];
         _tags = [];
+        _milestones = [];
         _archivedBoardId = await _repository.getFirstBoardId(archived: true);
         if (_disposed) return;
         _errorMessage = _archivedBoardId == null
@@ -161,12 +189,21 @@ class KanbanViewModel extends ChangeNotifier {
     final board = _boardId;
     if (_disposed || board == null) return;
     final user = _repository.currentUserId;
-    final (loaded, tags) = await (
+    final (loaded, tags, milestones) = await (
       _repository.getTasks(board),
       user == null ? Future.value(<TaskTag>[]) : _repository.getUserTags(user),
+      _projectRepository != null && _projectId != null
+          ? _projectRepository.getProjectMilestones(_projectId)
+          : Future.value(<ProjectMilestone>[]),
     ).wait;
     if (_disposed || board != _boardId) return;
     _tasks = loaded;
+    _milestones = milestones;
+    if (_filter.milestoneId != null &&
+        _projectRepository != null &&
+        !_milestones.any((m) => m.id == _filter.milestoneId)) {
+      _filter = _filter.copyWith(clearMilestone: true);
+    }
     _tags = tags;
     _errorMessage = null;
     notifyListeners();
@@ -360,6 +397,7 @@ class KanbanViewModel extends ChangeNotifier {
     DateTime? deadline,
     List<String> tagIds = const [],
     List<String> checklist = const [],
+    String? milestoneId,
   }) async {
     if (title.trim().isEmpty) {
       _titleError = 'Task title is required';
@@ -376,6 +414,7 @@ class KanbanViewModel extends ChangeNotifier {
     final task = KanbanTask(
       id: '',
       boardId: _boardId!,
+      milestoneId: milestoneId,
       title: title.trim(),
       description: description.trim(),
       status: status,
@@ -417,6 +456,8 @@ class KanbanViewModel extends ChangeNotifier {
     required TaskPriority priority,
     DateTime? deadline,
     List<String>? tagIds,
+    String? milestoneId,
+    bool clearMilestone = false,
   }) async {
     if (title.trim().isEmpty) {
       _titleError = 'Task title is required';
@@ -432,6 +473,8 @@ class KanbanViewModel extends ChangeNotifier {
         await _repository.updateTask(
           current.copyWith(
             title: title.trim(),
+            milestoneId: milestoneId,
+            clearMilestone: clearMilestone,
             description: description.trim(),
             priority: priority,
             deadline: deadline,
@@ -651,6 +694,7 @@ class KanbanViewModel extends ChangeNotifier {
 
   Future<bool> duplicateTask(KanbanTask task) => createTask(
     title: '${task.title} (copy)',
+    milestoneId: task.milestoneId,
     description: task.description,
     status: task.status,
     priority: task.priority,

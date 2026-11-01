@@ -1,14 +1,17 @@
 import 'dart:async';
 
-import 'package:skilltrack/features/projects/models/learning_project.dart';
-import 'package:skilltrack/features/projects/models/project_with_progress.dart';
-import 'package:skilltrack/features/projects/repositories/project_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/ai_task_generation/models/task_generation_request.dart';
 import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_generation_repository.dart';
+import 'package:skilltrack/features/projects/models/learning_project.dart';
+import 'package:skilltrack/features/projects/models/project_milestone.dart';
+import 'package:skilltrack/features/projects/models/project_with_progress.dart';
+import 'package:skilltrack/features/projects/repositories/project_repository.dart';
 
 class FakeTaskGenerationRepository implements TaskGenerationRepository {
   int calls = 0;
+  List<ProjectMilestone> lastMilestones = [];
+  String? lastProjectId;
   String lastConstraints = '';
   String lastRevisionConstraints = '';
   bool fail = false;
@@ -35,9 +38,13 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) async {
     calls++;
     lastConstraints = constraints;
+    lastMilestones = existingMilestones;
+    lastProjectId = projectId;
     lastMode = mode;
     lastExistingTasks = existingTasks;
     lastStartDate = startDate;
@@ -68,9 +75,13 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) async {
     revisionCalls++;
     lastRevisionConstraints = constraints;
+    lastMilestones = existingMilestones;
+    lastProjectId = projectId;
     lastSourceMode = sourceMode;
     lastFeedback = feedback;
     lastCurrentDraft = List.of(currentDraft);
@@ -86,6 +97,10 @@ class FakeProjectRepository implements ProjectRepository {
     this.userId = 'user-1',
     List<ProjectWithProgress>? items,
   }) : stored = List.of(items ?? []);
+  final milestones = <ProjectMilestone>[];
+  @override
+  Future<List<ProjectMilestone>> getProjectMilestones(String projectId) async =>
+      milestones.where((group) => group.projectId == projectId).toList();
   String? userId;
   List<ProjectWithProgress> stored;
   bool failBoardCreation = false;

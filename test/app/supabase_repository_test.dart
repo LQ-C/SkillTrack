@@ -10,6 +10,7 @@ import 'package:skilltrack/features/kanban/models/kanban_status.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
 import 'package:skilltrack/features/kanban/repositories/supabase_kanban_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
+import 'package:skilltrack/features/ai_task_generation/models/generated_milestone_draft.dart';
 import 'package:skilltrack/features/projects/repositories/supabase_project_repository.dart';
 
 class _ProjectRepository extends SupabaseProjectRepository {
@@ -264,7 +265,7 @@ void main() {
       expect(api.requests, hasLength(1));
       expect(
         api.requests.single.queryParameters['select'],
-        'title,description,status,deadline,sort_order,is_archived',
+        'title,description,status,deadline,sort_order,is_archived,milestone_id',
       );
       expect(
         api.requests.single.queryParameters,
@@ -319,6 +320,95 @@ void main() {
         isFalse,
       ); // Allocated under a DB lock.
       expect(task.containsKey('owner_id'), isFalse);
+    },
+  );
+
+  test(
+    'milestone batch uses versioned atomic RPC and preserves retry payload',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final group = GeneratedMilestoneDraft(
+        localId: 'draft-stage',
+        title: 'Authentication',
+        position: 0,
+      );
+      final tasks = [
+        GeneratedTaskDraft(
+          title: 'Build login',
+          description: 'Connect authentication',
+          priority: 'medium',
+          deadline: DateTime(2026, 12, 1),
+          position: 0,
+          checklist: ['Build', 'Test'],
+          milestone: group,
+        ),
+      ];
+      final repository = SupabaseKanbanRepository(client);
+      await repository.createGeneratedTasks(
+        'board-1',
+        tasks,
+        requestId: 'milestone-operation-123',
+      );
+      await repository.createGeneratedTasks(
+        'board-1',
+        tasks,
+        requestId: 'milestone-operation-123',
+      );
+      expect(
+        api.requests.every(
+          (uri) =>
+              uri.path.endsWith('/rpc/save_generated_tasks_with_milestones'),
+        ),
+        isTrue,
+      );
+      expect(api.methods, ['POST', 'POST']);
+      expect(api.requestBodies.first, api.requestBodies.last);
+      final body = jsonDecode(api.requestBodies.first) as Map;
+      expect(body['p_request_id'], 'milestone-operation-123');
+      final task = (body['p_tasks'] as List).single as Map;
+      expect(task['milestone'], group.toJson());
+      expect(task['draftTaskId'], tasks.single.localId);
+      expect(task['checklist'], ['Build', 'Test']);
+    },
+  );
+
+  test(
+    'failed milestone batch never falls back to separate client writes',
+    () async {
+      final api = await _ApiFixture.start()
+        ..failInsertTable = 'save_generated_tasks_with_milestones';
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      await expectLater(
+        SupabaseKanbanRepository(client).createGeneratedTasks('board-1', [
+          GeneratedTaskDraft(
+            title: 'Build login',
+            description: 'Connect auth',
+            priority: 'medium',
+            deadline: DateTime(2026, 12, 1),
+            position: 0,
+            milestone: GeneratedMilestoneDraft(
+              localId: 'new',
+              title: 'Auth',
+              position: 0,
+            ),
+          ),
+        ]),
+        throwsA(isA<AppException>()),
+      );
+      expect(api.requests, hasLength(1));
+      expect(
+        api.requests.single.path,
+        endsWith('/rpc/save_generated_tasks_with_milestones'),
+      );
     },
   );
 

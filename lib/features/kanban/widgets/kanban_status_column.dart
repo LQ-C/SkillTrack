@@ -30,9 +30,11 @@ class KanbanStatusColumn extends StatefulWidget {
     required this.onLeave,
     required this.onDrop,
     this.dragEnabled = true,
+    this.milestoneTitle,
   });
 
   final KanbanStatus status;
+  final String? Function(String?)? milestoneTitle;
   final bool dragEnabled;
   final List<KanbanTask> tasks;
   final ScrollController scrollController;
@@ -256,6 +258,9 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                                         ),
                                       ),
                                   child: KanbanTaskCard(
+                                    milestoneTitle: widget.milestoneTitle?.call(
+                                      task.milestoneId,
+                                    ),
                                     task: task,
                                     onTap: () {},
                                     onAction: (_) {},
@@ -295,6 +300,9 @@ class _KanbanStatusColumnState extends State<KanbanStatusColumn>
                             active: widget.accentTaskIds.contains(task.id),
                             completed: task.status == KanbanStatus.completed,
                             child: KanbanTaskCard(
+                              milestoneTitle: widget.milestoneTitle?.call(
+                                task.milestoneId,
+                              ),
                               task: task,
                               onTap: widget.onTaskTap == null
                                   ? null

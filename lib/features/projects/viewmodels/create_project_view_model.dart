@@ -260,7 +260,7 @@ class CreateProjectViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.noGeneratedTasks;
         return null;
       }
-      _pendingTasks = List.unmodifiable(generated);
+      _pendingTasks = List.unmodifiable(GeneratedTaskDraft.grouped(generated));
       _pendingName = name.trim();
       _pendingDescription = description.trim();
       _pendingConstraints = trimmedConstraints;
@@ -370,7 +370,7 @@ class CreateProjectViewModel extends ChangeNotifier
     List<GeneratedTaskDraft> tasks, {
     String? error,
   }) {
-    _pendingTasks = List.unmodifiable(tasks);
+    _pendingTasks = List.unmodifiable(GeneratedTaskDraft.grouped(tasks));
     _errorMessage = error;
     notifyListeners();
   }
@@ -418,7 +418,7 @@ class CreateProjectViewModel extends ChangeNotifier
         currentDraft: _pendingTasks!,
       );
       if (_disposed) return false;
-      final checked = GeneratedTaskDraft.reindex(revised);
+      final checked = GeneratedTaskDraft.grouped(revised);
       final invalid = GeneratedTaskDraft.validationError(
         checked,
         startDate: generationStartDate,

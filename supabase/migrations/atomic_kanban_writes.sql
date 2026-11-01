@@ -1,6 +1,8 @@
 -- Additive repair: uses the existing Kanban tables and their RLS policies.
 -- Each RPC is one transaction. No elevated ownership bypass is used.
-create table public.kanban_write_requests (
+-- Rerunnable prerequisite setup: existing tables, policies and function bodies are preserved.
+begin;
+create table if not exists public.kanban_write_requests (
   user_id uuid not null references auth.users(id) on delete cascade,
   request_id text not null check (length(request_id) between 16 and 128),
   board_id uuid not null references public.kanban_boards(id) on delete cascade,
@@ -10,13 +12,31 @@ create table public.kanban_write_requests (
   primary key (user_id, request_id)
 );
 alter table public.kanban_write_requests enable row level security;
-create policy kanban_write_requests_select on public.kanban_write_requests
+do $policy$
+begin
+  if not exists (select 1 from pg_policies where schemaname = 'public'
+      and tablename = 'kanban_write_requests' and policyname = 'kanban_write_requests_select') then
+    create policy kanban_write_requests_select on public.kanban_write_requests
   for select to authenticated using (user_id = auth.uid());
-create policy kanban_write_requests_insert on public.kanban_write_requests
+  end if;
+end;
+$policy$;
+do $policy$
+begin
+  if not exists (select 1 from pg_policies where schemaname = 'public'
+      and tablename = 'kanban_write_requests' and policyname = 'kanban_write_requests_insert') then
+    create policy kanban_write_requests_insert on public.kanban_write_requests
   for insert to authenticated with check (user_id = auth.uid());
-revoke all on public.kanban_write_requests from anon, authenticated;
+  end if;
+end;
+$policy$;
+revoke all on public.kanban_write_requests from public, anon, authenticated;
 grant select, insert on public.kanban_write_requests to authenticated;
 
+do $install$
+begin
+  if to_regprocedure('public.assert_owned_kanban_board(uuid)') is null then
+    execute $definition$
 create function public.assert_owned_kanban_board(p_board_id uuid)
 returns void language plpgsql security invoker set search_path = public, pg_temp as $$
 begin
@@ -28,7 +48,15 @@ begin
   if not found then raise exception 'Project board unavailable' using errcode = '42501'; end if;
 end;
 $$;
+$definition$;
+  end if;
+end;
+$install$;
 
+do $install$
+begin
+  if to_regprocedure('public.save_generated_tasks(uuid,text,jsonb)') is null then
+    execute $definition$
 create function public.save_generated_tasks(
   p_board_id uuid, p_request_id text, p_tasks jsonb
 ) returns integer language plpgsql security invoker set search_path = public, pg_temp as $$
@@ -106,7 +134,15 @@ begin
   return saved;
 end;
 $$;
+$definition$;
+  end if;
+end;
+$install$;
 
+do $install$
+begin
+  if to_regprocedure('public.reorder_kanban_tasks(jsonb)') is null then
+    execute $definition$
 create function public.reorder_kanban_tasks(p_tasks jsonb)
 returns void language plpgsql security invoker set search_path = public, pg_temp as $$
 declare v_board_id uuid; expected integer; matched integer;
@@ -125,7 +161,15 @@ begin
     from jsonb_to_recordset(p_tasks) x(id uuid, sort_order bigint) where x.id = t.id;
 end;
 $$;
+$definition$;
+  end if;
+end;
+$install$;
 
+do $install$
+begin
+  if to_regprocedure('public.reorder_task_checklist(uuid,jsonb)') is null then
+    execute $definition$
 create function public.reorder_task_checklist(p_task_id uuid, p_items jsonb)
 returns void language plpgsql security invoker set search_path = public, pg_temp as $$
 declare v_board_id uuid; expected integer; matched integer;
@@ -147,7 +191,15 @@ begin
     values (p_task_id, 'checklist_updated', '{}'::jsonb, '{"change":"reordered"}'::jsonb);
 end;
 $$;
+$definition$;
+  end if;
+end;
+$install$;
 
+do $install$
+begin
+  if to_regprocedure('public.delete_task_checklist_item(uuid)') is null then
+    execute $definition$
 create function public.delete_task_checklist_item(p_item_id uuid)
 returns void language plpgsql security invoker set search_path = public, pg_temp as $$
 declare v_task_id uuid; v_board_id uuid;
@@ -161,7 +213,15 @@ begin
     values (v_task_id, 'checklist_updated', '{}'::jsonb, '{"change":"removed"}'::jsonb);
 end;
 $$;
+$definition$;
+  end if;
+end;
+$install$;
 
+do $install$
+begin
+  if to_regprocedure('public.register_task_attachment(uuid,text,text,text,bigint)') is null then
+    execute $definition$
 create function public.register_task_attachment(
   p_task_id uuid, p_file_name text, p_storage_path text, p_mime_type text, p_file_size bigint
 ) returns public.task_attachments
@@ -182,6 +242,10 @@ begin
   return attachment;
 end;
 $$;
+$definition$;
+  end if;
+end;
+$install$;
 
 revoke all on function public.assert_owned_kanban_board(uuid) from public;
 revoke all on function public.save_generated_tasks(uuid, text, jsonb) from public;
@@ -194,3 +258,5 @@ grant execute on function public.assert_owned_kanban_board(uuid),
   public.reorder_kanban_tasks(jsonb), public.reorder_task_checklist(uuid, jsonb),
   public.delete_task_checklist_item(uuid),
   public.register_task_attachment(uuid, text, text, text, bigint) to authenticated;
+
+commit;

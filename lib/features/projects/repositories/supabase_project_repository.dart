@@ -2,6 +2,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/errors/app_exception.dart';
 import '../models/learning_project.dart';
+import '../models/project_milestone.dart';
 import '../models/project_with_progress.dart';
 import 'project_repository.dart';
 
@@ -34,6 +35,19 @@ class SupabaseProjectRepository implements ProjectRepository {
   Future<void> signIn(String email, String password) => _guard(() async {
     await _client.auth.signInWithPassword(email: email, password: password);
   });
+
+  @override
+  Future<List<ProjectMilestone>> getProjectMilestones(String projectId) =>
+      _guard(() async {
+        if (await getProject(projectId) == null) return [];
+        final rows = await _client
+            .from('project_milestones')
+            .select()
+            .eq('project_id', projectId)
+            .order('position')
+            .order('id');
+        return rows.map(ProjectMilestone.fromMap).toList();
+      });
 
   @override
   Future<List<LearningProject>> getUserProjects() => _guard(() async {

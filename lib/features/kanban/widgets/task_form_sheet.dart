@@ -30,6 +30,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   late KanbanStatus _status;
   late TaskPriority _priority;
   late DateTime? _deadline;
+  String? _milestoneId;
   late bool _hasTime;
   late Set<String> _tagIds;
   bool _moreOptions = false;
@@ -45,6 +46,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
     _status = task?.status ?? KanbanStatus.todo;
     _priority = task?.priority ?? TaskPriority.medium;
     _deadline = task?.deadline;
+    _milestoneId = task?.milestoneId;
     _hasTime =
         task?.deadline != null &&
         (task!.deadline!.hour != 0 || task.deadline!.minute != 0);
@@ -78,6 +80,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             priority: _priority,
             deadline: _deadline,
             tagIds: selectedTagIds,
+            milestoneId: _milestoneId,
             checklist: [
               ..._checklist,
               if (_checklistInput.text.trim().isNotEmpty) _checklistInput.text,
@@ -91,6 +94,8 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             priority: _priority,
             deadline: _deadline,
             tagIds: selectedTagIds,
+            milestoneId: _milestoneId,
+            clearMilestone: _milestoneId == null,
           );
     if (ok && mounted) {
       setState(() => _isLeaving = true);
@@ -583,6 +588,35 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                   const SizedBox(height: 22),
                   _deadlineRow(theme),
                   const SizedBox(height: 22),
+                  if (widget.viewModel.availableMilestones.isNotEmpty) ...[
+                    DropdownButtonFormField<String>(
+                      key: const Key('task-milestone'),
+                      initialValue: _milestoneId ?? '',
+                      isExpanded: true,
+                      decoration: const InputDecoration(labelText: 'Milestone'),
+                      items: [
+                        const DropdownMenuItem(
+                          value: '',
+                          child: Text('No milestone'),
+                        ),
+                        for (final milestone
+                            in widget.viewModel.availableMilestones)
+                          DropdownMenuItem(
+                            value: milestone.id,
+                            child: Text(
+                              milestone.title,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                          ),
+                      ],
+                      onChanged: widget.viewModel.isSaving
+                          ? null
+                          : (id) => setState(
+                              () => _milestoneId = id == '' ? null : id,
+                            ),
+                    ),
+                    const SizedBox(height: 16),
+                  ],
                   _tagRow(theme),
                   const SizedBox(height: 18),
                   _inputCard(theme),

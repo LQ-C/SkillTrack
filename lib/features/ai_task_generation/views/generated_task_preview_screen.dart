@@ -1,14 +1,14 @@
 import 'package:flutter/material.dart';
 
-import '../../../app/widgets/app_content.dart';
-
 import '../../../app/router/app_router.dart';
-import '../../kanban/utils/kanban_colors.dart';
+import '../../../app/widgets/app_content.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../kanban/models/task_priority.dart';
+import '../../kanban/utils/kanban_colors.dart';
+import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 import '../view_models/generated_task_preview_state.dart';
-import '../models/generated_task_draft.dart';
 import '../widgets/generated_task_edit_sheet.dart';
 
 class GeneratedTaskPreviewScreen extends StatefulWidget {
@@ -31,7 +31,6 @@ class _GeneratedTaskPreviewScreenState
       _isShowingOverlay ||
       viewModel.isConfirmingGeneratedTasks ||
       viewModel.isRevisingGeneratedTasks;
-  final _taskKeys = <Key>[];
   GeneratedTaskPreviewState get viewModel => widget.viewModel;
 
   @override
@@ -69,6 +68,7 @@ class _GeneratedTaskPreviewScreenState
       await showGeneratedTaskEditSheet(
         context,
         task: task,
+        milestones: viewModel.availableGeneratedMilestones,
         startDate: viewModel.generationStartDate,
         endDate: viewModel.generationEndDate,
         onSave: (updated) => viewModel.updateGeneratedTask(index, updated)
@@ -105,7 +105,6 @@ class _GeneratedTaskPreviewScreenState
         ),
       );
       if (confirmed == true && mounted) {
-        _taskKeys.removeAt(index);
         viewModel.removeGeneratedTask(index);
       }
     } finally {
@@ -115,8 +114,6 @@ class _GeneratedTaskPreviewScreenState
 
   void _reorder(int oldIndex, int newIndex) {
     if (_busy || !viewModel.canCustomizeGeneratedTasks) return;
-    final key = _taskKeys.removeAt(oldIndex);
-    _taskKeys.insert(newIndex > oldIndex ? newIndex - 1 : newIndex, key);
     viewModel.reorderGeneratedTask(oldIndex, newIndex);
   }
 
@@ -133,12 +130,6 @@ class _GeneratedTaskPreviewScreenState
     listenable: viewModel,
     builder: (context, child) {
       final tasks = viewModel.pendingGeneratedTasks;
-      while (_taskKeys.length < tasks.length) {
-        _taskKeys.add(UniqueKey());
-      }
-      if (_taskKeys.length > tasks.length) {
-        _taskKeys.removeRange(tasks.length, _taskKeys.length);
-      }
       final saving = viewModel.isConfirmingGeneratedTasks;
       final revising = viewModel.isRevisingGeneratedTasks;
       final busy = saving || revising || _isLeaving;
@@ -210,28 +201,84 @@ class _GeneratedTaskPreviewScreenState
                       itemBuilder: (context, index) {
                         final task = tasks[index];
                         return Padding(
-                          key: _taskKeys[index],
+                          key: ValueKey(task.localId),
                           padding: const EdgeInsets.only(bottom: 12),
-                          child: _PreviewCard(
-                            task: task,
-                            number: index + 1,
-                            onEdit: canCustomize
-                                ? () => _edit(context, index, task)
-                                : null,
-                            onRemove: canCustomize
-                                ? () => _remove(context, index)
-                                : null,
-                            dragHandle: ReorderableDelayedDragStartListener(
-                              index: index,
-                              enabled: canCustomize,
-                              child: Tooltip(
-                                message: 'Hold to reorder task',
-                                child: Icon(
-                                  Icons.drag_handle,
-                                  color: theme.colorScheme.onSurfaceVariant,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.stretch,
+                            children: [
+                              if (task.milestone != null &&
+                                  (index == 0 ||
+                                      tasks[index - 1].milestone?.localId !=
+                                          task.milestone!.localId))
+                                Padding(
+                                  padding: const EdgeInsets.only(
+                                    top: 12,
+                                    bottom: 12,
+                                  ),
+                                  child:
+                                      task.milestone!.existingMilestoneId !=
+                                          null
+                                      ? Text(
+                                          task.milestone!.title,
+                                          style: theme.textTheme.titleMedium,
+                                        )
+                                      : TextFormField(
+                                          key: ValueKey(
+                                            'milestone-${task.milestone!.localId}',
+                                          ),
+                                          initialValue: task.milestone!.title,
+                                          enabled: canCustomize,
+                                          maxLength:
+                                              AppLimits.maxMilestoneTitleLength,
+                                          decoration: const InputDecoration(
+                                            labelText: 'Milestone name',
+                                            counterText: '',
+                                            prefixIcon: Icon(
+                                              Icons.flag_outlined,
+                                            ),
+                                          ),
+                                          onChanged: (title) => viewModel
+                                              .renameGeneratedMilestone(
+                                                task.milestone!.localId,
+                                                title,
+                                              ),
+                                        ),
+                                ),
+                              if (task.milestone == null &&
+                                  tasks.any((t) => t.milestone != null) &&
+                                  (index == 0 ||
+                                      tasks[index - 1].milestone != null))
+                                Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                    vertical: 12,
+                                  ),
+                                  child: Text(
+                                    'No milestone',
+                                    style: theme.textTheme.titleMedium,
+                                  ),
+                                ),
+                              _PreviewCard(
+                                task: task,
+                                number: index + 1,
+                                onEdit: canCustomize
+                                    ? () => _edit(context, index, task)
+                                    : null,
+                                onRemove: canCustomize
+                                    ? () => _remove(context, index)
+                                    : null,
+                                dragHandle: ReorderableDelayedDragStartListener(
+                                  index: index,
+                                  enabled: canCustomize,
+                                  child: Tooltip(
+                                    message: 'Hold to reorder task',
+                                    child: Icon(
+                                      Icons.drag_handle,
+                                      color: theme.colorScheme.onSurfaceVariant,
+                                    ),
+                                  ),
                                 ),
                               ),
-                            ),
+                            ],
                           ),
                         );
                       },

@@ -1,3 +1,4 @@
+import '../../projects/models/project_milestone.dart';
 import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 
@@ -10,6 +11,8 @@ abstract class TaskGenerationRepository {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   });
   Future<List<GeneratedTaskDraft>> revise({
     required String title,
@@ -21,5 +24,7 @@ abstract class TaskGenerationRepository {
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   });
 }

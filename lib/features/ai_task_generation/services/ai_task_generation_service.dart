@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../projects/models/project_milestone.dart';
 import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 
@@ -19,10 +20,17 @@ class AiTaskGenerationService {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) => _invoke({
     'projectName': title,
     'description': description,
     if (constraints.trim().isNotEmpty) 'constraints': constraints.trim(),
+    'projectId': ?projectId,
+    if (projectId != null)
+      'existingMilestones': [
+        for (final group in existingMilestones) group.toGenerationJson(),
+      ],
     'deadline': endDate.toIso8601String().split('T').first,
     if (mode == TaskGenerationMode.append) ...{
       'generationMode': 'append',
@@ -39,6 +47,8 @@ class AiTaskGenerationService {
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) {
     if (sourceMode == TaskGenerationMode.revise) {
       throw ArgumentError.value(sourceMode, 'sourceMode');
@@ -47,6 +57,11 @@ class AiTaskGenerationService {
       'projectName': title,
       'description': description,
       if (constraints.trim().isNotEmpty) 'constraints': constraints.trim(),
+      'projectId': ?projectId,
+      if (projectId != null)
+        'existingMilestones': [
+          for (final group in existingMilestones) group.toGenerationJson(),
+        ],
       'deadline': endDate.toIso8601String().split('T').first,
       'generationMode': 'revise',
       'sourceMode': sourceMode.name,

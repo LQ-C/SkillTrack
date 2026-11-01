@@ -1,10 +1,12 @@
 import '../models/learning_project.dart';
+import '../models/project_milestone.dart';
 import '../models/project_with_progress.dart';
 
 abstract class ProjectRepository {
   String? get currentUserId;
   Future<void> signIn(String email, String password);
   Future<List<LearningProject>> getUserProjects();
+  Future<List<ProjectMilestone>> getProjectMilestones(String projectId);
   Future<LearningProject?> getProject(String projectId);
   Future<ProjectWithProgress> createProject({
     required String name,

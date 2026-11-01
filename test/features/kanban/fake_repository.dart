@@ -98,6 +98,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
           status: task.isArchived ? 'archived' : task.status.value,
           deadline: task.deadline,
           sortOrder: task.sortOrder,
+          milestoneId: task.milestoneId,
         ),
     ];
   }
@@ -156,6 +157,8 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
           id: taskId,
           boardId: boardId,
           title: draft.title,
+          milestoneId:
+              draft.milestone?.existingMilestoneId ?? draft.milestone?.localId,
           description: draft.description,
           status: KanbanStatus.todo,
           priority: TaskPriority.fromValue(draft.priority),

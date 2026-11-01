@@ -23,6 +23,7 @@ import '../widgets/filter_sheet.dart';
 import '../widgets/kanban_status_column.dart';
 import '../widgets/kanban_task_card.dart';
 import '../widgets/project_progress_card.dart';
+import '../widgets/milestone_progress_section.dart';
 import '../widgets/sort_sheet.dart';
 import '../widgets/tag_management_sheet.dart';
 import '../widgets/task_tag_chip.dart';
@@ -434,6 +435,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             SizedBox(
               width: columnWidth,
               child: KanbanStatusColumn(
+                milestoneTitle: widget.viewModel.milestoneTitle,
                 dragEnabled:
                     widget.viewModel.activeSort == KanbanSort.custom &&
                     !widget.viewModel.isSaving,
@@ -537,6 +539,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                     elevation: 8 * (1 - progress),
                     shadowColor: Colors.black38,
                     child: KanbanTaskCard(
+                      milestoneTitle: widget.viewModel.milestoneTitle(
+                        task.milestoneId,
+                      ),
                       task: task,
                       onTap: () {},
                       onAction: (_) {},
@@ -1084,6 +1089,18 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
 
   Widget _filterChips(KanbanFilter filter) {
     final chips = <Widget>[
+      if (filter.milestoneId != null || filter.noMilestoneOnly)
+        InputChip(
+          label: Text(
+            filter.noMilestoneOnly
+                ? 'No milestone'
+                : widget.viewModel.milestoneTitle(filter.milestoneId) ??
+                      'Milestone',
+          ),
+          onDeleted: () => widget.viewModel.applyFilter(
+            filter.copyWith(clearMilestone: true, noMilestoneOnly: false),
+          ),
+        ),
       for (final status in filter.statuses)
         InputChip(
           label: Text(status.label),
@@ -1299,6 +1316,8 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                           total: model.totalTaskCount,
                           onTap: _navigationBusy ? null : _showProgress,
                         ),
+                        if (model.availableMilestones.isNotEmpty)
+                          MilestoneProgressSection(viewModel: model),
                         if (model.hasActiveFilters)
                           _filterChips(model.activeFilter),
                         if (model.activeSort != KanbanSort.custom)

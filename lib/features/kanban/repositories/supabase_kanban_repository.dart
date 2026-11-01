@@ -90,25 +90,29 @@ class SupabaseKanbanRepository implements KanbanRepository {
       _getTasks(boardId, archived: true);
 
   @override
-  Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId) =>
-      _guard(() async {
-        final rows = await _client
-            .from('kanban_tasks')
-            .select('title,description,status,deadline,sort_order,is_archived')
-            .eq('board_id', boardId);
-        return [
-          for (final row in rows)
-            ExistingTaskSummary(
-              title: row['title']?.toString() ?? '',
-              description: row['description']?.toString() ?? '',
-              status: row['is_archived'] == true
-                  ? 'archived'
-                  : row['status']?.toString() ?? 'todo',
-              deadline: DateTime.tryParse(row['deadline']?.toString() ?? ''),
-              sortOrder: (row['sort_order'] as num?)?.toInt() ?? 0,
-            ),
-        ];
-      });
+  Future<List<ExistingTaskSummary>> getTaskSummaries(
+    String boardId,
+  ) => _guard(() async {
+    final rows = await _client
+        .from('kanban_tasks')
+        .select(
+          'title,description,status,deadline,sort_order,is_archived,milestone_id',
+        )
+        .eq('board_id', boardId);
+    return [
+      for (final row in rows)
+        ExistingTaskSummary(
+          title: row['title']?.toString() ?? '',
+          description: row['description']?.toString() ?? '',
+          status: row['is_archived'] == true
+              ? 'archived'
+              : row['status']?.toString() ?? 'todo',
+          deadline: DateTime.tryParse(row['deadline']?.toString() ?? ''),
+          sortOrder: (row['sort_order'] as num?)?.toInt() ?? 0,
+          milestoneId: row['milestone_id'] as String?,
+        ),
+    ];
+  });
 
   Future<List<KanbanTask>> _getTasks(
     String boardId, {
@@ -215,7 +219,9 @@ class SupabaseKanbanRepository implements KanbanRepository {
   }) => _guard(() async {
     if (tasks.isEmpty) return;
     await _client.rpc(
-      'save_generated_tasks',
+      tasks.any((task) => task.milestone != null)
+          ? 'save_generated_tasks_with_milestones'
+          : 'save_generated_tasks',
       params: {
         'p_board_id': boardId,
         'p_request_id': requestId ?? createOperationId(),

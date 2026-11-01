@@ -4,6 +4,7 @@ import '../../../app/router/app_router.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../../kanban/models/task_priority.dart';
 import '../models/generated_task_draft.dart';
+import '../models/generated_milestone_draft.dart';
 
 Future<GeneratedTaskDraft?> showGeneratedTaskEditSheet(
   BuildContext context, {
@@ -11,12 +12,14 @@ Future<GeneratedTaskDraft?> showGeneratedTaskEditSheet(
   required DateTime startDate,
   required DateTime endDate,
   String? Function(GeneratedTaskDraft)? onSave,
+  List<GeneratedMilestoneDraft> milestones = const [],
 }) => showModalBottomSheet<GeneratedTaskDraft>(
   context: context,
   isScrollControlled: true,
   useSafeArea: true,
   builder: (_) => _GeneratedTaskEditSheet(
     task: task,
+    milestones: milestones,
     startDate: startDate,
     endDate: endDate,
     onSave: onSave,
@@ -29,9 +32,11 @@ class _GeneratedTaskEditSheet extends StatefulWidget {
     required this.startDate,
     required this.endDate,
     this.onSave,
+    this.milestones = const [],
   });
 
   final GeneratedTaskDraft task;
+  final List<GeneratedMilestoneDraft> milestones;
   final DateTime startDate;
   final DateTime endDate;
   final String? Function(GeneratedTaskDraft)? onSave;
@@ -49,6 +54,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
   final _items = <TextEditingController>[];
   final _removedItems = <TextEditingController>[];
   late String _priority;
+  GeneratedMilestoneDraft? _milestone;
   late DateTime _deadline;
   String? _checklistError;
   bool _isPickingDate = false;
@@ -60,6 +66,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
     _title = TextEditingController(text: widget.task.title);
     _description = TextEditingController(text: widget.task.description);
     _priority = widget.task.priority;
+    _milestone = widget.task.milestone;
     final start = DateUtils.dateOnly(widget.startDate);
     final end = DateUtils.dateOnly(widget.endDate);
     final current = DateUtils.dateOnly(widget.task.deadline);
@@ -146,6 +153,8 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
     }
     final updated = widget.task.copyWith(
       title: _title.text.trim(),
+      milestone: _milestone,
+      clearMilestone: _milestone == null,
       description: _description.text.trim(),
       priority: _priority,
       deadline: _deadline,
@@ -218,6 +227,36 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
                           : null,
                     ),
                     const SizedBox(height: 16),
+                    if (widget.milestones.isNotEmpty) ...[
+                      DropdownButtonFormField<String>(
+                        key: const Key('generated-edit-milestone'),
+                        initialValue: _milestone?.localId ?? '',
+                        isExpanded: true,
+                        decoration: const InputDecoration(
+                          labelText: 'Milestone',
+                        ),
+                        items: [
+                          const DropdownMenuItem(
+                            value: '',
+                            child: Text('No milestone'),
+                          ),
+                          for (final milestone in widget.milestones)
+                            DropdownMenuItem(
+                              value: milestone.localId,
+                              child: Text(
+                                milestone.title,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: (id) => setState(
+                          () => _milestone = widget.milestones
+                              .where((m) => m.localId == id)
+                              .firstOrNull,
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     Text('Priority', style: theme.textTheme.titleSmall),
                     Wrap(
                       spacing: 8,

@@ -2,11 +2,13 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
-import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/operation_id.dart';
 import '../../kanban/repositories/kanban_repository.dart';
+import '../../projects/models/project_milestone.dart';
 import '../../projects/repositories/project_repository.dart';
+import '../models/generated_milestone_draft.dart';
 import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 import '../repositories/ai_task_generation_repository.dart';
@@ -35,6 +37,10 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   bool _isRevising = false;
   DateTime? _generationStartDate, _generationEndDate;
   List<ExistingTaskSummary> _existingSummaries = const [];
+  List<ProjectMilestone> _existingMilestones = const [];
+  @override
+  Iterable<GeneratedMilestoneDraft> get existingGeneratedMilestones =>
+      _existingMilestones.map(GeneratedMilestoneDraft.existing);
   List<GeneratedTaskDraft>? _pending;
   List<GeneratedTaskDraft>? _saveDraft;
   String? _saveRequestId;
@@ -106,10 +112,13 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         return null;
       }
       final existing = await _tasks.getTaskSummaries(boardId);
+      final milestones = await _projects.getProjectMilestones(projectId);
       final generated = await _generator.generate(
         title: project.name,
         description: description,
         constraints: trimmedConstraints,
+        projectId: projectId,
+        existingMilestones: milestones,
         startDate: start,
         endDate: end,
         mode: TaskGenerationMode.append,
@@ -121,11 +130,12 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.noAdditionalTasks;
         return null;
       }
-      _pending = List.unmodifiable(fresh);
+      _pending = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
       _pendingConstraints = trimmedConstraints;
       _generationStartDate = start;
       _generationEndDate = end;
       _existingSummaries = List.unmodifiable(existing);
+      _existingMilestones = List.unmodifiable(milestones);
       return pendingGeneratedTasks;
     } catch (error) {
       if (!_disposed) {
@@ -179,7 +189,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _feedbackMessage = AppErrorMessages.additionalTasksAlreadyExist;
         return true;
       }
-      _saveDraft = List.unmodifiable(fresh);
+      _saveDraft = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
       _saveRequestId ??= createOperationId();
       await _tasks.createGeneratedTasks(
         boardId,
@@ -208,7 +218,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
     List<GeneratedTaskDraft> tasks, {
     String? error,
   }) {
-    _pending = List.unmodifiable(tasks);
+    _pending = List.unmodifiable(GeneratedTaskDraft.grouped(tasks));
     _errorMessage = error;
     notifyListeners();
   }
@@ -251,10 +261,13 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         throw const AppException(AppErrorMessages.requestFailed);
       }
       final existing = await _tasks.getTaskSummaries(boardId);
+      final milestones = await _projects.getProjectMilestones(projectId);
       final revised = await _generator.revise(
         title: project.name,
         description: project.description?.trim() ?? '',
         constraints: _pendingConstraints,
+        projectId: projectId,
+        existingMilestones: milestones,
         startDate: generationStartDate,
         endDate: generationEndDate,
         sourceMode: TaskGenerationMode.append,
@@ -267,7 +280,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       if (fresh.isEmpty) {
         throw const AppException(AppErrorMessages.noAdditionalTasks);
       }
-      final checked = GeneratedTaskDraft.reindex(fresh);
+      final checked = GeneratedTaskDraft.grouped(fresh);
       final invalid = GeneratedTaskDraft.validationError(
         checked,
         startDate: generationStartDate,
@@ -277,6 +290,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       if (invalid != null) throw AppException(invalid);
       _pending = List.unmodifiable(checked);
       _existingSummaries = List.unmodifiable(existing);
+      _existingMilestones = List.unmodifiable(milestones);
       return true;
     } catch (error) {
       if (!_disposed) {

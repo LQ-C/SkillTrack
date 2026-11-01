@@ -6,6 +6,7 @@ class ExistingTaskSummary {
     required this.status,
     required this.sortOrder,
     this.description = '',
+    this.milestoneId,
     this.deadline,
   });
 
@@ -14,6 +15,7 @@ class ExistingTaskSummary {
   final String status;
   final DateTime? deadline;
   final int sortOrder;
+  final String? milestoneId;
 
   Map<String, Object?> toRequestJson() {
     final trimmedDescription = description.trim();
@@ -24,6 +26,7 @@ class ExistingTaskSummary {
           ? trimmedDescription
           : trimmedDescription.substring(0, 500),
       'status': status,
+      if (milestoneId != null) 'milestoneId': milestoneId,
       'deadline': date == null
           ? null
           : '${date.year.toString().padLeft(4, '0')}-${date.month.toString().padLeft(2, '0')}-${date.day.toString().padLeft(2, '0')}',

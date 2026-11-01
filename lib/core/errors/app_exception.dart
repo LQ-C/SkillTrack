@@ -10,6 +10,10 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const invalidMilestone =
+      'Choose a valid milestone with a name of 1–150 characters.';
+  static const milestoneReorder =
+      'Reorder within a milestone, or use Edit to change its milestone.';
   static const invalidGenerationConstraints =
       'Constraints must be 1000 characters or fewer.';
   static const taskChanged = 'Task changed. Refresh it and try again.';

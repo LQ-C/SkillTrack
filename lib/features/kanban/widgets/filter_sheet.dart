@@ -22,11 +22,13 @@ class _FilterSheetState extends State<FilterSheet> {
   late Set<String> tagIds;
   late bool overdueOnly, completedOnly;
   DateTime? start, end;
+  String _milestone = 'all';
   bool _isPickingDate = false;
   @override
   void initState() {
     super.initState();
     final filter = widget.viewModel.activeFilter;
+    _milestone = filter.noMilestoneOnly ? 'none' : filter.milestoneId ?? 'all';
     statuses = {...filter.statuses};
     priorities = {...filter.priorities};
     tagIds = {...filter.tagIds};
@@ -69,6 +71,29 @@ class _FilterSheetState extends State<FilterSheet> {
         shrinkWrap: true,
         children: [
           Text('Filter tasks', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: const Key('milestone-filter'),
+            initialValue: _milestone,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Milestone'),
+            items: [
+              const DropdownMenuItem(
+                value: 'all',
+                child: Text('All milestones'),
+              ),
+              const DropdownMenuItem(
+                value: 'none',
+                child: Text('No milestone'),
+              ),
+              for (final milestone in widget.viewModel.availableMilestones)
+                DropdownMenuItem(
+                  value: milestone.id,
+                  child: Text(milestone.title, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (value) => setState(() => _milestone = value ?? 'all'),
+          ),
           const SizedBox(height: 12),
           Text('Status', style: Theme.of(context).textTheme.titleSmall),
           Wrap(
@@ -192,6 +217,10 @@ class _FilterSheetState extends State<FilterSheet> {
                 onPressed: () {
                   widget.viewModel.applyFilter(
                     KanbanFilter(
+                      milestoneId: _milestone == 'all' || _milestone == 'none'
+                          ? null
+                          : _milestone,
+                      noMilestoneOnly: _milestone == 'none',
                       statuses: statuses,
                       priorities: priorities,
                       tagIds: tagIds,

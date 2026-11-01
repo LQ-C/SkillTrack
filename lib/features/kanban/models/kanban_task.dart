@@ -17,6 +17,7 @@ class KanbanTask {
     this.deadline,
     required this.sortOrder,
     this.completedAt,
+    this.milestoneId,
     this.elapsedSeconds = 0,
     this.trackingStartedAt,
     this.isArchived = false,
@@ -36,6 +37,7 @@ class KanbanTask {
        attachments = UnmodifiableListView(attachments);
 
   final String id, boardId, title, description;
+  final String? milestoneId;
   final KanbanStatus status;
   final TaskPriority priority;
   final DateTime? deadline, completedAt;
@@ -110,6 +112,7 @@ class KanbanTask {
     id: map['id'].toString(),
     boardId: map['board_id']?.toString() ?? '',
     title: map['title']?.toString() ?? '',
+    milestoneId: map['milestone_id'] as String?,
     description: map['description']?.toString() ?? '',
     status: KanbanStatus.fromValue(map['status']?.toString()),
     priority: TaskPriority.fromValue(map['priority']?.toString()),
@@ -146,6 +149,7 @@ class KanbanTask {
     'id': id,
     'board_id': boardId,
     'title': title,
+    'milestone_id': milestoneId,
     'description': description,
     'status': status.value,
     'priority': priority.name,
@@ -160,6 +164,8 @@ class KanbanTask {
     String? boardId,
     String? title,
     String? description,
+    String? milestoneId,
+    bool clearMilestone = false,
     KanbanStatus? status,
     TaskPriority? priority,
     DateTime? deadline,
@@ -189,6 +195,7 @@ class KanbanTask {
     boardId: boardId ?? this.boardId,
     title: title ?? this.title,
     description: description ?? this.description,
+    milestoneId: clearMilestone ? null : milestoneId ?? this.milestoneId,
     status: status ?? this.status,
     priority: priority ?? this.priority,
     deadline: clearDeadline ? null : deadline ?? this.deadline,
@@ -222,6 +229,7 @@ class KanbanTask {
       boardId == other.boardId &&
       title == other.title &&
       description == other.description &&
+      milestoneId == other.milestoneId &&
       status == other.status &&
       priority == other.priority &&
       deadline == other.deadline &&
@@ -260,6 +268,7 @@ class KanbanTask {
     createdAt,
     updatedAt,
     Object.hash(
+      milestoneId,
       elapsedSeconds,
       trackingStartedAt,
       Object.hashAll(tags),
