@@ -276,7 +276,7 @@ class _GeneratedTaskEditSheetState extends State<_GeneratedTaskEditSheet> {
                       onPressed: _isPickingDate ? null : _pickDate,
                       icon: const Icon(Icons.calendar_today_outlined),
                       label: Text(
-                        'Deadline: ${DateFormatter.short(_deadline)}',
+                        'Deadline: ${DateFormatter.calendarDate(_deadline)}',
                       ),
                     ),
                     const SizedBox(height: 16),

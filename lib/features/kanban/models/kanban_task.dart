@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import '../../../core/utils/date_formatter.dart';
+
 import 'kanban_status.dart';
 import 'task_attachment.dart';
 import 'task_checklist_item.dart';
@@ -15,6 +17,7 @@ class KanbanTask {
     required this.status,
     required this.priority,
     this.deadline,
+    this.deadlineHasTime,
     required this.sortOrder,
     this.completedAt,
     this.milestoneId,
@@ -41,6 +44,9 @@ class KanbanTask {
   final KanbanStatus status;
   final TaskPriority priority;
   final DateTime? deadline, completedAt;
+  // Null means legacy/unknown. Never infer date-only intent from midnight.
+  final bool? deadlineHasTime;
+  bool get hasDeadlineTime => deadline != null && deadlineHasTime != false;
   final int elapsedSeconds;
   final DateTime? trackingStartedAt;
   final int sortOrder;
@@ -82,20 +88,22 @@ class KanbanTask {
       : stagnationScore >= 30
       ? 'Low risk'
       : 'Active';
-  bool get isOverdue {
+  bool get isOverdue => isOverdueAt(DateTime.now());
+
+  bool isOverdueAt(DateTime now) {
     if (isCompleted || deadline == null) return false;
-    final today = DateTime.now();
-    return _day(deadline!).isBefore(_day(today));
+    return deadline!.isBefore(now.toUtc());
   }
 
-  bool get isDueSoon {
-    if (isCompleted || deadline == null || isOverdue) return false;
-    final today = _day(DateTime.now());
-    return !_day(deadline!).isAfter(today.add(const Duration(days: 3)));
+  bool get isDueSoon => isDueSoonAt(DateTime.now());
+
+  bool isDueSoonAt(DateTime now) {
+    if (isCompleted || deadline == null || isOverdueAt(now)) return false;
+    final today = DateFormatter.today(now: now);
+    final day = DateFormatter.dateOnly(DateFormatter.malaysiaTime(deadline!));
+    return !day.isAfter(DateTime(today.year, today.month, today.day + 3));
   }
 
-  static DateTime _day(DateTime date) =>
-      DateTime(date.year, date.month, date.day);
   int get checklistCompletedCount =>
       checklistItems.where((item) => item.isCompleted).length;
   int get checklistTotalCount => checklistItems.length;
@@ -116,7 +124,8 @@ class KanbanTask {
     description: map['description']?.toString() ?? '',
     status: KanbanStatus.fromValue(map['status']?.toString()),
     priority: TaskPriority.fromValue(map['priority']?.toString()),
-    deadline: DateTime.tryParse(map['deadline']?.toString() ?? ''),
+    deadline: DateTime.tryParse(map['deadline']?.toString() ?? '')?.toUtc(),
+    deadlineHasTime: map['deadline_has_time'] as bool?,
     sortOrder: (map['sort_order'] as num?)?.toInt() ?? 0,
     completedAt: DateTime.tryParse(map['completed_at']?.toString() ?? ''),
     elapsedSeconds: _readElapsedSeconds(map['elapsed_seconds']),
@@ -153,9 +162,10 @@ class KanbanTask {
     'description': description,
     'status': status.value,
     'priority': priority.name,
-    'deadline': deadline?.toIso8601String(),
+    'deadline': deadline?.toUtc().toIso8601String(),
+    'deadline_has_time': deadline == null ? null : deadlineHasTime,
     'sort_order': sortOrder,
-    'completed_at': completedAt?.toIso8601String(),
+    'completed_at': completedAt?.toUtc().toIso8601String(),
     'is_archived': isArchived,
   };
 
@@ -169,6 +179,7 @@ class KanbanTask {
     KanbanStatus? status,
     TaskPriority? priority,
     DateTime? deadline,
+    bool? deadlineHasTime,
     bool clearDeadline = false,
     int? sortOrder,
     DateTime? completedAt,
@@ -199,6 +210,9 @@ class KanbanTask {
     status: status ?? this.status,
     priority: priority ?? this.priority,
     deadline: clearDeadline ? null : deadline ?? this.deadline,
+    deadlineHasTime: clearDeadline
+        ? null
+        : deadlineHasTime ?? this.deadlineHasTime,
     sortOrder: sortOrder ?? this.sortOrder,
     completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
     elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
@@ -233,6 +247,7 @@ class KanbanTask {
       status == other.status &&
       priority == other.priority &&
       deadline == other.deadline &&
+      deadlineHasTime == other.deadlineHasTime &&
       sortOrder == other.sortOrder &&
       completedAt == other.completedAt &&
       elapsedSeconds == other.elapsedSeconds &&
@@ -269,6 +284,7 @@ class KanbanTask {
     updatedAt,
     Object.hash(
       milestoneId,
+      deadlineHasTime,
       elapsedSeconds,
       trackingStartedAt,
       Object.hashAll(tags),

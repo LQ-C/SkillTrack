@@ -557,7 +557,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     if (_isOpeningEdit) return;
     setState(() => _isOpeningEdit = true);
     try {
-      final changed = await AppRouter.createTask(
+      await AppRouter.createTask(
         context,
         CreateTaskRouteArgs(
           projectId: widget.args.projectId,
@@ -566,7 +566,8 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           taskId: task.id,
         ),
       );
-      if (changed == true && mounted) await _model.refresh();
+      // Milestones can be saved even when the task itself was not changed.
+      if (mounted) await _model.refresh();
     } finally {
       if (mounted) setState(() => _isOpeningEdit = false);
     }

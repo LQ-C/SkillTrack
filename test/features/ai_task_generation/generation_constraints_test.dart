@@ -7,6 +7,7 @@ import 'package:skilltrack/features/ai_task_generation/models/generated_task_dra
 import 'package:skilltrack/features/ai_task_generation/view_models/append_task_generation_view_model.dart';
 import 'package:skilltrack/features/ai_task_generation/widgets/task_generation_constraints_field.dart';
 import 'package:skilltrack/features/projects/viewmodels/create_project_view_model.dart';
+import 'package:skilltrack/features/projects/models/learning_project.dart';
 
 import '../kanban/fake_repository.dart';
 import '../projects/fake_project_repository.dart';
@@ -17,11 +18,12 @@ void main() {
   CreateProjectViewModel initial(
     FakeTaskGenerationRepository generator, {
     FakeProjectRepository? projects,
+    FakeKanbanRepository? tasks,
   }) {
     final model = CreateProjectViewModel(
       projects ?? FakeProjectRepository(),
       generationRepository: generator,
-      taskRepository: FakeKanbanRepository(),
+      taskRepository: tasks ?? FakeKanbanRepository(),
     );
     model.setStartDate(today);
     model.setEndDate(today.add(const Duration(days: 10)));
@@ -30,12 +32,15 @@ void main() {
   }
 
   Future<AppendTaskGenerationViewModel> append(
-    FakeTaskGenerationRepository generator,
-  ) async {
-    final projects = FakeProjectRepository();
+    FakeTaskGenerationRepository generator, {
+    FakeProjectRepository? projects,
+    String? savedConstraints,
+  }) async {
+    projects ??= FakeProjectRepository();
     final project = await projects.createProject(
       name: 'App',
       description: 'Build an app',
+      constraints: savedConstraints,
       startDate: today,
       endDate: today.add(const Duration(days: 10)),
     );
@@ -95,20 +100,20 @@ void main() {
   );
 
   test(
-    'empty project creation remains independent of generation constraints',
+    'empty project creation stores constraints separately without invoking AI',
     () async {
       final generator = FakeTaskGenerationRepository();
       final projects = FakeProjectRepository();
       final model = initial(generator, projects: projects);
-      await model.generateTaskPreview(
-        name: 'App',
-        description: 'Build it',
-        constraints: 'x' * 1001,
-      );
       expect(
-        await model.submit(name: 'App', description: 'Original description'),
+        await model.submit(
+          name: 'App',
+          description: 'Original description',
+          constraints: '  Flutter only  ',
+        ),
         isNotNull,
       );
+      expect(projects.stored.single.project.constraints, 'Flutter only');
       expect(
         projects.stored.single.project.description,
         'Original description',
@@ -213,7 +218,7 @@ void main() {
   );
 
   test(
-    'confirmed project stores only original description, not generation constraints',
+    'confirmed project saves the preview constraints separately from the description',
     () async {
       final generator = FakeTaskGenerationRepository();
       final projects = FakeProjectRepository();
@@ -226,6 +231,7 @@ void main() {
       expect(await model.confirmGeneratedTasks(), isNotNull);
       expect(projects.stored.single.project.description, 'Build it');
       expect(projects.stored.single.project.name, 'App');
+      expect(projects.stored.single.project.constraints, 'Flutter only');
     },
   );
 
@@ -255,6 +261,208 @@ void main() {
         field.decoration!.labelText,
         'Task generation constraints (optional)',
       );
+    },
+  );
+  test(
+    'project constraints parse saved, null and legacy missing values and serialize normalized text',
+    () {
+      const base = {
+        'id': 'project-1',
+        'owner_id': 'user-1',
+        'name': 'App',
+        'status': 'active',
+      };
+      for (final value in [null, '', '  ', ' Flutter only ']) {
+        final project = LearningProject.fromMap({
+          ...base,
+          'constraints_text': value,
+        });
+        expect(
+          project.constraints,
+          value == ' Flutter only ' ? 'Flutter only' : null,
+        );
+        expect(project.toMap()['constraints_text'], project.constraints);
+      }
+      expect(LearningProject.fromMap(base).constraints, isNull);
+      const project = LearningProject(
+        id: 'p',
+        ownerId: 'u',
+        name: 'App',
+        status: 'active',
+        constraints: '  Saved  ',
+      );
+      expect(project.toMap()['constraints_text'], 'Saved');
+      expect(project.copyWith(name: 'Renamed').constraints, 'Saved');
+      expect(project.copyWith(constraints: ' New ').constraints, 'New');
+      expect(project.copyWith(clearConstraints: true).constraints, isNull);
+      expect(project.copyWith(constraints: '  ').constraints, isNull);
+    },
+  );
+
+  test(
+    'create and edit enforce length limit and preserve or explicitly clear saved constraints',
+    () async {
+      final projects = FakeProjectRepository();
+      final model = initial(FakeTaskGenerationRepository(), projects: projects);
+      expect(
+        await model.submit(
+          name: 'App',
+          description: 'Build',
+          constraints: 'x' * 1001,
+        ),
+        isNull,
+      );
+      expect(model.errorMessage, AppErrorMessages.invalidGenerationConstraints);
+      expect(projects.stored, isEmpty);
+      final created = await model.submit(
+        name: 'App',
+        description: 'Build',
+        constraints: 'x' * 1000,
+      );
+      expect(created!.project.constraints, hasLength(1000));
+      final editing = CreateProjectViewModel(
+        projects,
+        original: created.project,
+      );
+      addTearDown(editing.dispose);
+      expect(
+        await editing.submit(
+          name: 'App',
+          description: 'Build',
+          constraints: 'x' * 1001,
+        ),
+        isNull,
+      );
+      expect(projects.stored.single.project.constraints, hasLength(1000));
+      expect(
+        await editing.submit(
+          name: 'App',
+          description: 'Build',
+          constraints: '  Updated  ',
+        ),
+        isNotNull,
+      );
+      expect(projects.stored.single.project.constraints, 'Updated');
+      final compatible = CreateProjectViewModel(
+        projects,
+        original: projects.stored.single.project,
+      );
+      addTearDown(compatible.dispose);
+      expect(
+        await compatible.submit(name: 'Renamed', description: 'Build'),
+        isNotNull,
+      );
+      expect(projects.stored.single.project.constraints, 'Updated');
+      expect(
+        await compatible.submit(
+          name: 'Renamed',
+          description: 'Build',
+          constraints: '  ',
+        ),
+        isNotNull,
+      );
+      expect(projects.stored.single.project.constraints, isNull);
+    },
+  );
+
+  test(
+    'AI confirmation and retries save the same constraints used in preview revisions',
+    () async {
+      final projects = FakeProjectRepository()..failBoardCreation = true;
+      final tasks = FakeKanbanRepository();
+      final ai = FakeTaskGenerationRepository();
+      final model = initial(ai, projects: projects, tasks: tasks);
+      await model.generateTaskPreview(
+        name: 'App',
+        description: 'Build',
+        constraints: '  Original rules  ',
+      );
+      expect(projects.stored, isEmpty);
+      ai.failRevision = true;
+      expect(await model.reviseGeneratedTasks('Add tests'), isFalse);
+      expect(ai.lastRevisionConstraints, 'Original rules');
+      ai.failRevision = false;
+      expect(await model.reviseGeneratedTasks('Add tests'), isTrue);
+      expect(await model.confirmGeneratedTasks(), isNull);
+      projects.failBoardCreation = false;
+      tasks.failGeneratedInsert = true;
+      expect(await model.confirmGeneratedTasks(), isNull);
+      expect(projects.stored.single.project.constraints, 'Original rules');
+      tasks.failGeneratedInsert = false;
+      expect(await model.confirmGeneratedTasks(), isNotNull);
+      expect(projects.stored, hasLength(1));
+      expect(projects.stored.single.project.constraints, ai.lastConstraints);
+      expect(tasks.generatedRequestIds.toSet(), hasLength(1));
+    },
+  );
+
+  test(
+    'append defaults to saved constraints and keeps preview constraints when the project changes',
+    () async {
+      final projects = FakeProjectRepository();
+      final ai = FakeTaskGenerationRepository();
+      final model = await append(
+        ai,
+        projects: projects,
+        savedConstraints: 'Saved rules',
+      );
+      expect(await model.loadGenerationConstraints(), 'Saved rules');
+      await model.generateMoreTasks();
+      expect(ai.lastConstraints, 'Saved rules');
+      await projects.updateProject(
+        projects.stored.single.project.copyWith(constraints: 'New saved rules'),
+      );
+      expect(await model.loadGenerationConstraints(), 'Saved rules');
+      expect(await model.reviseGeneratedTasks('Add tests'), isTrue);
+      expect(ai.lastRevisionConstraints, 'Saved rules');
+      model.cancelGeneratedTaskPreview();
+      expect(await model.loadGenerationConstraints(), 'New saved rules');
+    },
+  );
+
+  for (final request in ['', '  Current request rules  ']) {
+    test(
+      'append request override "$request" is retained through failures without changing saved constraints',
+      () async {
+        final projects = FakeProjectRepository();
+        final ai = FakeTaskGenerationRepository();
+        final model = await append(
+          ai,
+          projects: projects,
+          savedConstraints: 'Saved rules',
+        );
+        await model.generateMoreTasks(constraints: request);
+        expect(ai.lastConstraints, request.trim());
+        final previous = model.pendingGeneratedTasks.first;
+        ai.failRevision = true;
+        expect(await model.reviseGeneratedTasks('Add tests'), isFalse);
+        expect(model.pendingGeneratedTasks.first, same(previous));
+        expect(ai.lastRevisionConstraints, request.trim());
+        ai.failRevision = false;
+        expect(await model.reviseGeneratedTasks('Add tests'), isTrue);
+        expect(ai.lastRevisionConstraints, request.trim());
+        expect(await model.confirmGeneratedTasks(), isTrue);
+        expect(projects.stored.single.project.constraints, 'Saved rules');
+      },
+    );
+  }
+
+  test(
+    'legacy projects use empty append constraints and invalid saved limits block generation',
+    () async {
+      final ai = FakeTaskGenerationRepository();
+      final model = await append(ai);
+      expect(await model.loadGenerationConstraints(), '');
+      await model.generateMoreTasks();
+      expect(ai.lastConstraints, '');
+      final invalidAi = FakeTaskGenerationRepository();
+      final invalid = await append(invalidAi, savedConstraints: 'x' * 1001);
+      expect(await invalid.generateMoreTasks(), isNull);
+      expect(
+        invalid.errorMessage,
+        AppErrorMessages.invalidGenerationConstraints,
+      );
+      expect(invalidAi.calls, 0);
     },
   );
 }

@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:flutter/foundation.dart' show kDebugMode, debugPrint;
 
 import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/operation_id.dart';
@@ -35,6 +36,20 @@ class SupabaseKanbanRepository implements KanbanRepository {
     } on AuthException {
       throw const AppException(AppErrorMessages.signInFailed);
     } on PostgrestException catch (error) {
+      final missingDeadlineMetadata =
+          (error.code == '42703' || error.code == 'PGRST204') &&
+          error.message.contains('deadline_has_time');
+      if (kDebugMode) {
+        debugPrint(
+          missingDeadlineMetadata
+              ? 'Kanban task setup: deadline_has_time is missing from the API schema. '
+                    'Apply task_deadline_timezone.sql and refresh the schema cache.'
+              : 'Kanban database request failed (code: ${error.code ?? "unknown"}).',
+        );
+      }
+      if (missingDeadlineMetadata) {
+        throw const AppException(AppErrorMessages.taskSetupIncomplete);
+      }
       throw AppException(
         error.code == '40001'
             ? AppErrorMessages.taskChanged

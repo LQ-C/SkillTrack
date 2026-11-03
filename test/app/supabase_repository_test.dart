@@ -12,6 +12,7 @@ import 'package:skilltrack/features/kanban/repositories/supabase_kanban_reposito
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_milestone_draft.dart';
 import 'package:skilltrack/features/projects/repositories/supabase_project_repository.dart';
+import 'package:skilltrack/features/projects/models/learning_project.dart';
 
 class _ProjectRepository extends SupabaseProjectRepository {
   _ProjectRepository(super.client);
@@ -29,6 +30,7 @@ class _ApiFixture {
   final tables = <String, List<Map<String, dynamic>>>{};
   bool fail = false;
   String failCode = '42703';
+  String failMessage = 'internal database column details';
   String? failInsertTable;
   bool failTaskRollback = false;
 
@@ -57,11 +59,21 @@ class _ApiFixture {
             failTaskRollback)) {
       request.response.statusCode = 400;
       request.response.write(
-        jsonEncode({
-          'message': 'internal database column details',
-          'code': failCode,
-        }),
+        jsonEncode({'message': failMessage, 'code': failCode}),
       );
+    } else if (table == 'projects' &&
+        (request.method == 'POST' || request.method == 'PATCH')) {
+      final payload = (jsonDecode(body) as Map).cast<String, dynamic>();
+      final existing =
+          tables['projects']?.firstOrNull ??
+          {'id': 'project-1', 'owner_id': 'user'};
+      final row = {...existing, ...payload};
+      tables['projects'] = [row];
+      request.response.write(jsonEncode(row));
+    } else if (table == 'kanban_boards' && request.method == 'POST') {
+      request.response.write(jsonEncode({'id': 'board-1'}));
+    } else if (table == 'create_project_milestone') {
+      request.response.write(jsonEncode(tables[table]!.single));
     } else if (table == 'update_kanban_task_tracking') {
       request.response.write(jsonEncode(tables[table]!.single));
     } else {
@@ -140,6 +152,223 @@ Map<String, dynamic> _task(String id, String board, {bool archived = false}) =>
     };
 
 void main() {
+  test(
+    'milestone availability checks the current board, project owner and archived flags in one query',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final repo = _ProjectRepository(client);
+      expect(
+        await repo.canCreateMilestone(
+          projectId: 'project-1',
+          boardId: 'board-1',
+        ),
+        isFalse,
+      );
+      final query = api.requests.single.queryParameters;
+      expect(query['id'], 'eq.board-1');
+      expect(query['project_id'], 'eq.project-1');
+      expect(query['is_archived'], 'eq.false');
+      expect(query['projects.owner_id'], 'eq.user');
+      expect(query['projects.status'], 'neq.archived');
+      api.tables['kanban_boards'] = [
+        {
+          'id': 'board-1',
+          'projects': {'owner_id': 'user', 'status': 'active'},
+        },
+      ];
+      expect(
+        await repo.canCreateMilestone(
+          projectId: 'project-1',
+          boardId: 'board-1',
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'manual milestone uses one authenticated RPC with a stable request ID and trimmed name',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      api.tables['create_project_milestone'] = [
+        {
+          'id': 'milestone-1',
+          'project_id': 'project-1',
+          'title': 'Manual',
+          'position': 3,
+          'created_at': '2026-11-02T12:00:00Z',
+        },
+      ];
+      final repo = _ProjectRepository(client);
+      final saved = await repo.createMilestone(
+        boardId: 'board-1',
+        title: '  Manual  ',
+        requestId: 'manual-request-0001',
+      );
+      expect(saved.projectId, 'project-1');
+      expect(saved.position, 3);
+      expect(api.requests.single.path, '/rest/v1/rpc/create_project_milestone');
+      expect(jsonDecode(api.requestBodies.single), {
+        'p_board_id': 'board-1',
+        'p_title': 'Manual',
+        'p_request_id': 'manual-request-0001',
+      });
+      expect(saved.createdAt, DateTime.utc(2026, 11, 2, 12));
+      for (final name in ['', '  ', 'x' * 151]) {
+        await expectLater(
+          repo.createMilestone(
+            boardId: 'board-1',
+            title: name,
+            requestId: 'manual-request-0001',
+          ),
+          throwsA(isA<AppException>()),
+        );
+      }
+      expect(api.requests, hasLength(1));
+    },
+  );
+
+  test(
+    'manual milestone permission and save errors are actionable without direct-insert fallback',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final repo = _ProjectRepository(client);
+      api.fail = true;
+      for (final code in ['42501', '42703']) {
+        api.failCode = code;
+        await expectLater(
+          repo.createMilestone(
+            boardId: 'board-1',
+            title: 'Manual',
+            requestId: 'manual-request-0001',
+          ),
+          throwsA(
+            isA<AppException>().having(
+              (e) => e.message,
+              'message',
+              code == '42501'
+                  ? AppErrorMessages.milestoneBoardUnavailable
+                  : AppErrorMessages.createMilestoneFailed,
+            ),
+          ),
+        );
+      }
+      expect(api.requests, hasLength(2));
+      expect(
+        api.requests.every(
+          (r) => r.path.endsWith('/rpc/create_project_milestone'),
+        ),
+        isTrue,
+      );
+    },
+  );
+
+  test(
+    'project repository writes and loads constraints_text, including explicit null clearing',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final repo = _ProjectRepository(client);
+      for (final constraints in [null, '   ', '  Flutter only  ']) {
+        final created = await repo.createProject(
+          name: 'App',
+          description: 'Build',
+          constraints: constraints,
+        );
+        final expected = constraints == '  Flutter only  '
+            ? 'Flutter only'
+            : null;
+        expect(created.project.constraints, expected);
+        final sent =
+            jsonDecode(api.requestBodies[api.requestBodies.length - 2]) as Map;
+        expect(sent['constraints_text'], expected);
+      }
+      final loaded = await repo.getProject('project-1');
+      expect(loaded!.constraints, 'Flutter only');
+      final edited = await repo.updateProject(
+        loaded.copyWith(constraints: '  Add tests  '),
+      );
+      expect(edited.constraints, 'Add tests');
+      expect(
+        (jsonDecode(api.requestBodies.last) as Map)['constraints_text'],
+        'Add tests',
+      );
+      final cleared = await repo.updateProject(
+        edited.copyWith(clearConstraints: true),
+      );
+      expect(cleared.constraints, isNull);
+      expect(
+        (jsonDecode(api.requestBodies.last) as Map).containsKey(
+          'constraints_text',
+        ),
+        isTrue,
+      );
+      expect(
+        (jsonDecode(api.requestBodies.last) as Map)['constraints_text'],
+        isNull,
+      );
+      expect(api.requests.last.queryParameters['owner_id'], 'eq.user');
+      final listed = await repo.getUserProjects();
+      expect(listed.single.constraints, isNull);
+    },
+  );
+
+  test(
+    'project repository rejects oversized constraints before writing create or update requests',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final repo = _ProjectRepository(client);
+      final expected = throwsA(
+        isA<AppException>().having(
+          (error) => error.message,
+          'message',
+          AppErrorMessages.invalidGenerationConstraints,
+        ),
+      );
+      await expectLater(
+        repo.createProject(name: 'App', constraints: 'x' * 1001),
+        expected,
+      );
+      await expectLater(
+        repo.updateProject(
+          LearningProject(
+            id: 'p',
+            ownerId: 'user',
+            name: 'App',
+            status: 'active',
+            constraints: 'x' * 1001,
+          ),
+        ),
+        expected,
+      );
+      expect(api.requests, isEmpty);
+    },
+  );
+
   test(
     'timer RPC uses task version and preserves authoritative fields and relations',
     () async {
@@ -646,4 +875,35 @@ void main() {
       ),
     );
   });
+  for (final code in ['42703', 'PGRST204']) {
+    test(
+      'missing deadline metadata $code reports setup failure without retrying the insert',
+      () async {
+        final api = await _ApiFixture.start()
+          ..fail = true
+          ..failCode = code
+          ..failMessage =
+              "column kanban_tasks.deadline_has_time does not exist";
+        final client = api.client();
+        addTearDown(() async {
+          await client.dispose();
+          await api.close();
+        });
+        await expectLater(
+          SupabaseKanbanRepository(
+            client,
+          ).createTask(KanbanTask.fromMap(_task('1', 'board-1'))),
+          throwsA(
+            isA<AppException>().having(
+              (e) => e.message,
+              'message',
+              AppErrorMessages.taskSetupIncomplete,
+            ),
+          ),
+        );
+        expect(api.requests.length, 1);
+        expect(api.methods.single, 'POST');
+      },
+    );
+  }
 }

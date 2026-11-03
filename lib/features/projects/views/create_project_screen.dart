@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../ai_task_generation/widgets/task_generation_constraints_field.dart';
 
 import '../../../app/widgets/app_content.dart';
@@ -48,7 +49,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     );
     _name = TextEditingController(text: project?.name);
     _description = TextEditingController(text: project?.description);
-    _constraints = TextEditingController();
+    _constraints = TextEditingController(text: project?.constraints);
     _status = project?.status ?? 'active';
   }
 
@@ -66,7 +67,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
     setState(() => _isPickingDate = true);
     try {
       if (_model.isSaving || _model.isGeneratingTasks) return;
-      final today = DateUtils.dateOnly(DateTime.now());
+      final today = DateFormatter.today();
       final startDate = _model.startDate;
       final firstDate = widget.project != null
           ? DateTime(2000)
@@ -219,6 +220,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       name: _name.text,
       description: _description.text,
       status: _status,
+      constraints: _constraints.text,
     );
     if (result != null && mounted) {
       setState(() => _isLeaving = true);
@@ -324,13 +326,11 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                           ),
                         ),
                       ),
-                      if (!editing) ...[
-                        const SizedBox(height: 12),
-                        TaskGenerationConstraintsField(
-                          controller: _constraints,
-                          readOnly: _model.isGeneratingTasks || _model.isSaving,
-                        ),
-                      ],
+                      const SizedBox(height: 12),
+                      TaskGenerationConstraintsField(
+                        controller: _constraints,
+                        readOnly: _model.isGeneratingTasks || _model.isSaving,
+                      ),
                       _dateField('Start date', true),
                       _dateField('End date', false),
                       if (editing) ...[

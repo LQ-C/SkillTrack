@@ -31,7 +31,12 @@ class TaskGenerationConstraintsField extends StatelessWidget {
 }
 
 class TaskGenerationConstraintsDialog extends StatefulWidget {
-  const TaskGenerationConstraintsDialog({super.key});
+  const TaskGenerationConstraintsDialog({
+    super.key,
+    this.initialConstraints = '',
+  });
+
+  final String initialConstraints;
 
   @override
   State<TaskGenerationConstraintsDialog> createState() =>
@@ -40,8 +45,14 @@ class TaskGenerationConstraintsDialog extends StatefulWidget {
 
 class _TaskGenerationConstraintsDialogState
     extends State<TaskGenerationConstraintsDialog> {
-  final _controller = TextEditingController();
+  late final TextEditingController _controller;
   bool _submitted = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = TextEditingController(text: widget.initialConstraints);
+  }
 
   @override
   void dispose() {

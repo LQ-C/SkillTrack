@@ -548,6 +548,8 @@ void main() {
     expect(find.text('Add attachment'), findsOneWidget);
     await tester.tap(find.byKey(const Key('status-in_progress')));
     await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('More Options'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('More Options'));
     await tester.pumpAndSettle();
     expect(find.text('Priority'), findsOneWidget);

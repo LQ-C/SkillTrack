@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/operation_id.dart';
@@ -106,7 +107,7 @@ class CreateProjectViewModel extends ChangeNotifier
   }
 
   void _validateDates() {
-    final today = _dateOnly(DateTime.now())!;
+    final today = DateFormatter.today();
     _startDateError =
         original == null && _startDate != null && _startDate!.isBefore(today)
         ? 'Start date cannot be in the past.'
@@ -125,12 +126,22 @@ class CreateProjectViewModel extends ChangeNotifier
     required String name,
     required String description,
     String status = 'active',
+    String? constraints,
   }) async {
     if (_disposed ||
         _isSaving ||
         _isGeneratingTasks ||
         _pendingTasks != null ||
         _pendingProject != null) {
+      return null;
+    }
+    final projectConstraints = LearningProject.normalizeConstraints(
+      constraints ?? original?.constraints,
+    );
+    if ((projectConstraints?.length ?? 0) >
+        AppLimits.maxTaskGenerationConstraintsLength) {
+      _errorMessage = AppErrorMessages.invalidGenerationConstraints;
+      notifyListeners();
       return null;
     }
     if (!_validateForm(name, description)) return null;
@@ -143,7 +154,11 @@ class CreateProjectViewModel extends ChangeNotifier
           _errorMessage = 'Sign in to create a project.';
           return null;
         }
-        final created = await _createProject(name.trim(), text);
+        final created = await _createProject(
+          name.trim(),
+          text,
+          constraints: projectConstraints,
+        );
         return _disposed ? null : created;
       }
       final updated = await _repository.updateProject(
@@ -151,6 +166,8 @@ class CreateProjectViewModel extends ChangeNotifier
           name: name.trim(),
           description: text,
           clearDescription: text == null,
+          constraints: projectConstraints,
+          clearConstraints: projectConstraints == null,
           startDate: _startDate,
           clearStartDate: _startDate == null,
           endDate: _endDate,
@@ -209,10 +226,12 @@ class CreateProjectViewModel extends ChangeNotifier
 
   Future<ProjectWithProgress> _createProject(
     String name,
-    String? description,
-  ) => _repository.createProject(
+    String? description, {
+    String? constraints,
+  }) => _repository.createProject(
     name: name,
     description: description,
+    constraints: constraints,
     startDate: _startDate,
     endDate: _endDate,
   );
@@ -310,6 +329,7 @@ class CreateProjectViewModel extends ChangeNotifier
           _pendingProject = await _createProject(
             _pendingName!,
             description.isEmpty ? null : description,
+            constraints: _pendingConstraints,
           );
         } catch (_) {
           _errorMessage = AppErrorMessages.createProjectFailed;

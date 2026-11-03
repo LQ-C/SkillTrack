@@ -169,19 +169,22 @@ set search_path = public, pg_temp set timezone = 'UTC' as $$
   limit least(greatest(p_limit, 1), 500);
 $$;
 
-create or replace function public.notification_task_candidates(
+-- The candidate return shape includes the creation timestamp used by dynamic scoring.
+-- PostgreSQL requires recreation when a table-returning function gains a column.
+drop function if exists public.notification_task_candidates(integer, integer);
+create function public.notification_task_candidates(
   p_offset integer, p_limit integer)
 returns table (
   task_id uuid, board_id uuid, project_id uuid, user_id uuid,
   task_title text, task_status text, task_archived boolean,
   board_archived boolean, project_status text, profile_exists boolean,
-  deadline text, last_activity_at text)
+  deadline text, last_activity_at text, task_created_at text)
 language sql stable security invoker
 set search_path = public, pg_temp set timezone = 'UTC' as $$
   select t.id, b.id, p.id, p.owner_id, t.title::text, t.status::text,
     coalesce(t.is_archived, false), coalesce(b.is_archived, false),
     p.status::text, pr.id is not null, t.deadline::text,
-    coalesce(activity.created_at, t.updated_at, t.created_at)::text
+    coalesce(activity.created_at, t.updated_at, t.created_at)::text, t.created_at::text
   from public.kanban_tasks t
   join public.kanban_boards b on b.id = t.board_id
   join public.projects p on p.id = b.project_id

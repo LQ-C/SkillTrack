@@ -2,6 +2,8 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/utils/date_formatter.dart';
+import '../../../core/utils/operation_id.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../projects/models/project_milestone.dart';
@@ -27,6 +29,71 @@ class KanbanViewModel extends ChangeNotifier {
   final ProjectRepository? _projectRepository;
   final String? _projectId;
   List<ProjectMilestone> _milestones = [];
+  bool _milestoneBoardWritable = false, _isCreatingMilestone = false;
+  String? _milestoneError, _milestoneRequestId, _milestoneRequestTitle;
+  String? _milestoneRequestBoard;
+  bool get isCreatingMilestone => _isCreatingMilestone;
+  String? get milestoneError => _milestoneError;
+  bool get canCreateMilestone =>
+      !_disposed &&
+      !_isLoading &&
+      !_isSaving &&
+      !_isCreatingMilestone &&
+      _milestoneBoardWritable &&
+      !isBoardArchived &&
+      _boardId != null &&
+      isSignedIn &&
+      _projectRepository?.currentUserId == _repository.currentUserId;
+
+  Future<ProjectMilestone?> createMilestone(String name) async {
+    if (_disposed || _isCreatingMilestone) return null;
+    _milestoneError = ProjectMilestone.validateTitle(name);
+    if (_milestoneError != null || !canCreateMilestone) {
+      _milestoneError ??= AppErrorMessages.milestoneBoardUnavailable;
+      notifyListeners();
+      return null;
+    }
+    final title = name.trim();
+    final board = _boardId!;
+    final user = _repository.currentUserId;
+    if (_milestoneRequestTitle != title || _milestoneRequestBoard != board) {
+      _milestoneRequestId = createOperationId();
+      _milestoneRequestTitle = title;
+      _milestoneRequestBoard = board;
+    }
+    _isCreatingMilestone = true;
+    notifyListeners();
+    try {
+      final created = await _projectRepository!.createMilestone(
+        boardId: board,
+        title: title,
+        requestId: _milestoneRequestId!,
+      );
+      if (_disposed || board != _boardId || user != _repository.currentUserId) {
+        return null;
+      }
+      _milestones = [..._milestones.where((m) => m.id != created.id), created]
+        ..sort((a, b) {
+          final order = a.position.compareTo(b.position);
+          return order == 0 ? a.id.compareTo(b.id) : order;
+        });
+      _milestoneRequestId = _milestoneRequestTitle = _milestoneRequestBoard =
+          null;
+      return created;
+    } catch (error) {
+      if (!_disposed) {
+        _milestoneError = AppException.messageFor(
+          error,
+          fallback: AppErrorMessages.createMilestoneFailed,
+        );
+      }
+      return null;
+    } finally {
+      _isCreatingMilestone = false;
+      notifyListeners();
+    }
+  }
+
   List<ProjectMilestone> get availableMilestones =>
       UnmodifiableListView(_milestones);
   String? milestoneTitle(String? id) =>
@@ -128,13 +195,23 @@ class KanbanViewModel extends ChangeNotifier {
       if (_filter.completedOnly && !task.isCompleted) return false;
       if (_filter.deadlineStart != null &&
           (task.deadline == null ||
-              task.deadline!.isBefore(_filter.deadlineStart!))) {
+              task.deadline!.isBefore(
+                DateFormatter.fromMalaysia(
+                  DateFormatter.dateOnly(_filter.deadlineStart!),
+                ),
+              ))) {
         return false;
       }
       if (_filter.deadlineEnd != null &&
           (task.deadline == null ||
-              task.deadline!.isAfter(
-                _filter.deadlineEnd!.add(const Duration(days: 1)),
+              !task.deadline!.isBefore(
+                DateFormatter.fromMalaysia(
+                  DateTime(
+                    _filter.deadlineEnd!.year,
+                    _filter.deadlineEnd!.month,
+                    _filter.deadlineEnd!.day + 1,
+                  ),
+                ),
               ))) {
         return false;
       }
@@ -190,16 +267,23 @@ class KanbanViewModel extends ChangeNotifier {
     final board = _boardId;
     if (_disposed || board == null) return;
     final user = _repository.currentUserId;
-    final (loaded, tags, milestones) = await (
+    final (loaded, tags, milestones, writable) = await (
       _repository.getTasks(board),
       user == null ? Future.value(<TaskTag>[]) : _repository.getUserTags(user),
       _projectRepository != null && _projectId != null
           ? _projectRepository.getProjectMilestones(_projectId)
           : Future.value(<ProjectMilestone>[]),
+      _projectRepository != null && _projectId != null
+          ? _projectRepository.canCreateMilestone(
+              projectId: _projectId,
+              boardId: board,
+            )
+          : Future.value(false),
     ).wait;
     if (_disposed || board != _boardId) return;
     _tasks = loaded;
     _milestones = milestones;
+    _milestoneBoardWritable = writable;
     if (_filter.milestoneId != null &&
         _projectRepository != null &&
         !_milestones.any((m) => m.id == _filter.milestoneId)) {
@@ -396,6 +480,7 @@ class KanbanViewModel extends ChangeNotifier {
     KanbanStatus status = KanbanStatus.todo,
     TaskPriority priority = TaskPriority.medium,
     DateTime? deadline,
+    bool? deadlineHasTime,
     List<String> tagIds = const [],
     List<String> checklist = const [],
     String? milestoneId,
@@ -421,6 +506,7 @@ class KanbanViewModel extends ChangeNotifier {
       status: status,
       priority: priority,
       deadline: deadline,
+      deadlineHasTime: deadlineHasTime,
       sortOrder: _nextSortOrder(status),
       completedAt: status == KanbanStatus.completed ? now : null,
       createdAt: now,
@@ -456,6 +542,7 @@ class KanbanViewModel extends ChangeNotifier {
     required KanbanStatus status,
     required TaskPriority priority,
     DateTime? deadline,
+    bool? deadlineHasTime,
     List<String>? tagIds,
     String? milestoneId,
     bool clearMilestone = false,
@@ -479,6 +566,7 @@ class KanbanViewModel extends ChangeNotifier {
             description: description.trim(),
             priority: priority,
             deadline: deadline,
+            deadlineHasTime: deadlineHasTime,
             clearDeadline: deadline == null,
           ),
         );

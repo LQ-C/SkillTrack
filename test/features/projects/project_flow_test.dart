@@ -760,6 +760,7 @@ void main() {
       final created = await projects.createProject(
         name: 'Flutter study',
         description: 'Build a learning app',
+        constraints: 'Saved project rules',
         startDate: today,
         endDate: today.add(const Duration(days: 7)),
       );
@@ -813,7 +814,7 @@ void main() {
               )
               .controller!
               .text,
-          isEmpty,
+          'Saved project rules',
         );
         await tester.enterText(
           find.byKey(const Key('task-generation-constraints-field')),
@@ -846,6 +847,7 @@ void main() {
       expect(kanban.stored.last.checklistItems, hasLength(2));
       expect(projects.stored, hasLength(1));
       expect(generation.calls, 2);
+      expect(projects.stored.single.project.constraints, 'Saved project rules');
     },
   );
 
@@ -885,6 +887,111 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('No projects yet'), findsOneWidget);
   });
+
+  testWidgets(
+    'Edit Project prefills, updates and explicitly clears the existing constraints field',
+    (tester) async {
+      final item = sampleProject('1', 'Flutter');
+      final projects = FakeProjectRepository(
+        items: [
+          item.copyWith(
+            project: item.project.copyWith(constraints: 'Saved rules'),
+          ),
+        ],
+      );
+      await showApp(tester, projects);
+      Future<void> openEdit() async {
+        await tester.tap(find.byTooltip('Project actions'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Edit Project'));
+        await tester.pumpAndSettle();
+      }
+
+      final field = find.byKey(const Key('task-generation-constraints-field'));
+      await openEdit();
+      expect(tester.widget<TextField>(field).controller!.text, 'Saved rules');
+      await tester.ensureVisible(field);
+      await tester.pumpAndSettle();
+      await tester.enterText(field, '  Updated rules  ');
+      tester.testTextInput.hide();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('save-project-button')));
+      await tester.pumpAndSettle();
+      expect(projects.stored.single.project.constraints, 'Updated rules');
+      await openEdit();
+      expect(tester.widget<TextField>(field).controller!.text, 'Updated rules');
+      await tester.ensureVisible(field);
+      await tester.pumpAndSettle();
+      await tester.enterText(field, '');
+      tester.testTextInput.hide();
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('save-project-button')));
+      await tester.pumpAndSettle();
+      expect(projects.stored.single.project.constraints, isNull);
+    },
+  );
+
+  testWidgets(
+    'create form retains constraints through validation, generation failure and preview cancellation',
+    (tester) async {
+      final projects = FakeProjectRepository();
+      final generation = FakeTaskGenerationRepository()..fail = true;
+      await showApp(tester, projects, generation: generation);
+      await enterValidProjectForm(tester);
+      final field = find.byKey(const Key('task-generation-constraints-field'));
+      await tester.ensureVisible(field);
+      await tester.pumpAndSettle();
+      await tester.enterText(field, 'Keep these rules');
+      tester.testTextInput.hide();
+      await tester.enterText(find.byKey(const Key('project-name-field')), '');
+      tester.testTextInput.hide();
+      await showProjectAction(tester, 'save-project-button');
+      await tester.tap(find.byKey(const Key('save-project-button')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        'Keep these rules',
+      );
+      await showProjectAction(tester, 'project-name-field', scroll: -120);
+      await tester.enterText(
+        find.byKey(const Key('project-name-field')),
+        'Flutter study',
+      );
+      tester.testTextInput.hide();
+      await showProjectAction(tester, 'generate-tasks-button');
+      await tester.tap(find.byKey(const Key('generate-tasks-button')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        'Keep these rules',
+      );
+      generation.fail = false;
+      await showProjectAction(tester, 'generate-tasks-button');
+      await tester.tap(find.byKey(const Key('generate-tasks-button')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const Key('cancel-generated-tasks-button')));
+      await tester.pumpAndSettle();
+      expect(projects.stored, isEmpty);
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        'Keep these rules',
+      );
+      projects.failBoardCreation = true;
+      await showProjectAction(tester, 'save-project-button');
+      await tester.tap(find.byKey(const Key('save-project-button')));
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<TextField>(field).controller!.text,
+        'Keep these rules',
+      );
+      projects.failBoardCreation = false;
+      await showProjectAction(tester, 'save-project-button');
+      await tester.tap(find.byKey(const Key('save-project-button')));
+      await tester.pumpAndSettle();
+      expect(projects.stored.single.project.constraints, 'Keep these rules');
+      expect(generation.lastConstraints, 'Keep these rules');
+    },
+  );
 
   testWidgets('edit route resolves a project ID and returns to dashboard', (
     tester,

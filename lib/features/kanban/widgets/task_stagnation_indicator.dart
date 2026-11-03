@@ -63,7 +63,9 @@ class TaskStagnationIndicator extends StatelessWidget {
         ),
       );
     }
-    final activity = task.lastActivityAt?.toLocal();
+    final activity = task.lastActivityAt == null
+        ? null
+        : DateFormatter.malaysiaTime(task.lastActivityAt!);
     return Container(
       padding: const EdgeInsets.all(12),
       decoration: decoration,
@@ -105,9 +107,9 @@ class TaskStagnationIndicator extends StatelessWidget {
           else
             Tooltip(
               message:
-                  '${DateFormatter.short(activity)} · ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(activity))}',
+                  '${DateFormatter.calendarDate(activity)} · ${MaterialLocalizations.of(context).formatTimeOfDay(TimeOfDay.fromDateTime(activity))}',
               child: Text(
-                'Last activity: ${DateFormatter.relative(activity)}',
+                'Last activity: ${DateFormatter.relative(task.lastActivityAt!)}',
                 style: theme.textTheme.bodySmall,
               ),
             ),

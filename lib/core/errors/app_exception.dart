@@ -10,6 +10,14 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const milestoneNameRequired = 'Enter a milestone name.';
+  static const milestoneNameTooLong = 'Use 150 characters or fewer.';
+  static const createMilestoneFailed =
+      'Unable to create the milestone. Check your connection and try again.';
+  static const milestoneBoardUnavailable =
+      'Use an active project board you own. Refresh the board and try again.';
+  static const taskSetupIncomplete =
+      'Task setup is incomplete. Please contact support.';
   static const invalidMilestone =
       'Choose a valid milestone with a name of 1–150 characters.';
   static const milestoneReorder =

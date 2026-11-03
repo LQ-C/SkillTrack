@@ -671,7 +671,14 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
           taskId: task?.id,
         ),
       );
-      if (changed == true && mounted) await _refreshWithEntrance();
+      if (mounted) {
+        if (changed == true) {
+          await _refreshWithEntrance();
+        } else {
+          // A milestone is saved immediately, even when the task form is cancelled.
+          await widget.viewModel.refresh(showLoading: false);
+        }
+      }
     } finally {
       if (mounted) setState(() => _openingRouteId = null);
     }
@@ -720,51 +727,66 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     try {
       final append = widget.appendViewModel;
       if (append == null || append.isGeneratingTasks) return;
-      FocusScope.of(context).unfocus();
-      final constraints = await showDialog<String>(
-        context: context,
-        builder: (_) => const TaskGenerationConstraintsDialog(),
-      );
-      if (!mounted || constraints == null) return;
-      final request = append.generateMoreTasks(constraints: constraints);
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => PopScope(
-          canPop: false,
-          child: Center(
-            child: Card(
-              margin: const EdgeInsets.all(28),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Generating additional tasks…',
-                      style: Theme.of(dialogContext).textTheme.titleMedium,
-                    ),
-                  ],
+      if (append.pendingGeneratedTasks.isEmpty) {
+        final savedConstraints = await append.loadGenerationConstraints();
+        if (!mounted) return;
+        if (savedConstraints == null) {
+          final message = append.errorMessage;
+          if (message != null) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+          return;
+        }
+        FocusScope.of(context).unfocus();
+        final constraints = await showDialog<String>(
+          context: context,
+          builder: (_) => TaskGenerationConstraintsDialog(
+            initialConstraints: savedConstraints,
+          ),
+        );
+        if (!mounted || constraints == null) return;
+        final request = append.generateMoreTasks(constraints: constraints);
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => PopScope(
+            canPop: false,
+            child: Center(
+              child: Card(
+                margin: const EdgeInsets.all(28),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Generating additional tasks…',
+                        style: Theme.of(dialogContext).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      final drafts = await request;
-      if (!mounted) return;
-      // This context belongs to the board beneath the busy dialog.
-      Navigator.of(context).pop();
-      if (drafts == null) {
-        final message = append.errorMessage;
-        if (message != null) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(message)));
+        );
+        final drafts = await request;
+        if (!mounted) return;
+        // This context belongs to the board beneath the busy dialog.
+        Navigator.of(context).pop();
+        if (drafts == null) {
+          final message = append.errorMessage;
+          if (message != null) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+          return;
         }
-        return;
       }
       final added = await AppRouter.additionalTaskPreview(context, append);
       if (!mounted || added != true) return;

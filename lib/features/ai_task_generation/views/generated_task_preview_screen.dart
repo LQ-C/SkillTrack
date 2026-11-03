@@ -487,7 +487,7 @@ class _PreviewCard extends StatelessWidget {
             ],
             const SizedBox(height: 12),
             Text(
-              'Deadline: ${DateFormatter.short(task.deadline)}',
+              'Deadline: ${DateFormatter.calendarDate(task.deadline)}',
               style: TextStyle(color: theme.colorScheme.onSurfaceVariant),
             ),
             const Divider(height: 24),

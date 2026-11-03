@@ -2,6 +2,7 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/operation_id.dart';
@@ -69,13 +70,32 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   List<GeneratedTaskDraft> get pendingGeneratedTasks =>
       UnmodifiableListView(_pending ?? const <GeneratedTaskDraft>[]);
 
+  Future<String?> loadGenerationConstraints() async {
+    if (_disposed) return null;
+    if (_pending != null) return _pendingConstraints;
+    try {
+      final project = await _projects.getProject(projectId);
+      if (_disposed) return null;
+      if (project == null || project.status == 'archived') {
+        throw const AppException(AppErrorMessages.requestFailed);
+      }
+      return project.constraints ?? '';
+    } catch (error) {
+      if (!_disposed) {
+        _errorMessage = AppException.messageFor(error);
+        notifyListeners();
+      }
+      return null;
+    }
+  }
+
   Future<List<GeneratedTaskDraft>?> generateMoreTasks({
-    String constraints = '',
+    String? constraints,
   }) async {
     if (_disposed || _isGenerating || _isConfirming || _isRevising) return null;
     if (_pending != null) return pendingGeneratedTasks;
-    final trimmedConstraints = constraints.trim();
-    if (trimmedConstraints.length >
+    final trimmedConstraints = constraints?.trim();
+    if ((trimmedConstraints?.length ?? 0) >
         AppLimits.maxTaskGenerationConstraintsLength) {
       _errorMessage = AppErrorMessages.invalidGenerationConstraints;
       notifyListeners();
@@ -95,18 +115,24 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.requestFailed;
         return null;
       }
+      final requestConstraints =
+          trimmedConstraints ?? project.constraints?.trim() ?? '';
+      if (requestConstraints.length >
+          AppLimits.maxTaskGenerationConstraintsLength) {
+        throw const AppException(AppErrorMessages.invalidGenerationConstraints);
+      }
       final description = project.description?.trim() ?? '';
       if (description.isEmpty) {
         _errorMessage = AppErrorMessages.projectDescriptionRequired;
         return null;
       }
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
+      final today = DateFormatter.today();
       final projectStart = project.startDate;
       final start = projectStart != null && projectStart.isAfter(today)
           ? projectStart
           : today;
-      final end = project.endDate ?? start.add(const Duration(days: 7));
+      final end =
+          project.endDate ?? DateTime(start.year, start.month, start.day + 7);
       if (end.isBefore(today) || end.isBefore(start)) {
         _errorMessage = AppErrorMessages.expiredProjectDeadline;
         return null;
@@ -116,7 +142,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       final generated = await _generator.generate(
         title: project.name,
         description: description,
-        constraints: trimmedConstraints,
+        constraints: requestConstraints,
         projectId: projectId,
         existingMilestones: milestones,
         startDate: start,
@@ -131,7 +157,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         return null;
       }
       _pending = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
-      _pendingConstraints = trimmedConstraints;
+      _pendingConstraints = requestConstraints;
       _generationStartDate = start;
       _generationEndDate = end;
       _existingSummaries = List.unmodifiable(existing);

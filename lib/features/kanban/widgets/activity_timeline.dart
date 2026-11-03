@@ -108,7 +108,7 @@ class _ActivityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final local = activity.createdAt.toLocal();
+    final local = DateFormatter.malaysiaTime(activity.createdAt);
     final time = MaterialLocalizations.of(context).formatTimeOfDay(
       TimeOfDay.fromDateTime(local),
       alwaysUse24HourFormat: false,
@@ -145,7 +145,7 @@ class _ActivityRow extends StatelessWidget {
                     ),
                   ),
                 Text(
-                  '${DateFormatter.short(local)} · $time',
+                  '${DateFormatter.calendarDate(local)} · $time',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),

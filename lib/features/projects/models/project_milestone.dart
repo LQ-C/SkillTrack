@@ -1,4 +1,16 @@
+import '../../../core/constants/app_constants.dart';
+import '../../../core/errors/app_exception.dart';
+
 class ProjectMilestone {
+  static String? validateTitle(String value) {
+    final title = value.trim();
+    if (title.isEmpty) return AppErrorMessages.milestoneNameRequired;
+    if (title.runes.length > AppLimits.maxMilestoneTitleLength) {
+      return AppErrorMessages.milestoneNameTooLong;
+    }
+    return null;
+  }
+
   const ProjectMilestone({
     required this.id,
     required this.projectId,

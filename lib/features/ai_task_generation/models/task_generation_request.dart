@@ -1,3 +1,5 @@
+import '../../../core/utils/date_formatter.dart';
+
 enum TaskGenerationMode { initial, append, revise }
 
 class ExistingTaskSummary {
@@ -19,7 +21,9 @@ class ExistingTaskSummary {
 
   Map<String, Object?> toRequestJson() {
     final trimmedDescription = description.trim();
-    final date = deadline;
+    final date = deadline == null
+        ? null
+        : DateFormatter.malaysiaTime(deadline!);
     return {
       'title': title.trim(),
       'description': trimmedDescription.length <= 500

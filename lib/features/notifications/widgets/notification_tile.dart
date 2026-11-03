@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../../app/app_theme.dart';
 
 import '../models/app_notification.dart';
@@ -31,7 +32,7 @@ class NotificationTile extends StatelessWidget {
         scheme.secondaryContainer,
       NotificationType.unknown => scheme.surfaceContainerHighest,
     };
-    final local = notification.createdAt.toLocal();
+    final local = DateFormatter.malaysiaTime(notification.createdAt);
     final date = MaterialLocalizations.of(context).formatMediumDate(local);
     final time = MaterialLocalizations.of(
       context,

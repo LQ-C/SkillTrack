@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../../app/router/app_router.dart';
 
 import '../models/kanban_filter.dart';
@@ -45,7 +46,7 @@ class _FilterSheetState extends State<FilterSheet> {
     try {
       final date = await showDatePicker(
         context: context,
-        initialDate: (from ? start : end) ?? DateTime.now(),
+        initialDate: (from ? start : end) ?? DateFormatter.today(),
         firstDate: DateTime(2020),
         lastDate: DateTime(2100),
       );

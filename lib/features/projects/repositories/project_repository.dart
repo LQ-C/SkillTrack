@@ -8,9 +8,19 @@ abstract class ProjectRepository {
   Future<List<LearningProject>> getUserProjects();
   Future<List<ProjectMilestone>> getProjectMilestones(String projectId);
   Future<LearningProject?> getProject(String projectId);
+  Future<bool> canCreateMilestone({
+    required String projectId,
+    required String boardId,
+  });
+  Future<ProjectMilestone> createMilestone({
+    required String boardId,
+    required String title,
+    required String requestId,
+  });
   Future<ProjectWithProgress> createProject({
     required String name,
     String? description,
+    String? constraints,
     DateTime? startDate,
     DateTime? endDate,
   });

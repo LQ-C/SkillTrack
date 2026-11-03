@@ -26,6 +26,7 @@ export type TaskCandidate = {
   profile_exists: boolean;
   task_created_at: string;
   deadline: string | null;
+  deadline_has_time?: boolean | null;
   last_activity_at: string | null;
 };
 
@@ -111,7 +112,10 @@ const deadlineTimeFormatter = new Intl.DateTimeFormat(
 function parseDate(value: string): Date {
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) {
+  if (
+    typeof value !== "string" || !value.trim() ||
+    Number.isNaN(date.getTime())
+  ) {
     throw new Error("Invalid candidate date");
   }
 
@@ -495,7 +499,7 @@ export async function generateNotifications(
       // STAGNATION SCORE AND STALLED FLAG
       // =====================================================
 
-      if (task.last_activity_at) {
+      if (task.last_activity_at && (!task.deadline || parsedDeadline)) {
         try {
           const createdAt = parseDate(
             task.task_created_at,
@@ -573,8 +577,10 @@ export async function generateNotifications(
           );
 
           if (window) {
-            const deadlineTime =
-              formatDeadlineTime(parsedDeadline);
+            const hasTime = task.deadline_has_time !== false &&
+              !/^\d{4}-\d{2}-\d{2}$/.test(task.deadline!);
+            const timeSuffix = hasTime
+              ? ` at ${formatDeadlineTime(parsedDeadline)}` : "";
 
             await insert({
               user_id: task.user_id,
@@ -586,8 +592,7 @@ export async function generateNotifications(
               title: "Task deadline approaching",
               message:
                 `“${task.task_title}” is due ` +
-                `${window.phrase} at ` +
-                `${deadlineTime}.`,
+                `${window.phrase}${timeSuffix}.`,
               unique_key:
                 `task-deadline:${task.task_id}:` +
                 `${parsedDeadline.toISOString()}:` +
