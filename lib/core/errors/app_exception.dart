@@ -10,6 +10,10 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const progressUpdateRequired = 'Enter a progress update.';
+  static const progressUpdateTooLong = 'Use 1000 characters or fewer.';
+  static const saveProgressUpdateFailed =
+      'Unable to save your progress update. Check your connection and try again.';
   static const milestoneNameRequired = 'Enter a milestone name.';
   static const milestoneNameTooLong = 'Use 150 characters or fewer.';
   static const createMilestoneFailed =

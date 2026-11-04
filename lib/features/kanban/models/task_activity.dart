@@ -1,7 +1,25 @@
 import 'dart:convert';
 import 'dart:collection';
 
+import '../../../core/constants/app_constants.dart';
+import '../../../core/errors/app_exception.dart';
+
 class TaskActivity {
+  static String? validateProgressText(String value) {
+    final text = value.trim();
+    if (text.isEmpty) return AppErrorMessages.progressUpdateRequired;
+    if (text.runes.length > AppLimits.maxProgressUpdateLength) {
+      return AppErrorMessages.progressUpdateTooLong;
+    }
+    return null;
+  }
+
+  bool get isProgressUpdate =>
+      action == 'updated' &&
+      newValues['change'] == 'progress_update' &&
+      newValues['progress_text'] is String &&
+      validateProgressText(newValues['progress_text'] as String) == null;
+
   TaskActivity({
     required this.id,
     required this.taskId,

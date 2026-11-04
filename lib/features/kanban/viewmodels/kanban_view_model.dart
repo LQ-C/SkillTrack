@@ -875,6 +875,38 @@ class KanbanViewModel extends ChangeNotifier {
     );
   }
 
+  String? _progressRequestId, _progressTaskId, _progressText;
+  Future<bool> addProgressUpdate(String taskId, String text) async {
+    if (_disposed || _isSaving) return false;
+    final validation = TaskActivity.validateProgressText(text);
+    final task = _tasks.where((task) => task.id == taskId).firstOrNull;
+    if (validation != null ||
+        task == null ||
+        task.isArchived ||
+        isBoardArchived) {
+      _errorMessage = validation ?? AppErrorMessages.saveProgressUpdateFailed;
+      notifyListeners();
+      return false;
+    }
+    final normalized = text.trim();
+    if (_progressTaskId != taskId || _progressText != normalized) {
+      _progressRequestId = createOperationId();
+      _progressTaskId = taskId;
+      _progressText = normalized;
+    }
+    final saved = await _save(
+      () => _repository.addProgressUpdate(
+        taskId,
+        normalized,
+        requestId: _progressRequestId!,
+      ),
+      'Progress update saved',
+      failureMessage: AppErrorMessages.saveProgressUpdateFailed,
+    );
+    if (saved) _progressRequestId = _progressTaskId = _progressText = null;
+    return saved;
+  }
+
   Future<bool> createChecklistItem(String taskId, String title) async {
     if (title.trim().isEmpty) return false;
     final task = _tasks.where((item) => item.id == taskId).firstOrNull;

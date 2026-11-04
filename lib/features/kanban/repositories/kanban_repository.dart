@@ -58,6 +58,11 @@ abstract class KanbanRepository {
   Future<void> deleteAttachment(TaskAttachment attachment);
   Future<String> getAttachmentUrl(TaskAttachment attachment);
   Future<List<TaskActivity>> getTaskActivity(String taskId);
+  Future<void> addProgressUpdate(
+    String taskId,
+    String text, {
+    required String requestId,
+  });
   Future<void> addActivity(
     String taskId,
     String action, {

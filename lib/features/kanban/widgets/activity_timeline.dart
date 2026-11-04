@@ -161,7 +161,7 @@ class _ActivityRow extends StatelessWidget {
 
 String _label(TaskActivity activity) => switch (activity.action) {
   'created' => 'Task created',
-  'updated' => 'Task updated',
+  'updated' => activity.isProgressUpdate ? 'Progress update' : 'Task updated',
   'moved' =>
     activity.oldValues['status'] == null
         ? 'Moved to ${_status(activity.newValues['status'])}'
@@ -193,6 +193,9 @@ String _readable(String value) {
 }
 
 String? _description(TaskActivity activity) {
+  if (activity.isProgressUpdate) {
+    return activity.newValues['progress_text'] as String;
+  }
   final values = activity.action == 'attachment_removed'
       ? activity.oldValues
       : activity.newValues;

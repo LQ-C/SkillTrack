@@ -464,22 +464,24 @@ class SupabaseKanbanRepository implements KanbanRepository {
   });
 
   @override
-  Future<TaskChecklistItem> updateChecklistItem(TaskChecklistItem item) =>
-      _guard(() async {
-        final row = await _client
-            .from('task_checklist_items')
-            .update({
-              'title': item.title,
-              'position': item.position,
-              'is_completed': item.isCompleted,
-              'completed_at': item.completedAt?.toIso8601String(),
-            })
-            .eq('id', item.id)
-            .select()
-            .single();
-        await addActivity(item.taskId, 'checklist_updated');
-        return TaskChecklistItem.fromMap(row);
-      });
+  Future<TaskChecklistItem> updateChecklistItem(
+    TaskChecklistItem item,
+  ) => _guard(() async {
+    // The RPC reads the previous state under a lock and logs the actual
+    // transition in the same transaction. Repeated completed saves are not progress.
+    final row = await _client
+        .rpc(
+          'update_task_checklist_item',
+          params: {
+            'p_item_id': item.id,
+            'p_title': item.title,
+            'p_position': item.position,
+            'p_is_completed': item.isCompleted,
+          },
+        )
+        .single();
+    return TaskChecklistItem.fromMap(row);
+  });
 
   @override
   Future<void> deleteChecklistItem(String itemId) => _guard(() async {
@@ -590,6 +592,24 @@ class SupabaseKanbanRepository implements KanbanRepository {
             .map(TaskActivity.fromMap)
             .toList(),
   );
+
+  @override
+  Future<void> addProgressUpdate(
+    String taskId,
+    String text, {
+    required String requestId,
+  }) => _guard(() async {
+    final error = TaskActivity.validateProgressText(text);
+    if (error != null) throw AppException(error);
+    await _client.rpc(
+      'add_task_progress_update',
+      params: {
+        'p_task_id': taskId,
+        'p_request_id': requestId,
+        'p_text': text.trim(),
+      },
+    );
+  });
 
   @override
   Future<void> addActivity(

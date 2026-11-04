@@ -8,6 +8,7 @@ import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/kanban/models/kanban_task.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
+import 'package:skilltrack/features/kanban/models/task_checklist_item.dart';
 import 'package:skilltrack/features/kanban/repositories/supabase_kanban_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_milestone_draft.dart';
@@ -73,6 +74,8 @@ class _ApiFixture {
     } else if (table == 'kanban_boards' && request.method == 'POST') {
       request.response.write(jsonEncode({'id': 'board-1'}));
     } else if (table == 'create_project_milestone') {
+      request.response.write(jsonEncode(tables[table]!.single));
+    } else if (table == 'update_task_checklist_item') {
       request.response.write(jsonEncode(tables[table]!.single));
     } else if (table == 'update_kanban_task_tracking') {
       request.response.write(jsonEncode(tables[table]!.single));
@@ -152,6 +155,94 @@ Map<String, dynamic> _task(String id, String board, {bool archived = false}) =>
     };
 
 void main() {
+  test(
+    'checklist updates use an atomic RPC and do not insert a second generic log',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      api.tables['update_task_checklist_item'] = [
+        {
+          'id': 'item',
+          'task_id': 'task',
+          'title': 'Read',
+          'position': 0,
+          'is_completed': true,
+          'completed_at': '2026-11-03T10:00:00Z',
+        },
+      ];
+      final repo = SupabaseKanbanRepository(client);
+      final item = TaskChecklistItem(
+        id: 'item',
+        taskId: 'task',
+        title: 'Read',
+        position: 0,
+        isCompleted: true,
+        completedAt: DateTime.utc(2026, 11, 3, 9),
+      );
+      final saved = await repo.updateChecklistItem(item);
+      expect(saved.isCompleted, isTrue);
+      expect(saved.completedAt, DateTime.utc(2026, 11, 3, 10));
+      expect(
+        api.requests.single.path,
+        '/rest/v1/rpc/update_task_checklist_item',
+      );
+      expect(jsonDecode(api.requestBodies.single), {
+        'p_item_id': 'item',
+        'p_title': 'Read',
+        'p_position': 0,
+        'p_is_completed': true,
+      });
+    },
+  );
+  test(
+    'explicit progress uses its own activity RPC and keeps the request ID on retries',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final repo = SupabaseKanbanRepository(client);
+      for (final text in ['  ', 'x' * 1001]) {
+        await expectLater(
+          repo.addProgressUpdate(
+            'task',
+            text,
+            requestId: 'progress-request-0001',
+          ),
+          throwsA(isA<AppException>()),
+        );
+      }
+      expect(api.requests, isEmpty);
+      for (var i = 0; i < 2; i++) {
+        await repo.addProgressUpdate(
+          'task',
+          '  Tested API  ',
+          requestId: 'progress-request-0001',
+        );
+      }
+      expect(api.requests, hasLength(2));
+      expect(
+        api.requests.every(
+          (r) => r.path == '/rest/v1/rpc/add_task_progress_update',
+        ),
+        isTrue,
+      );
+      for (final body in api.requestBodies) {
+        expect(jsonDecode(body), {
+          'p_task_id': 'task',
+          'p_request_id': 'progress-request-0001',
+          'p_text': 'Tested API',
+        });
+      }
+    },
+  );
+
   test(
     'milestone availability checks the current board, project owner and archived flags in one query',
     () async {

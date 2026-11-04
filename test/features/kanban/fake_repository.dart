@@ -456,6 +456,43 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
       'https://example.com';
   @override
   Future<List<TaskActivity>> getTaskActivity(String taskId) async => [];
+  int progressCalls = 0;
+  bool failProgress = false, loseProgressResponseOnce = false;
+  final progressRequestIds = <String>[];
+  final _progressReceipts = <String>{};
+  @override
+  Future<void> addProgressUpdate(
+    String taskId,
+    String text, {
+    required String requestId,
+  }) async {
+    progressCalls++;
+    progressRequestIds.add(requestId);
+    if (failProgress) throw StateError('Unable to save');
+    if (!_progressReceipts.add(requestId)) return;
+    await addActivity(
+      taskId,
+      'updated',
+      newValues: {'change': 'progress_update', 'progress_text': text},
+    );
+    stored = stored
+        .map(
+          (task) => task.id == taskId
+              ? task.copyWith(
+                  isStalled: false,
+                  stagnationScore: 0,
+                  clearStalledAt: true,
+                  lastActivityAt: DateTime.now().toUtc(),
+                )
+              : task,
+        )
+        .toList();
+    if (loseProgressResponseOnce) {
+      loseProgressResponseOnce = false;
+      throw StateError('Response lost');
+    }
+  }
+
   @override
   Future<void> addActivity(
     String taskId,
