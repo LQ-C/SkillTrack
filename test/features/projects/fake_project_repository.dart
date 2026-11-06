@@ -1,14 +1,20 @@
 import 'dart:async';
+import 'package:skilltrack/core/errors/app_exception.dart';
 
-import 'package:skilltrack/features/projects/models/learning_project.dart';
-import 'package:skilltrack/features/projects/models/project_with_progress.dart';
-import 'package:skilltrack/features/projects/repositories/project_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
 import 'package:skilltrack/features/ai_task_generation/models/task_generation_request.dart';
 import 'package:skilltrack/features/ai_task_generation/repositories/ai_task_generation_repository.dart';
+import 'package:skilltrack/features/projects/models/learning_project.dart';
+import 'package:skilltrack/features/projects/models/project_milestone.dart';
+import 'package:skilltrack/features/projects/models/project_with_progress.dart';
+import 'package:skilltrack/features/projects/repositories/project_repository.dart';
 
 class FakeTaskGenerationRepository implements TaskGenerationRepository {
   int calls = 0;
+  List<ProjectMilestone> lastMilestones = [];
+  String? lastProjectId;
+  String lastConstraints = '';
+  String lastRevisionConstraints = '';
   bool fail = false;
   Completer<List<GeneratedTaskDraft>>? pending;
   List<GeneratedTaskDraft>? result;
@@ -32,8 +38,14 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     required DateTime endDate,
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) async {
     calls++;
+    lastConstraints = constraints;
+    lastMilestones = existingMilestones;
+    lastProjectId = projectId;
     lastMode = mode;
     lastExistingTasks = existingTasks;
     lastStartDate = startDate;
@@ -63,8 +75,14 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     required String feedback,
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) async {
     revisionCalls++;
+    lastRevisionConstraints = constraints;
+    lastMilestones = existingMilestones;
+    lastProjectId = projectId;
     lastSourceMode = sourceMode;
     lastFeedback = feedback;
     lastCurrentDraft = List.of(currentDraft);
@@ -80,6 +98,71 @@ class FakeProjectRepository implements ProjectRepository {
     this.userId = 'user-1',
     List<ProjectWithProgress>? items,
   }) : stored = List.of(items ?? []);
+  final milestones = <ProjectMilestone>[];
+  @override
+  Future<List<ProjectMilestone>> getProjectMilestones(String projectId) async =>
+      milestones.where((group) => group.projectId == projectId).toList();
+  int milestoneCreateCalls = 0;
+  bool failMilestoneCreate = false, loseMilestoneResponseOnce = false;
+  Completer<void>? milestonePending;
+  final milestoneRequestIds = <String>[];
+  final _milestoneReceipts = <String, ProjectMilestone>{};
+  @override
+  Future<bool> canCreateMilestone({
+    required String projectId,
+    required String boardId,
+  }) async => stored.any(
+    (item) =>
+        item.project.id == projectId &&
+        item.boardId == boardId &&
+        item.project.ownerId == userId &&
+        item.project.status != 'archived',
+  );
+  @override
+  Future<ProjectMilestone> createMilestone({
+    required String boardId,
+    required String title,
+    required String requestId,
+  }) async {
+    milestoneCreateCalls++;
+    milestoneRequestIds.add(requestId);
+    await milestonePending?.future;
+    if (failMilestoneCreate) {
+      throw const AppException(AppErrorMessages.createMilestoneFailed);
+    }
+    final item = stored
+        .where(
+          (p) =>
+              p.boardId == boardId &&
+              p.project.ownerId == userId &&
+              p.project.status != 'archived',
+        )
+        .firstOrNull;
+    if (item == null) {
+      throw const AppException(AppErrorMessages.milestoneBoardUnavailable);
+    }
+    final key = '$userId:$requestId';
+    final receipt = _milestoneReceipts[key];
+    if (receipt != null) return receipt;
+    final existing = milestones.where((m) => m.projectId == item.project.id);
+    final position = existing.isEmpty
+        ? 0
+        : existing.map((m) => m.position).reduce((a, b) => a > b ? a : b) + 1;
+    final created = ProjectMilestone(
+      id: 'milestone-${_nextId++}',
+      projectId: item.project.id,
+      title: title.trim(),
+      position: position,
+    );
+    milestones.add(created);
+    _milestoneReceipts[key] = created;
+    if (loseMilestoneResponseOnce) {
+      loseMilestoneResponseOnce = false;
+      throw const AppException(AppErrorMessages.createMilestoneFailed);
+    }
+    return created;
+  }
+
   String? userId;
   List<ProjectWithProgress> stored;
   bool failBoardCreation = false;
@@ -112,6 +195,7 @@ class FakeProjectRepository implements ProjectRepository {
   Future<ProjectWithProgress> createProject({
     required String name,
     String? description,
+    String? constraints,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
@@ -122,6 +206,7 @@ class FakeProjectRepository implements ProjectRepository {
       ownerId: userId!,
       name: name,
       description: description,
+      constraints: LearningProject.normalizeConstraints(constraints),
       status: 'active',
       startDate: startDate,
       endDate: endDate,

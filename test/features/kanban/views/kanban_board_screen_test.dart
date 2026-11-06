@@ -308,6 +308,138 @@ void main() {
     expect(find.text('Archive task?'), findsOneWidget);
   });
 
+  testWidgets(
+    'Stalled chip retains selection on reopen, supports Cancel and Clear, and exposes semantics',
+    (tester) async {
+      final semantics = tester.ensureSemantics();
+      try {
+        final model = await showBoard(
+          tester,
+          FakeKanbanRepository(
+            tasks: [sampleTask('1', 'Plan', KanbanStatus.todo)],
+          ),
+        );
+        addTearDown(model.dispose);
+        model.applyFilter(KanbanFilter(statuses: {KanbanStatus.todo}));
+        await tester.pumpAndSettle();
+        Future<void> openFilters() async {
+          await tester.tap(find.byTooltip('Board menu'));
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('Filter tasks'));
+          await tester.pumpAndSettle();
+        }
+
+        final stalled = find.widgetWithText(FilterChip, 'Stalled');
+        await openFilters();
+        expect(tester.widget<FilterChip>(stalled).selected, isFalse);
+        await tester.tap(stalled);
+        await tester.pumpAndSettle();
+        expect(tester.widget<FilterChip>(stalled).selected, isTrue);
+        expect(
+          tester
+              .getSemantics(stalled)
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected
+              .toBoolOrNull(),
+          isTrue,
+        );
+        expect(
+          tester
+              .widget<FilterChip>(find.widgetWithText(FilterChip, 'To-Do'))
+              .selected,
+          isTrue,
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+        expect(model.activeFilter.includeStalled, isFalse);
+        expect(model.activeFilter.statuses, {KanbanStatus.todo});
+        await openFilters();
+        expect(tester.widget<FilterChip>(stalled).selected, isFalse);
+        await tester.tap(stalled);
+        await tester.ensureVisible(find.text('Apply filters'));
+        await tester.tap(find.text('Apply filters'));
+        await tester.pumpAndSettle();
+        expect(model.activeFilter.includeStalled, isTrue);
+        await openFilters();
+        expect(tester.widget<FilterChip>(stalled).selected, isTrue);
+        expect(
+          tester
+              .widget<FilterChip>(find.widgetWithText(FilterChip, 'To-Do'))
+              .selected,
+          isTrue,
+        );
+        await tester.ensureVisible(find.text('Clear all').last);
+        await tester.tap(find.text('Clear all').last);
+        await tester.pumpAndSettle();
+        expect(model.activeFilter.isActive, isFalse);
+        await openFilters();
+        expect(tester.widget<FilterChip>(stalled).selected, isFalse);
+        expect(
+          tester
+              .getSemantics(stalled)
+              .getSemanticsData()
+              .flagsCollection
+              .isSelected
+              .toBoolOrNull(),
+          isFalse,
+        );
+        await tester.binding.handlePopRoute();
+        await tester.pumpAndSettle();
+      } finally {
+        semantics.dispose();
+      }
+    },
+  );
+
+  testWidgets(
+    'active Stalled chip removes independently and Clear all resets all selections',
+    (tester) async {
+      final model = await showBoard(
+        tester,
+        FakeKanbanRepository(
+          tasks: [
+            sampleTask(
+              '1',
+              'Plan',
+              KanbanStatus.todo,
+            ).copyWith(milestoneId: 'stage'),
+          ],
+        ),
+      );
+      addTearDown(model.dispose);
+      model.applyFilter(
+        KanbanFilter(
+          statuses: {KanbanStatus.todo},
+          includeStalled: true,
+          milestoneId: 'stage',
+        ),
+      );
+      await tester.pumpAndSettle();
+      final indicator = find.widgetWithText(InputChip, 'Stalled');
+      expect(indicator, findsOneWidget);
+      await tester.ensureVisible(indicator);
+      await tester.pumpAndSettle();
+      await tester.tap(
+        find.descendant(of: indicator, matching: find.byTooltip('Delete')),
+      );
+      await tester.pumpAndSettle();
+      expect(indicator, findsNothing);
+      expect(model.activeFilter.includeStalled, isFalse);
+      expect(model.activeFilter.statuses, {KanbanStatus.todo});
+      expect(model.activeFilter.milestoneId, 'stage');
+      model.applyFilter(model.activeFilter.copyWith(includeStalled: true));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('Clear all'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Clear all'));
+      await tester.pumpAndSettle();
+      expect(model.activeFilter.includeStalled, isFalse);
+      expect(model.activeFilter.isActive, isFalse);
+      expect(indicator, findsNothing);
+    },
+  );
+
   testWidgets('filters can produce empty results', (tester) async {
     final model = await showBoard(
       tester,
@@ -415,6 +547,8 @@ void main() {
     expect(find.text('No time'), findsOneWidget);
     expect(find.text('Add attachment'), findsOneWidget);
     await tester.tap(find.byKey(const Key('status-in_progress')));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(find.text('More Options'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('More Options'));
     await tester.pumpAndSettle();

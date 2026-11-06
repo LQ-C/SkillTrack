@@ -2,13 +2,13 @@
 // ignore_for_file: type=lint
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
-    show defaultTargetPlatform, kIsWeb, TargetPlatform;
+    show defaultTargetPlatform, TargetPlatform;
 
 /// Default [FirebaseOptions] for use with your Firebase apps.
 ///
 /// Example:
 /// ```dart
-/// import 'firebase_options.dart';
+/// import 'core/config/firebase_options.dart';
 /// // ...
 /// await Firebase.initializeApp(
 ///   options: DefaultFirebaseOptions.currentPlatform,
@@ -16,18 +16,11 @@ import 'package:flutter/foundation.dart'
 /// ```
 class DefaultFirebaseOptions {
   static FirebaseOptions get currentPlatform {
-    if (kIsWeb) {
-      return web;
-    }
     switch (defaultTargetPlatform) {
       case TargetPlatform.android:
         return android;
       case TargetPlatform.iOS:
         return ios;
-      case TargetPlatform.macOS:
-        return macos;
-      case TargetPlatform.windows:
-        return windows;
       case TargetPlatform.linux:
         throw UnsupportedError(
           'DefaultFirebaseOptions have not been configured for linux - '
@@ -39,16 +32,6 @@ class DefaultFirebaseOptions {
         );
     }
   }
-
-  static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'AIzaSyDT2DoKLfLekpm0VCNNGKAlD_LJGhTeKeQ',
-    appId: '1:895441460278:web:3d47c082ca81be5ee44c97',
-    messagingSenderId: '895441460278',
-    projectId: 'gen-lang-client-0599911745',
-    authDomain: 'gen-lang-client-0599911745.firebaseapp.com',
-    storageBucket: 'gen-lang-client-0599911745.firebasestorage.app',
-    measurementId: 'G-BRCWEQCWLZ',
-  );
 
   static const FirebaseOptions android = FirebaseOptions(
     apiKey: 'AIzaSyBzs54lScMXAYcfYakCU_hBizpY_tLJ2sA',
@@ -65,24 +48,5 @@ class DefaultFirebaseOptions {
     projectId: 'gen-lang-client-0599911745',
     storageBucket: 'gen-lang-client-0599911745.firebasestorage.app',
     iosBundleId: 'com.example.skilltrack',
-  );
-
-  static const FirebaseOptions macos = FirebaseOptions(
-    apiKey: 'AIzaSyB4sc8qQQ_avd3eh_N5sXMf-coTRJpTQsM',
-    appId: '1:895441460278:ios:a29ade3e71d80375e44c97',
-    messagingSenderId: '895441460278',
-    projectId: 'gen-lang-client-0599911745',
-    storageBucket: 'gen-lang-client-0599911745.firebasestorage.app',
-    iosBundleId: 'com.example.skilltrack',
-  );
-
-  static const FirebaseOptions windows = FirebaseOptions(
-    apiKey: 'AIzaSyDT2DoKLfLekpm0VCNNGKAlD_LJGhTeKeQ',
-    appId: '1:895441460278:web:433064f79fbab650e44c97',
-    messagingSenderId: '895441460278',
-    projectId: 'gen-lang-client-0599911745',
-    authDomain: 'gen-lang-client-0599911745.firebaseapp.com',
-    storageBucket: 'gen-lang-client-0599911745.firebasestorage.app',
-    measurementId: 'G-MHC1E9QYH7',
   );
 }

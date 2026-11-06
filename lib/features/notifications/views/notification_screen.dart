@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../../app/app_theme.dart';
 import '../../../app/widgets/app_content.dart';
 import '../../../app/widgets/card_loading_view.dart';
@@ -156,11 +157,13 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   String _group(DateTime date) {
-    final local = date.toLocal();
-    final today = DateUtils.dateOnly(DateTime.now());
+    final local = DateFormatter.malaysiaTime(date);
+    final today = DateFormatter.today();
     final day = DateUtils.dateOnly(local);
     if (day == today) return 'Today';
-    if (day == today.subtract(const Duration(days: 1))) return 'Yesterday';
+    if (day == DateTime(today.year, today.month, today.day - 1)) {
+      return 'Yesterday';
+    }
     return 'Earlier';
   }
 

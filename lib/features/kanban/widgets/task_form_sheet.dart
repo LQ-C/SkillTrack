@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../../app/widgets/app_content.dart';
+import '../../../core/errors/app_exception.dart';
+import '../../projects/models/project_milestone.dart';
+import '../../../core/utils/date_formatter.dart';
 
 import '../../../app/router/app_router.dart';
 import '../models/kanban_status.dart';
@@ -30,7 +33,10 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   late KanbanStatus _status;
   late TaskPriority _priority;
   late DateTime? _deadline;
+  String? _milestoneId;
   late bool _hasTime;
+  late final bool _openedWithOverdueDeadline;
+  String? _deadlineError;
   late Set<String> _tagIds;
   bool _moreOptions = false;
   bool _isShowingDialog = false;
@@ -44,10 +50,17 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
     _description = TextEditingController(text: task?.description);
     _status = task?.status ?? KanbanStatus.todo;
     _priority = task?.priority ?? TaskPriority.medium;
-    _deadline = task?.deadline;
-    _hasTime =
-        task?.deadline != null &&
-        (task!.deadline!.hour != 0 || task.deadline!.minute != 0);
+    _deadline = task?.deadline == null
+        ? null
+        : DateFormatter.malaysiaTime(task!.deadline!);
+    _milestoneId = task?.milestoneId;
+    _hasTime = task?.hasDeadlineTime ?? false;
+    _openedWithOverdueDeadline =
+        widget.viewModel.manualDeadlineError(
+          task?.deadline,
+          hasTime: _hasTime,
+        ) !=
+        null;
     _tagIds = task?.tags.map((tag) => tag.id).toSet() ?? {};
   }
 
@@ -62,6 +75,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   Future<void> _submit() async {
     if (_isLeaving ||
         widget.viewModel.isSaving ||
+        widget.viewModel.isCreatingMilestone ||
         !_formKey.currentState!.validate()) {
       return;
     }
@@ -70,14 +84,48 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
         .toSet();
     final selectedTagIds = _tagIds.intersection(availableIds).toList();
     final task = widget.task;
+    final selected = _deadline;
+    final original = task?.deadline;
+    final originalWall = original == null
+        ? null
+        : DateFormatter.malaysiaTime(original);
+    final unchanged =
+        originalWall != null &&
+        selected != null &&
+        _hasTime == task!.hasDeadlineTime &&
+        DateUtils.isSameDay(selected, originalWall) &&
+        (!_hasTime ||
+            TimeOfDay.fromDateTime(selected) ==
+                TimeOfDay.fromDateTime(originalWall));
+    final deadline = selected == null
+        ? null
+        : unchanged
+        ? original
+        : _hasTime
+        ? DateFormatter.fromMalaysia(selected)
+        : DateFormatter.endOfDateUtc(selected);
+    final deadlineHasTime = deadline == null
+        ? null
+        : unchanged
+        ? task.deadlineHasTime
+        : _hasTime;
+    final deadlineError = widget.viewModel.manualDeadlineError(
+      deadline,
+      hasTime: _hasTime,
+      original: _openedWithOverdueDeadline ? task : null,
+    );
+    setState(() => _deadlineError = deadlineError);
+    if (deadlineError != null) return;
     final ok = task == null
         ? await widget.viewModel.createTask(
             title: _title.text,
             description: _description.text,
             status: _status,
             priority: _priority,
-            deadline: _deadline,
+            deadline: deadline,
+            deadlineHasTime: deadlineHasTime,
             tagIds: selectedTagIds,
+            milestoneId: _milestoneId,
             checklist: [
               ..._checklist,
               if (_checklistInput.text.trim().isNotEmpty) _checklistInput.text,
@@ -89,14 +137,75 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             description: _description.text,
             status: _status,
             priority: _priority,
-            deadline: _deadline,
+            deadline: deadline,
+            deadlineHasTime: deadlineHasTime,
             tagIds: selectedTagIds,
+            milestoneId: _milestoneId,
+            clearMilestone: _milestoneId == null,
           );
     if (ok && mounted) {
       setState(() => _isLeaving = true);
       AppRouter.back(context, true);
     }
   }
+
+  Future<void> _createMilestone() async {
+    if (_isShowingDialog || !widget.viewModel.canCreateMilestone) return;
+    setState(() => _isShowingDialog = true);
+    try {
+      final created = await showDialog<ProjectMilestone>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _CreateMilestoneDialog(viewModel: widget.viewModel),
+      );
+      if (created != null && mounted) {
+        setState(() => _milestoneId = created.id);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text(
+              'Milestone saved. It stays saved if you cancel this task.',
+            ),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isShowingDialog = false);
+    }
+  }
+
+  Widget _milestoneSelector() => ListenableBuilder(
+    listenable: widget.viewModel,
+    builder: (context, child) => Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        DropdownButtonFormField<String>(
+          key: const Key('task-milestone'),
+          initialValue: _milestoneId ?? '',
+          isExpanded: true,
+          decoration: const InputDecoration(labelText: 'Milestone'),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('No milestone')),
+            for (final milestone in widget.viewModel.availableMilestones)
+              DropdownMenuItem(
+                value: milestone.id,
+                child: Text(milestone.title, overflow: TextOverflow.ellipsis),
+              ),
+          ],
+          onChanged: widget.viewModel.isSaving || _isShowingDialog
+              ? null
+              : (id) => setState(() => _milestoneId = id == '' ? null : id),
+        ),
+        TextButton.icon(
+          key: const Key('create-milestone-button'),
+          onPressed: _isShowingDialog || !widget.viewModel.canCreateMilestone
+              ? null
+              : _createMilestone,
+          icon: const Icon(Icons.add),
+          label: const Text('Create milestone'),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _createTag() async {
     if (_isShowingDialog || widget.viewModel.isSaving) return;
@@ -118,16 +227,31 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
     if (_isShowingDialog || widget.viewModel.isSaving) return;
     setState(() => _isShowingDialog = true);
     try {
+      final today = DateFormatter.dateOnly(widget.viewModel.malaysiaNow);
+      final lastDate = DateTime(2100).isBefore(today) ? today : DateTime(2100);
+      final current = DateFormatter.dateOnly(_deadline ?? today);
+      final initial = current.isBefore(today)
+          ? today
+          : current.isAfter(lastDate)
+          ? lastDate
+          : current;
       final selected = await showDatePicker(
         context: context,
-        initialDate: _deadline ?? DateTime.now(),
-        firstDate: DateTime(2020),
-        lastDate: DateTime(2100),
+        initialDate: initial,
+        currentDate: today,
+        firstDate: today,
+        lastDate: lastDate,
       );
       if (selected != null && mounted) {
+        final error = widget.viewModel.manualDeadlineError(
+          DateFormatter.endOfDateUtc(selected),
+          hasTime: false,
+        );
         setState(() {
+          _deadlineError = error;
+          if (error != null) return;
           final old = _deadline;
-          _deadline = DateTime(
+          _deadline = DateTime.utc(
             selected.year,
             selected.month,
             selected.day,
@@ -145,23 +269,30 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
     if (_isShowingDialog || widget.viewModel.isSaving) return;
     setState(() => _isShowingDialog = true);
     try {
+      final now = widget.viewModel.malaysiaNow;
+      final date = _deadline ?? now;
       final selected = await showTimePicker(
         context: context,
-        initialTime: _hasTime && _deadline != null
-            ? TimeOfDay.fromDateTime(_deadline!)
-            : TimeOfDay.now(),
+        initialTime: TimeOfDay.fromDateTime(_hasTime ? date : now),
       );
       if (selected != null && mounted) {
+        final candidate = DateTime.utc(
+          date.year,
+          date.month,
+          date.day,
+          selected.hour,
+          selected.minute,
+        );
+        final error = widget.viewModel.manualDeadlineError(
+          DateFormatter.fromMalaysia(candidate),
+          hasTime: true,
+        );
         setState(() {
-          final date = _deadline ?? DateTime.now();
-          _deadline = DateTime(
-            date.year,
-            date.month,
-            date.day,
-            selected.hour,
-            selected.minute,
-          );
-          _hasTime = true;
+          _deadlineError = error;
+          if (error == null) {
+            _deadline = candidate;
+            _hasTime = true;
+          }
         });
       }
     } finally {
@@ -182,7 +313,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   String _dateLabel(BuildContext context) {
     final date = _deadline;
     if (date == null) return 'No deadline';
-    if (DateUtils.isSameDay(date, DateTime.now())) return 'Today';
+    if (DateUtils.isSameDay(date, widget.viewModel.malaysiaNow)) return 'Today';
     return MaterialLocalizations.of(context).formatMediumDate(date);
   }
 
@@ -300,6 +431,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             onPressed: () => setState(() {
               _deadline = null;
               _hasTime = false;
+              _deadlineError = null;
             }),
             icon: const Icon(Icons.close, size: 20),
           ),
@@ -529,6 +661,12 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
           PopupMenuButton<String>(
             tooltip: 'Task options',
             onSelected: (value) {
+              if (value == 'clear-time' && !widget.viewModel.isSaving) {
+                setState(() {
+                  _hasTime = false;
+                  _deadlineError = null;
+                });
+              }
               if (value == 'reset') {
                 setState(() {
                   _title.clear();
@@ -537,6 +675,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                   _priority = TaskPriority.medium;
                   _deadline = null;
                   _hasTime = false;
+                  _deadlineError = null;
                   _tagIds.clear();
                   _checklist.clear();
                   _checked.clear();
@@ -544,8 +683,13 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                 });
               }
             },
-            itemBuilder: (_) => const [
-              PopupMenuItem(value: 'reset', child: Text('Clear form')),
+            itemBuilder: (_) => [
+              if (_deadline != null && _hasTime)
+                const PopupMenuItem(
+                  value: 'clear-time',
+                  child: Text('Remove deadline time'),
+                ),
+              const PopupMenuItem(value: 'reset', child: Text('Clear form')),
             ],
           ),
         ],
@@ -583,6 +727,8 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                   const SizedBox(height: 22),
                   _deadlineRow(theme),
                   const SizedBox(height: 22),
+                  _milestoneSelector(),
+                  const SizedBox(height: 16),
                   _tagRow(theme),
                   const SizedBox(height: 18),
                   _inputCard(theme),
@@ -622,39 +768,61 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                 ),
               ListenableBuilder(
                 listenable: widget.viewModel,
-                builder: (context, child) => SizedBox(
-                  height: 56,
-                  child: FilledButton(
-                    key: const Key('save-task-button'),
-                    onPressed:
-                        _isLeaving ||
-                            widget.viewModel.isSaving ||
-                            (isNew && widget.viewModel.boardId == null)
-                        ? null
-                        : _submit,
-                    style: FilledButton.styleFrom(
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(18),
-                      ),
-                    ),
-                    child: widget.viewModel.isSaving
-                        ? Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const SizedBox(
-                                width: 18,
-                                height: 18,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                ),
+                builder: (context, child) {
+                  final error = _deadlineError ?? widget.viewModel.errorMessage;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              error,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.error,
                               ),
-                              const SizedBox(width: 10),
-                              Text(isNew ? 'Creating…' : 'Saving…'),
-                            ],
-                          )
-                        : Text(isNew ? 'Create Task' : 'Save Changes'),
-                  ),
-                ),
+                            ),
+                          ),
+                        ),
+                      SizedBox(
+                        height: 56,
+                        child: FilledButton(
+                          key: const Key('save-task-button'),
+                          onPressed:
+                              _isLeaving ||
+                                  widget.viewModel.isSaving ||
+                                  (isNew && widget.viewModel.boardId == null)
+                              ? null
+                              : _submit,
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
+                          ),
+                          child: widget.viewModel.isSaving
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 10),
+                                    Text(isNew ? 'Creating…' : 'Saving…'),
+                                  ],
+                                )
+                              : Text(isNew ? 'Create Task' : 'Save Changes'),
+                        ),
+                      ),
+                    ],
+                  );
+                },
               ),
             ],
           ),
@@ -662,4 +830,112 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
       ),
     );
   }
+}
+
+class _CreateMilestoneDialog extends StatefulWidget {
+  const _CreateMilestoneDialog({required this.viewModel});
+  final KanbanViewModel viewModel;
+  @override
+  State<_CreateMilestoneDialog> createState() => _CreateMilestoneDialogState();
+}
+
+class _CreateMilestoneDialogState extends State<_CreateMilestoneDialog> {
+  final _form = GlobalKey<FormState>();
+  final _name = TextEditingController();
+  String? _error;
+
+  @override
+  void dispose() {
+    _name.dispose();
+    super.dispose();
+  }
+
+  Future<void> _create() async {
+    if (widget.viewModel.isCreatingMilestone ||
+        !_form.currentState!.validate()) {
+      return;
+    }
+    setState(() => _error = null);
+    final created = await widget.viewModel.createMilestone(_name.text);
+    if (!mounted) return;
+    if (created != null) {
+      AppRouter.back(context, created);
+    } else {
+      setState(
+        () => _error =
+            widget.viewModel.milestoneError ??
+            AppErrorMessages.createMilestoneFailed,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.viewModel,
+    builder: (context, child) {
+      final pending = widget.viewModel.isCreatingMilestone;
+      return PopScope(
+        canPop: !pending,
+        child: AlertDialog(
+          title: const Text('Create milestone'),
+          content: SingleChildScrollView(
+            child: Form(
+              key: _form,
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  TextFormField(
+                    key: const Key('milestone-name-field'),
+                    controller: _name,
+                    autofocus: true,
+                    enabled: !pending,
+                    validator: (value) =>
+                        ProjectMilestone.validateTitle(value ?? ''),
+                    decoration: const InputDecoration(
+                      labelText: 'Milestone name',
+                    ),
+                    onChanged: (_) {
+                      if (_error != null) setState(() => _error = null);
+                    },
+                    textInputAction: TextInputAction.done,
+                    onFieldSubmitted: (_) => _create(),
+                  ),
+                  const SizedBox(height: 12),
+                  const Text(
+                    'Saved immediately, even if you cancel the task form.',
+                  ),
+                  if (_error != null) ...[
+                    const SizedBox(height: 12),
+                    Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: pending ? null : () => AppRouter.back(context),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              key: const Key('confirm-milestone-button'),
+              onPressed: pending || !widget.viewModel.canCreateMilestone
+                  ? null
+                  : _create,
+              child: Text(pending ? 'Creating…' : 'Create'),
+            ),
+          ],
+        ),
+      );
+    },
+  );
 }

@@ -1,7 +1,9 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/constants/app_constants.dart';
 import '../models/learning_project.dart';
+import '../models/project_milestone.dart';
 import '../models/project_with_progress.dart';
 import 'project_repository.dart';
 
@@ -24,6 +26,15 @@ class SupabaseProjectRepository implements ProjectRepository {
     }
   }
 
+  String? _constraints(String? value) {
+    final normalized = LearningProject.normalizeConstraints(value);
+    if ((normalized?.length ?? 0) >
+        AppLimits.maxTaskGenerationConstraintsLength) {
+      throw const AppException(AppErrorMessages.invalidGenerationConstraints);
+    }
+    return normalized;
+  }
+
   String _userId() {
     final id = currentUserId;
     if (id == null) throw const AppException('Sign in to view your projects.');
@@ -33,6 +44,68 @@ class SupabaseProjectRepository implements ProjectRepository {
   @override
   Future<void> signIn(String email, String password) => _guard(() async {
     await _client.auth.signInWithPassword(email: email, password: password);
+  });
+
+  @override
+  Future<List<ProjectMilestone>> getProjectMilestones(String projectId) =>
+      _guard(() async {
+        if (await getProject(projectId) == null) return [];
+        final rows = await _client
+            .from('project_milestones')
+            .select()
+            .eq('project_id', projectId)
+            .order('position')
+            .order('id');
+        return rows.map(ProjectMilestone.fromMap).toList();
+      });
+
+  @override
+  Future<bool> canCreateMilestone({
+    required String projectId,
+    required String boardId,
+  }) => _guard(() async {
+    final board = await _client
+        .from('kanban_boards')
+        .select('id,projects!inner(owner_id,status)')
+        .eq('id', boardId)
+        .eq('project_id', projectId)
+        .eq('is_archived', false)
+        .eq('projects.owner_id', _userId())
+        .neq('projects.status', 'archived')
+        .maybeSingle();
+    return board != null;
+  });
+
+  @override
+  Future<ProjectMilestone> createMilestone({
+    required String boardId,
+    required String title,
+    required String requestId,
+  }) => _guard(() async {
+    _userId();
+    final error = ProjectMilestone.validateTitle(title);
+    if (error != null) throw AppException(error);
+    try {
+      final row = await _client
+          .rpc(
+            'create_project_milestone',
+            params: {
+              'p_board_id': boardId,
+              'p_title': title.trim(),
+              'p_request_id': requestId,
+            },
+          )
+          .single();
+      return ProjectMilestone.fromMap(row);
+    } on PostgrestException catch (error) {
+      throw AppException(
+        error.code == '42501'
+            ? AppErrorMessages.milestoneBoardUnavailable
+            : AppErrorMessages.createMilestoneFailed,
+      );
+    } catch (_) {
+      throw const AppException(AppErrorMessages.createMilestoneFailed);
+    }
   });
 
   @override
@@ -60,6 +133,7 @@ class SupabaseProjectRepository implements ProjectRepository {
   Future<ProjectWithProgress> createProject({
     required String name,
     String? description,
+    String? constraints,
     DateTime? startDate,
     DateTime? endDate,
   }) => _guard(() async {
@@ -70,6 +144,7 @@ class SupabaseProjectRepository implements ProjectRepository {
           'owner_id': userId,
           'name': name,
           'description': description,
+          'constraints_text': _constraints(constraints),
           'status': 'active',
           'start_date': startDate?.toIso8601String().split('T').first,
           'end_date': endDate?.toIso8601String().split('T').first,
@@ -107,6 +182,7 @@ class SupabaseProjectRepository implements ProjectRepository {
           .update({
             'name': project.name,
             'description': project.description,
+            'constraints_text': _constraints(project.constraints),
             'status': project.status,
             'start_date': project.startDate?.toIso8601String().split('T').first,
             'end_date': project.endDate?.toIso8601String().split('T').first,

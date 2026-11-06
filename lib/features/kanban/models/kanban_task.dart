@@ -1,5 +1,7 @@
 import 'dart:collection';
 
+import '../../../core/utils/date_formatter.dart';
+
 import 'kanban_status.dart';
 import 'task_attachment.dart';
 import 'task_checklist_item.dart';
@@ -15,8 +17,12 @@ class KanbanTask {
     required this.status,
     required this.priority,
     this.deadline,
+    this.deadlineHasTime,
     required this.sortOrder,
     this.completedAt,
+    this.milestoneId,
+    this.elapsedSeconds = 0,
+    this.trackingStartedAt,
     this.isArchived = false,
     int stagnationScore = 0,
     this.isStalled = false,
@@ -34,9 +40,15 @@ class KanbanTask {
        attachments = UnmodifiableListView(attachments);
 
   final String id, boardId, title, description;
+  final String? milestoneId;
   final KanbanStatus status;
   final TaskPriority priority;
   final DateTime? deadline, completedAt;
+  // Null means legacy/unknown. Never infer date-only intent from midnight.
+  final bool? deadlineHasTime;
+  bool get hasDeadlineTime => deadline != null && deadlineHasTime != false;
+  final int elapsedSeconds;
+  final DateTime? trackingStartedAt;
   final int sortOrder;
   final bool isArchived;
   final int stagnationScore;
@@ -47,6 +59,19 @@ class KanbanTask {
   final List<TaskTag> tags;
   final List<TaskChecklistItem> checklistItems;
   final List<TaskAttachment> attachments;
+
+  bool get isTracking =>
+      status == KanbanStatus.inProgress &&
+      !isArchived &&
+      trackingStartedAt != null;
+
+  Duration trackedDurationAt(DateTime now) {
+    final saved = elapsedSeconds < 0 ? 0 : elapsedSeconds;
+    final session = isTracking
+        ? now.toUtc().difference(trackingStartedAt!).inSeconds
+        : 0;
+    return Duration(seconds: saved + (session < 0 ? 0 : session));
+  }
 
   bool get isCompleted => status == KanbanStatus.completed;
   bool get shouldShowStalled => isStalled || stagnationScore >= 70;
@@ -63,20 +88,22 @@ class KanbanTask {
       : stagnationScore >= 30
       ? 'Low risk'
       : 'Active';
-  bool get isOverdue {
+  bool get isOverdue => isOverdueAt(DateTime.now());
+
+  bool isOverdueAt(DateTime now) {
     if (isCompleted || deadline == null) return false;
-    final today = DateTime.now();
-    return _day(deadline!).isBefore(_day(today));
+    return deadline!.isBefore(now.toUtc());
   }
 
-  bool get isDueSoon {
-    if (isCompleted || deadline == null || isOverdue) return false;
-    final today = _day(DateTime.now());
-    return !_day(deadline!).isAfter(today.add(const Duration(days: 3)));
+  bool get isDueSoon => isDueSoonAt(DateTime.now());
+
+  bool isDueSoonAt(DateTime now) {
+    if (isCompleted || deadline == null || isOverdueAt(now)) return false;
+    final today = DateFormatter.today(now: now);
+    final day = DateFormatter.dateOnly(DateFormatter.malaysiaTime(deadline!));
+    return !day.isAfter(DateTime(today.year, today.month, today.day + 3));
   }
 
-  static DateTime _day(DateTime date) =>
-      DateTime(date.year, date.month, date.day);
   int get checklistCompletedCount =>
       checklistItems.where((item) => item.isCompleted).length;
   int get checklistTotalCount => checklistItems.length;
@@ -93,12 +120,18 @@ class KanbanTask {
     id: map['id'].toString(),
     boardId: map['board_id']?.toString() ?? '',
     title: map['title']?.toString() ?? '',
+    milestoneId: map['milestone_id'] as String?,
     description: map['description']?.toString() ?? '',
     status: KanbanStatus.fromValue(map['status']?.toString()),
     priority: TaskPriority.fromValue(map['priority']?.toString()),
-    deadline: DateTime.tryParse(map['deadline']?.toString() ?? ''),
+    deadline: DateTime.tryParse(map['deadline']?.toString() ?? '')?.toUtc(),
+    deadlineHasTime: map['deadline_has_time'] as bool?,
     sortOrder: (map['sort_order'] as num?)?.toInt() ?? 0,
     completedAt: DateTime.tryParse(map['completed_at']?.toString() ?? ''),
+    elapsedSeconds: _readElapsedSeconds(map['elapsed_seconds']),
+    trackingStartedAt: DateTime.tryParse(
+      map['tracking_started_at']?.toString() ?? '',
+    )?.toUtc(),
     isArchived: map['is_archived'] == true,
     stagnationScore: _readScore(map['stagnation_score']),
     isStalled: map['is_stalled'] == true,
@@ -120,17 +153,19 @@ class KanbanTask {
     attachments: attachments,
   );
 
-  // Server-managed stagnation fields are intentionally excluded from writes.
+  // Server-managed stagnation and tracking fields are excluded from writes.
   Map<String, dynamic> toMap() => {
     'id': id,
     'board_id': boardId,
     'title': title,
+    'milestone_id': milestoneId,
     'description': description,
     'status': status.value,
     'priority': priority.name,
-    'deadline': deadline?.toIso8601String(),
+    'deadline': deadline?.toUtc().toIso8601String(),
+    'deadline_has_time': deadline == null ? null : deadlineHasTime,
     'sort_order': sortOrder,
-    'completed_at': completedAt?.toIso8601String(),
+    'completed_at': completedAt?.toUtc().toIso8601String(),
     'is_archived': isArchived,
   };
 
@@ -139,12 +174,18 @@ class KanbanTask {
     String? boardId,
     String? title,
     String? description,
+    String? milestoneId,
+    bool clearMilestone = false,
     KanbanStatus? status,
     TaskPriority? priority,
     DateTime? deadline,
+    bool? deadlineHasTime,
     bool clearDeadline = false,
     int? sortOrder,
     DateTime? completedAt,
+    int? elapsedSeconds,
+    DateTime? trackingStartedAt,
+    bool clearTrackingStartedAt = false,
     bool clearCompletedAt = false,
     bool? isArchived,
     int? stagnationScore,
@@ -165,11 +206,19 @@ class KanbanTask {
     boardId: boardId ?? this.boardId,
     title: title ?? this.title,
     description: description ?? this.description,
+    milestoneId: clearMilestone ? null : milestoneId ?? this.milestoneId,
     status: status ?? this.status,
     priority: priority ?? this.priority,
     deadline: clearDeadline ? null : deadline ?? this.deadline,
+    deadlineHasTime: clearDeadline
+        ? null
+        : deadlineHasTime ?? this.deadlineHasTime,
     sortOrder: sortOrder ?? this.sortOrder,
     completedAt: clearCompletedAt ? null : completedAt ?? this.completedAt,
+    elapsedSeconds: elapsedSeconds ?? this.elapsedSeconds,
+    trackingStartedAt: clearTrackingStartedAt
+        ? null
+        : trackingStartedAt ?? this.trackingStartedAt,
     isArchived: isArchived ?? this.isArchived,
     stagnationScore: stagnationScore ?? this.stagnationScore,
     isStalled: isStalled ?? this.isStalled,
@@ -194,11 +243,15 @@ class KanbanTask {
       boardId == other.boardId &&
       title == other.title &&
       description == other.description &&
+      milestoneId == other.milestoneId &&
       status == other.status &&
       priority == other.priority &&
       deadline == other.deadline &&
+      deadlineHasTime == other.deadlineHasTime &&
       sortOrder == other.sortOrder &&
       completedAt == other.completedAt &&
+      elapsedSeconds == other.elapsedSeconds &&
+      trackingStartedAt == other.trackingStartedAt &&
       isArchived == other.isArchived &&
       stagnationScore == other.stagnationScore &&
       isStalled == other.isStalled &&
@@ -229,10 +282,25 @@ class KanbanTask {
     lastActivityAt,
     createdAt,
     updatedAt,
-    Object.hashAll(tags),
-    Object.hashAll(checklistItems),
-    Object.hashAll(attachments),
+    Object.hash(
+      milestoneId,
+      deadlineHasTime,
+      elapsedSeconds,
+      trackingStartedAt,
+      Object.hashAll(tags),
+      Object.hashAll(checklistItems),
+      Object.hashAll(attachments),
+    ),
   );
+
+  static int _readElapsedSeconds(dynamic value) {
+    final seconds = value is num
+        ? value
+        : num.tryParse(value?.toString() ?? '');
+    return seconds != null && seconds.isFinite && seconds > 0
+        ? seconds.toInt()
+        : 0;
+  }
 
   static int _readScore(dynamic value) {
     final score = value is num ? value : num.tryParse(value?.toString() ?? '');

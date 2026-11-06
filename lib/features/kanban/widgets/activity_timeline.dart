@@ -108,7 +108,7 @@ class _ActivityRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final local = activity.createdAt.toLocal();
+    final local = DateFormatter.malaysiaTime(activity.createdAt);
     final time = MaterialLocalizations.of(context).formatTimeOfDay(
       TimeOfDay.fromDateTime(local),
       alwaysUse24HourFormat: false,
@@ -145,7 +145,7 @@ class _ActivityRow extends StatelessWidget {
                     ),
                   ),
                 Text(
-                  '${DateFormatter.short(local)} · $time',
+                  '${DateFormatter.calendarDate(local)} · $time',
                   style: Theme.of(context).textTheme.bodySmall?.copyWith(
                     color: Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
@@ -161,7 +161,7 @@ class _ActivityRow extends StatelessWidget {
 
 String _label(TaskActivity activity) => switch (activity.action) {
   'created' => 'Task created',
-  'updated' => 'Task updated',
+  'updated' => activity.isProgressUpdate ? 'Progress update' : 'Task updated',
   'moved' =>
     activity.oldValues['status'] == null
         ? 'Moved to ${_status(activity.newValues['status'])}'
@@ -193,6 +193,9 @@ String _readable(String value) {
 }
 
 String? _description(TaskActivity activity) {
+  if (activity.isProgressUpdate) {
+    return activity.newValues['progress_text'] as String;
+  }
   final values = activity.action == 'attachment_removed'
       ? activity.oldValues
       : activity.newValues;

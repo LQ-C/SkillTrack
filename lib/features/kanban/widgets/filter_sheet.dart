@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../../core/utils/date_formatter.dart';
 import '../../../app/router/app_router.dart';
 
 import '../models/kanban_filter.dart';
@@ -20,18 +21,21 @@ class _FilterSheetState extends State<FilterSheet> {
   late Set<KanbanStatus> statuses;
   late Set<TaskPriority> priorities;
   late Set<String> tagIds;
-  late bool overdueOnly, completedOnly;
+  late bool overdueOnly, completedOnly, includeStalled;
   DateTime? start, end;
+  String _milestone = 'all';
   bool _isPickingDate = false;
   @override
   void initState() {
     super.initState();
     final filter = widget.viewModel.activeFilter;
+    _milestone = filter.noMilestoneOnly ? 'none' : filter.milestoneId ?? 'all';
     statuses = {...filter.statuses};
     priorities = {...filter.priorities};
     tagIds = {...filter.tagIds};
     overdueOnly = filter.overdueOnly;
     completedOnly = filter.completedOnly;
+    includeStalled = filter.includeStalled;
     start = filter.deadlineStart;
     end = filter.deadlineEnd;
   }
@@ -42,7 +46,7 @@ class _FilterSheetState extends State<FilterSheet> {
     try {
       final date = await showDatePicker(
         context: context,
-        initialDate: (from ? start : end) ?? DateTime.now(),
+        initialDate: (from ? start : end) ?? DateFormatter.today(),
         firstDate: DateTime(2020),
         lastDate: DateTime(2100),
       );
@@ -70,30 +74,67 @@ class _FilterSheetState extends State<FilterSheet> {
         children: [
           Text('Filter tasks', style: Theme.of(context).textTheme.titleLarge),
           const SizedBox(height: 12),
+          DropdownButtonFormField<String>(
+            key: const Key('milestone-filter'),
+            initialValue: _milestone,
+            isExpanded: true,
+            decoration: const InputDecoration(labelText: 'Milestone'),
+            items: [
+              const DropdownMenuItem(
+                value: 'all',
+                child: Text('All milestones'),
+              ),
+              const DropdownMenuItem(
+                value: 'none',
+                child: Text('No milestone'),
+              ),
+              for (final milestone in widget.viewModel.availableMilestones)
+                DropdownMenuItem(
+                  value: milestone.id,
+                  child: Text(milestone.title, overflow: TextOverflow.ellipsis),
+                ),
+            ],
+            onChanged: (value) => setState(() => _milestone = value ?? 'all'),
+          ),
+          const SizedBox(height: 12),
           Text('Status', style: Theme.of(context).textTheme.titleSmall),
           Wrap(
             spacing: 6,
-            children: KanbanStatus.values
-                .map(
-                  (status) => FilterChip(
-                    label: Text(status.label),
-                    selectedColor: KanbanColors.status(
-                      status,
-                    ).withValues(alpha: .13),
-                    checkmarkColor: KanbanColors.status(status),
-                    labelStyle: Theme.of(context).textTheme.labelLarge
-                        ?.copyWith(
-                          color: statuses.contains(status)
-                              ? KanbanColors.status(status)
-                              : Theme.of(context).colorScheme.onSurfaceVariant,
-                        ),
-                    selected: statuses.contains(status),
-                    onSelected: (selected) => setState(() {
-                      selected ? statuses.add(status) : statuses.remove(status);
-                    }),
+            children: [
+              ...KanbanStatus.values.map(
+                (status) => FilterChip(
+                  label: Text(status.label),
+                  selectedColor: KanbanColors.status(
+                    status,
+                  ).withValues(alpha: .13),
+                  checkmarkColor: KanbanColors.status(status),
+                  labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    color: statuses.contains(status)
+                        ? KanbanColors.status(status)
+                        : Theme.of(context).colorScheme.onSurfaceVariant,
                   ),
-                )
-                .toList(),
+                  selected: statuses.contains(status),
+                  onSelected: (selected) => setState(() {
+                    selected ? statuses.add(status) : statuses.remove(status);
+                  }),
+                ),
+              ),
+              FilterChip(
+                label: const Text('Stalled'),
+                selectedColor: Theme.of(
+                  context,
+                ).colorScheme.tertiary.withValues(alpha: .13),
+                checkmarkColor: Theme.of(context).colorScheme.tertiary,
+                labelStyle: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: includeStalled
+                      ? Theme.of(context).colorScheme.tertiary
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+                selected: includeStalled,
+                onSelected: (selected) =>
+                    setState(() => includeStalled = selected),
+              ),
+            ],
           ),
           const SizedBox(height: 8),
           Text('Priority', style: Theme.of(context).textTheme.titleSmall),
@@ -192,7 +233,12 @@ class _FilterSheetState extends State<FilterSheet> {
                 onPressed: () {
                   widget.viewModel.applyFilter(
                     KanbanFilter(
+                      milestoneId: _milestone == 'all' || _milestone == 'none'
+                          ? null
+                          : _milestone,
+                      noMilestoneOnly: _milestone == 'none',
                       statuses: statuses,
+                      includeStalled: includeStalled,
                       priorities: priorities,
                       tagIds: tagIds,
                       overdueOnly: overdueOnly,

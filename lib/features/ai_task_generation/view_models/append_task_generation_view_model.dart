@@ -2,10 +2,14 @@ import 'dart:collection';
 
 import 'package:flutter/foundation.dart';
 
+import '../../../core/utils/date_formatter.dart';
+import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/utils/operation_id.dart';
 import '../../kanban/repositories/kanban_repository.dart';
+import '../../projects/models/project_milestone.dart';
 import '../../projects/repositories/project_repository.dart';
+import '../models/generated_milestone_draft.dart';
 import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 import '../repositories/ai_task_generation_repository.dart';
@@ -34,9 +38,14 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   bool _isRevising = false;
   DateTime? _generationStartDate, _generationEndDate;
   List<ExistingTaskSummary> _existingSummaries = const [];
+  List<ProjectMilestone> _existingMilestones = const [];
+  @override
+  Iterable<GeneratedMilestoneDraft> get existingGeneratedMilestones =>
+      _existingMilestones.map(GeneratedMilestoneDraft.existing);
   List<GeneratedTaskDraft>? _pending;
   List<GeneratedTaskDraft>? _saveDraft;
   String? _saveRequestId;
+  String _pendingConstraints = '';
   String? _errorMessage;
   String? _feedbackMessage;
 
@@ -61,9 +70,37 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   List<GeneratedTaskDraft> get pendingGeneratedTasks =>
       UnmodifiableListView(_pending ?? const <GeneratedTaskDraft>[]);
 
-  Future<List<GeneratedTaskDraft>?> generateMoreTasks() async {
+  Future<String?> loadGenerationConstraints() async {
+    if (_disposed) return null;
+    if (_pending != null) return _pendingConstraints;
+    try {
+      final project = await _projects.getProject(projectId);
+      if (_disposed) return null;
+      if (project == null || project.status == 'archived') {
+        throw const AppException(AppErrorMessages.requestFailed);
+      }
+      return project.constraints ?? '';
+    } catch (error) {
+      if (!_disposed) {
+        _errorMessage = AppException.messageFor(error);
+        notifyListeners();
+      }
+      return null;
+    }
+  }
+
+  Future<List<GeneratedTaskDraft>?> generateMoreTasks({
+    String? constraints,
+  }) async {
     if (_disposed || _isGenerating || _isConfirming || _isRevising) return null;
     if (_pending != null) return pendingGeneratedTasks;
+    final trimmedConstraints = constraints?.trim();
+    if ((trimmedConstraints?.length ?? 0) >
+        AppLimits.maxTaskGenerationConstraintsLength) {
+      _errorMessage = AppErrorMessages.invalidGenerationConstraints;
+      notifyListeners();
+      return null;
+    }
     _isGenerating = true;
     _errorMessage = null;
     _feedbackMessage = null;
@@ -78,26 +115,36 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.requestFailed;
         return null;
       }
+      final requestConstraints =
+          trimmedConstraints ?? project.constraints?.trim() ?? '';
+      if (requestConstraints.length >
+          AppLimits.maxTaskGenerationConstraintsLength) {
+        throw const AppException(AppErrorMessages.invalidGenerationConstraints);
+      }
       final description = project.description?.trim() ?? '';
       if (description.isEmpty) {
         _errorMessage = AppErrorMessages.projectDescriptionRequired;
         return null;
       }
-      final now = DateTime.now();
-      final today = DateTime(now.year, now.month, now.day);
+      final today = DateFormatter.today();
       final projectStart = project.startDate;
       final start = projectStart != null && projectStart.isAfter(today)
           ? projectStart
           : today;
-      final end = project.endDate ?? start.add(const Duration(days: 7));
+      final end =
+          project.endDate ?? DateTime(start.year, start.month, start.day + 7);
       if (end.isBefore(today) || end.isBefore(start)) {
         _errorMessage = AppErrorMessages.expiredProjectDeadline;
         return null;
       }
       final existing = await _tasks.getTaskSummaries(boardId);
+      final milestones = await _projects.getProjectMilestones(projectId);
       final generated = await _generator.generate(
         title: project.name,
         description: description,
+        constraints: requestConstraints,
+        projectId: projectId,
+        existingMilestones: milestones,
         startDate: start,
         endDate: end,
         mode: TaskGenerationMode.append,
@@ -109,10 +156,12 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.noAdditionalTasks;
         return null;
       }
-      _pending = List.unmodifiable(fresh);
+      _pending = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
+      _pendingConstraints = requestConstraints;
       _generationStartDate = start;
       _generationEndDate = end;
       _existingSummaries = List.unmodifiable(existing);
+      _existingMilestones = List.unmodifiable(milestones);
       return pendingGeneratedTasks;
     } catch (error) {
       if (!_disposed) {
@@ -162,16 +211,18 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       if (_disposed) return null;
       final fresh = _saveDraft ?? _withoutDuplicates(_pending!, current);
       if (fresh.isEmpty) {
+        _pendingConstraints = '';
         _feedbackMessage = AppErrorMessages.additionalTasksAlreadyExist;
         return true;
       }
-      _saveDraft = List.unmodifiable(fresh);
+      _saveDraft = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
       _saveRequestId ??= createOperationId();
       await _tasks.createGeneratedTasks(
         boardId,
         fresh,
         requestId: _saveRequestId,
       );
+      _pendingConstraints = '';
       return _disposed ? null : true;
     } catch (_) {
       if (!_disposed) _errorMessage = AppErrorMessages.addGeneratedTasksFailed;
@@ -193,7 +244,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
     List<GeneratedTaskDraft> tasks, {
     String? error,
   }) {
-    _pending = List.unmodifiable(tasks);
+    _pending = List.unmodifiable(GeneratedTaskDraft.grouped(tasks));
     _errorMessage = error;
     notifyListeners();
   }
@@ -236,9 +287,13 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         throw const AppException(AppErrorMessages.requestFailed);
       }
       final existing = await _tasks.getTaskSummaries(boardId);
+      final milestones = await _projects.getProjectMilestones(projectId);
       final revised = await _generator.revise(
         title: project.name,
         description: project.description?.trim() ?? '',
+        constraints: _pendingConstraints,
+        projectId: projectId,
+        existingMilestones: milestones,
         startDate: generationStartDate,
         endDate: generationEndDate,
         sourceMode: TaskGenerationMode.append,
@@ -251,7 +306,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       if (fresh.isEmpty) {
         throw const AppException(AppErrorMessages.noAdditionalTasks);
       }
-      final checked = GeneratedTaskDraft.reindex(fresh);
+      final checked = GeneratedTaskDraft.grouped(fresh);
       final invalid = GeneratedTaskDraft.validationError(
         checked,
         startDate: generationStartDate,
@@ -261,6 +316,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
       if (invalid != null) throw AppException(invalid);
       _pending = List.unmodifiable(checked);
       _existingSummaries = List.unmodifiable(existing);
+      _existingMilestones = List.unmodifiable(milestones);
       return true;
     } catch (error) {
       if (!_disposed) {
@@ -295,6 +351,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   void cancelGeneratedTaskPreview() {
     if (_disposed || _isConfirming || _isRevising || _pending == null) return;
     _pending = null;
+    _pendingConstraints = '';
     _saveDraft = null;
     _saveRequestId = null;
     _errorMessage = null;

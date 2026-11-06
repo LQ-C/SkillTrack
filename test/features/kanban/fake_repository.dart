@@ -25,6 +25,8 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   bool failLoad;
   bool noBoard;
   bool failMove = false;
+  bool failTimer = false;
+  int timerCalls = 0;
   bool failReorderOnce = false;
   bool failArchive = false;
   final Set<String> failArchiveIds = {};
@@ -96,6 +98,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
           status: task.isArchived ? 'archived' : task.status.value,
           deadline: task.deadline,
           sortOrder: task.sortOrder,
+          milestoneId: task.milestoneId,
         ),
     ];
   }
@@ -104,7 +107,13 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   Future<List<TaskTag>> getUserTags(String userId) async => List.of(tags);
   @override
   Future<KanbanTask> createTask(KanbanTask task) async {
-    final created = task.copyWith(id: '${_nextId++}');
+    final created = task.copyWith(
+      id: '${_nextId++}',
+      trackingStartedAt: task.status == KanbanStatus.inProgress
+          ? DateTime.now().toUtc()
+          : null,
+      elapsedSeconds: 0,
+    );
     stored.add(created);
     return created;
   }
@@ -148,6 +157,8 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
           id: taskId,
           boardId: boardId,
           title: draft.title,
+          milestoneId:
+              draft.milestone?.existingMilestoneId ?? draft.milestone?.localId,
           description: draft.description,
           status: KanbanStatus.todo,
           priority: TaskPriority.fromValue(draft.priority),
@@ -195,7 +206,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   }
 
   @override
-  Future<void> moveTask(
+  Future<KanbanTask> moveTask(
     KanbanTask task,
     KanbanStatus status,
     int order, {
@@ -203,27 +214,54 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
   }) async {
     moveCalls++;
     if (failMove) throw StateError('move failed');
-    stored = stored
-        .map(
-          (item) => item.id == task.id
-              ? item.copyWith(
-                  status: status,
-                  sortOrder: order,
-                  completedAt: status == KanbanStatus.completed
-                      ? (completedAt ?? DateTime(2026, 10, 5))
-                      : null,
-                  clearCompletedAt: status != KanbanStatus.completed,
-                )
-              : item,
-        )
-        .toList();
+    final current = stored.singleWhere((item) => item.id == task.id);
+    final now = DateTime.now().toUtc();
+    final changed = current.status != status;
+    final updated = current.copyWith(
+      status: status,
+      sortOrder: order,
+      elapsedSeconds: changed
+          ? current.trackedDurationAt(now).inSeconds
+          : current.elapsedSeconds,
+      trackingStartedAt: changed && status == KanbanStatus.inProgress
+          ? now
+          : current.trackingStartedAt,
+      clearTrackingStartedAt: changed && status != KanbanStatus.inProgress,
+      completedAt: status == KanbanStatus.completed
+          ? (completedAt ?? now)
+          : null,
+      clearCompletedAt: status != KanbanStatus.completed,
+      updatedAt: now,
+    );
+    stored = [for (final item in stored) item.id == task.id ? updated : item];
+    return updated;
+  }
+
+  @override
+  Future<KanbanTask> setTaskTimerPaused(KanbanTask task, bool paused) async {
+    timerCalls++;
+    if (failTimer) throw StateError('timer failed');
+    final current = stored.singleWhere((item) => item.id == task.id);
+    final now = DateTime.now().toUtc();
+    final updated = current.copyWith(
+      elapsedSeconds: paused
+          ? current.trackedDurationAt(now).inSeconds
+          : current.elapsedSeconds,
+      trackingStartedAt: paused ? null : current.trackingStartedAt ?? now,
+      clearTrackingStartedAt: paused,
+      updatedAt: now,
+    );
+    stored = [for (final item in stored) item.id == task.id ? updated : item];
+    return updated;
   }
 
   @override
   Future<void> reorderTasks(List<KanbanTask> tasks) async {
     reorderCalls++;
     final byId = {for (final task in tasks) task.id: task};
-    stored = stored.map((item) => byId[item.id] ?? item).toList();
+    stored = stored
+        .map((item) => item.copyWith(sortOrder: byId[item.id]?.sortOrder))
+        .toList();
     if (failReorderOnce) {
       failReorderOnce = false;
       throw StateError('reorder failed after partial persistence');
@@ -232,6 +270,10 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
 
   @override
   Future<void> archiveTask(String taskId, bool archived) async {
+    if (archived) {
+      final task = stored.singleWhere((task) => task.id == taskId);
+      if (task.isTracking) await setTaskTimerPaused(task, true);
+    }
     if (failArchive || failArchiveIds.contains(taskId)) {
       throw StateError('archive failed');
     }
@@ -414,6 +456,43 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
       'https://example.com';
   @override
   Future<List<TaskActivity>> getTaskActivity(String taskId) async => [];
+  int progressCalls = 0;
+  bool failProgress = false, loseProgressResponseOnce = false;
+  final progressRequestIds = <String>[];
+  final _progressReceipts = <String>{};
+  @override
+  Future<void> addProgressUpdate(
+    String taskId,
+    String text, {
+    required String requestId,
+  }) async {
+    progressCalls++;
+    progressRequestIds.add(requestId);
+    if (failProgress) throw StateError('Unable to save');
+    if (!_progressReceipts.add(requestId)) return;
+    await addActivity(
+      taskId,
+      'updated',
+      newValues: {'change': 'progress_update', 'progress_text': text},
+    );
+    stored = stored
+        .map(
+          (task) => task.id == taskId
+              ? task.copyWith(
+                  isStalled: false,
+                  stagnationScore: 0,
+                  clearStalledAt: true,
+                  lastActivityAt: DateTime.now().toUtc(),
+                )
+              : task,
+        )
+        .toList();
+    if (loseProgressResponseOnce) {
+      loseProgressResponseOnce = false;
+      throw StateError('Response lost');
+    }
+  }
+
   @override
   Future<void> addActivity(
     String taskId,

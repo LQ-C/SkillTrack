@@ -1,3 +1,5 @@
+import 'package:skilltrack/features/ai_task_generation/models/generated_milestone_draft.dart';
+import 'package:skilltrack/features/projects/models/project_milestone.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
@@ -204,6 +206,83 @@ void main() {
       'revisionFeedback': 'Add security checks',
       'existingTasks': [task.toRequestJson()],
     });
+    for (final mode in [
+      TaskGenerationMode.initial,
+      TaskGenerationMode.append,
+    ]) {
+      await service.generateRaw(
+        title: 'Project',
+        description: 'Description',
+        endDate: DateTime(2026, 12, 1),
+        mode: mode,
+        existingTasks: [task],
+        constraints: '  Flutter only  ',
+      );
+      expect(bodies.last['constraints'], 'Flutter only');
+      if (mode == TaskGenerationMode.append) {
+        expect(bodies.last['existingTasks'], [task.toRequestJson()]);
+      }
+      await service.reviseRaw(
+        title: 'Project',
+        description: 'Description',
+        endDate: DateTime(2026, 12, 1),
+        sourceMode: mode,
+        feedback: 'Add tests',
+        currentDraft: [draft],
+        existingTasks: [task],
+        constraints: '  Flutter only  ',
+      );
+      expect(bodies.last['constraints'], 'Flutter only');
+      expect(bodies.last['revisionFeedback'], 'Add tests');
+    }
+    await service.generateRaw(
+      title: 'Project',
+      description: 'Description',
+      endDate: DateTime(2026, 12, 1),
+      constraints: '   ',
+    );
+    expect(bodies.last, isNot(contains('constraints')));
+    const milestone = ProjectMilestone(
+      id: 'milestone-1',
+      projectId: 'project-1',
+      title: 'Authentication',
+      position: 0,
+    );
+    final associated = draft.copyWith(
+      milestone: GeneratedMilestoneDraft.existing(milestone),
+    );
+    for (final revise in [false, true]) {
+      if (revise) {
+        await service.reviseRaw(
+          title: 'Project',
+          description: 'Description',
+          endDate: DateTime(2026, 12, 1),
+          sourceMode: TaskGenerationMode.append,
+          feedback: 'Add tests',
+          currentDraft: [associated],
+          projectId: 'project-1',
+          existingMilestones: [milestone],
+          existingTasks: [task],
+        );
+      } else {
+        await service.generateRaw(
+          title: 'Project',
+          description: 'Description',
+          endDate: DateTime(2026, 12, 1),
+          mode: TaskGenerationMode.append,
+          projectId: 'project-1',
+          existingMilestones: [milestone],
+          existingTasks: [task],
+        );
+      }
+      expect(bodies.last['projectId'], 'project-1');
+      expect(bodies.last['existingMilestones'], [milestone.toGenerationJson()]);
+      if (revise) {
+        final sent = (bodies.last['currentDraft'] as List).single as Map;
+        expect(sent['milestone'], associated.milestone!.toJson());
+        expect(sent['draftTaskId'], associated.localId);
+      }
+    }
   });
 
   Future<(FakeProjectRepository, String)> project({DateTime? endDate}) async {

@@ -25,9 +25,10 @@ abstract class KanbanRepository {
   });
   Future<KanbanTask> updateTask(KanbanTask task);
   Future<KanbanTask> resumeTask(KanbanTask task);
+  Future<KanbanTask> setTaskTimerPaused(KanbanTask task, bool paused);
   Future<void> archiveTask(String taskId, bool archived);
   Future<void> deleteTask(String taskId);
-  Future<void> moveTask(
+  Future<KanbanTask> moveTask(
     KanbanTask task,
     KanbanStatus status,
     int order, {
@@ -57,6 +58,11 @@ abstract class KanbanRepository {
   Future<void> deleteAttachment(TaskAttachment attachment);
   Future<String> getAttachmentUrl(TaskAttachment attachment);
   Future<List<TaskActivity>> getTaskActivity(String taskId);
+  Future<void> addProgressUpdate(
+    String taskId,
+    String text, {
+    required String requestId,
+  });
   Future<void> addActivity(
     String taskId,
     String action, {

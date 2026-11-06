@@ -179,11 +179,19 @@ class AppRouter {
             : const _RouteUnavailable(board: true);
       case AppRoutes.createTask:
         page = arguments is CreateTaskRouteArgs && arguments.isValid
-            ? _TaskRoute(args: arguments, repository: kanbanRepository)
+            ? _TaskRoute(
+                args: arguments,
+                repository: kanbanRepository,
+                projectRepository: projectRepository,
+              )
             : const _RouteUnavailable();
       case AppRoutes.taskDetails:
         page = arguments is TaskDetailsRouteArgs && arguments.isValid
-            ? _TaskDetailsRoute(args: arguments, repository: kanbanRepository)
+            ? _TaskDetailsRoute(
+                args: arguments,
+                repository: kanbanRepository,
+                projectRepository: projectRepository,
+              )
             : const _RouteUnavailable();
       case AppRoutes.archivedTasks:
         page = arguments is BoardRouteArgs && arguments.isValid
@@ -433,7 +441,11 @@ class _BoardRoute extends StatefulWidget {
 }
 
 class _BoardRouteState extends State<_BoardRoute> {
-  late final KanbanViewModel _model = KanbanViewModel(widget.repository);
+  late final KanbanViewModel _model = KanbanViewModel(
+    widget.repository,
+    projectRepository: widget.projectRepository,
+    projectId: widget.args.projectId,
+  );
   late final AppendTaskGenerationViewModel? _append =
       widget.generationRepository == null
       ? null
@@ -464,7 +476,12 @@ class _BoardRouteState extends State<_BoardRoute> {
 }
 
 class _TaskRoute extends StatefulWidget {
-  const _TaskRoute({required this.args, required this.repository});
+  const _TaskRoute({
+    required this.args,
+    required this.repository,
+    required this.projectRepository,
+  });
+  final ProjectRepository projectRepository;
   final CreateTaskRouteArgs args;
   final KanbanRepository repository;
 
@@ -473,7 +490,11 @@ class _TaskRoute extends StatefulWidget {
 }
 
 class _TaskRouteState extends State<_TaskRoute> {
-  late final KanbanViewModel _model = KanbanViewModel(widget.repository);
+  late final KanbanViewModel _model = KanbanViewModel(
+    widget.repository,
+    projectRepository: widget.projectRepository,
+    projectId: widget.args.projectId,
+  );
   late final Future<void> _ready = _model.initialize(widget.args.boardId);
 
   @override
@@ -504,7 +525,12 @@ class _TaskRouteState extends State<_TaskRoute> {
 }
 
 class _TaskDetailsRoute extends StatefulWidget {
-  const _TaskDetailsRoute({required this.args, required this.repository});
+  const _TaskDetailsRoute({
+    required this.args,
+    required this.repository,
+    required this.projectRepository,
+  });
+  final ProjectRepository projectRepository;
   final TaskDetailsRouteArgs args;
   final KanbanRepository repository;
 
@@ -514,7 +540,11 @@ class _TaskDetailsRoute extends StatefulWidget {
 
 class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
   bool _isOpeningEdit = false;
-  late final KanbanViewModel _model = KanbanViewModel(widget.repository);
+  late final KanbanViewModel _model = KanbanViewModel(
+    widget.repository,
+    projectRepository: widget.projectRepository,
+    projectId: widget.args.projectId,
+  );
   late final Future<void> _ready = _model.initialize(widget.args.boardId);
 
   @override
@@ -527,7 +557,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     if (_isOpeningEdit) return;
     setState(() => _isOpeningEdit = true);
     try {
-      final changed = await AppRouter.createTask(
+      await AppRouter.createTask(
         context,
         CreateTaskRouteArgs(
           projectId: widget.args.projectId,
@@ -536,7 +566,8 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           taskId: task.id,
         ),
       );
-      if (changed == true && mounted) await _model.refresh();
+      // Milestones can be saved even when the task itself was not changed.
+      if (mounted) await _model.refresh();
     } finally {
       if (mounted) setState(() => _isOpeningEdit = false);
     }

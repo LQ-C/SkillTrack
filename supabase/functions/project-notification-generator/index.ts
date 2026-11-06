@@ -155,9 +155,7 @@ Deno.serve(async (request) => {
         const { data, error } = await admin
           .from("notification_preferences")
           .select(
-            "stalled_task_enabled," +
-              "deadline_reminder_enabled," +
-              "recommendation_enabled",
+            "stalled_task_enabled,deadline_reminder_enabled,recommendation_enabled",
           )
           .eq("user_id", userId)
           .maybeSingle();
@@ -196,9 +194,7 @@ Deno.serve(async (request) => {
         } = await admin
           .from("notification_preferences")
           .select(
-            "stalled_task_enabled," +
-              "deadline_reminder_enabled," +
-              "recommendation_enabled",
+            "stalled_task_enabled,deadline_reminder_enabled,recommendation_enabled",
           )
           .eq("user_id", userId)
           .single();
@@ -231,12 +227,19 @@ Deno.serve(async (request) => {
         const result =
           (data as StagnationUpdate[] | null)?.[0];
 
-        if (!result) {
-          throw new Error(
-            "Stagnation update returned no result",
-          );
+        if (
+          !result || data?.length !== 1 ||
+          typeof result.became_stalled !== "boolean" ||
+          typeof result.currently_stalled !== "boolean" ||
+          (result.currently_stalled
+            ? typeof result.current_stalled_at !== "string" ||
+              !Number.isFinite(Date.parse(result.current_stalled_at))
+            : result.current_stalled_at !== null)
+        ) {
+          throw new Error("Invalid stagnation update result");
         }
 
+        // Preserve the persisted episode string: existing unique keys use it verbatim.
         return result;
       },
 

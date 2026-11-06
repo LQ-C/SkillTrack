@@ -11,6 +11,228 @@ import 'package:skilltrack/features/kanban/viewmodels/kanban_view_model.dart';
 import '../fake_repository.dart';
 
 void main() {
+  group('Stalled filtering', () {
+    test('selection survives copying and is reset by clear', () {
+      final filter = KanbanFilter(includeStalled: true);
+      expect(filter.isActive, isTrue);
+      final copied = filter.copyWith(
+        statuses: {KanbanStatus.todo},
+        milestoneId: 'stage',
+      );
+      expect(copied.includeStalled, isTrue);
+      expect(copied.statuses, {KanbanStatus.todo});
+      expect(copied.copyWith(includeStalled: false).milestoneId, 'stage');
+      expect(copied.copyWith(includeStalled: false).includeStalled, isFalse);
+      expect(filter.clear().includeStalled, isFalse);
+      expect(copied.clear().isActive, isFalse);
+    });
+
+    for (final scenario in [
+      (
+        name: 'no selection shows all nonarchived tasks',
+        statuses: <KanbanStatus>{},
+        stalled: false,
+        expected: [
+          'todo',
+          'todo-stalled',
+          'progress',
+          'progress-stalled',
+          'done',
+          'done-stalled',
+          'score-only',
+        ],
+      ),
+      (
+        name: 'Stalled alone uses persisted flag, including low scores',
+        statuses: <KanbanStatus>{},
+        stalled: true,
+        expected: ['todo-stalled', 'progress-stalled', 'done-stalled'],
+      ),
+      (
+        name: 'normal status alone retains existing filtering',
+        statuses: {KanbanStatus.todo},
+        stalled: false,
+        expected: ['todo', 'todo-stalled'],
+      ),
+      (
+        name: 'multiple normal statuses retain existing filtering',
+        statuses: {KanbanStatus.inProgress, KanbanStatus.completed},
+        stalled: false,
+        expected: [
+          'progress',
+          'progress-stalled',
+          'done',
+          'done-stalled',
+          'score-only',
+        ],
+      ),
+      (
+        name: 'To-Do and Stalled match either category across columns',
+        statuses: {KanbanStatus.todo},
+        stalled: true,
+        expected: ['todo', 'todo-stalled', 'progress-stalled', 'done-stalled'],
+      ),
+    ]) {
+      test(scenario.name, () async {
+        final model = KanbanViewModel(
+          FakeKanbanRepository(
+            tasks: [
+              sampleTask('todo', 'Plan', KanbanStatus.todo),
+              sampleTask(
+                'todo-stalled',
+                'Old plan',
+                KanbanStatus.todo,
+              ).copyWith(isStalled: true),
+              sampleTask('progress', 'Build', KanbanStatus.inProgress),
+              sampleTask(
+                'progress-stalled',
+                'Old work',
+                KanbanStatus.inProgress,
+              ).copyWith(isStalled: true, stagnationScore: 10),
+              sampleTask('done', 'Finished', KanbanStatus.completed),
+              sampleTask(
+                'done-stalled',
+                'Persisted flag',
+                KanbanStatus.completed,
+              ).copyWith(isStalled: true),
+              sampleTask(
+                'score-only',
+                'High score without flag',
+                KanbanStatus.inProgress,
+              ).copyWith(stagnationScore: 100, isStalled: false),
+              sampleTask(
+                'archived',
+                'Archived stalled task',
+                KanbanStatus.todo,
+              ).copyWith(isStalled: true, isArchived: true),
+            ],
+          ),
+        );
+        addTearDown(model.dispose);
+        await model.initialize();
+        model.applyFilter(
+          KanbanFilter(
+            statuses: scenario.statuses,
+            includeStalled: scenario.stalled,
+          ),
+        );
+        expect([
+          for (final status in KanbanStatus.values)
+            ...model.visibleTasks(status).map((task) => task.id),
+        ], unorderedEquals(scenario.expected));
+      });
+    }
+
+    test(
+      'status category OR combines with search, priority, tags, dates and milestones using AND',
+      () async {
+        const tag = TaskTag(
+          id: 'tag',
+          ownerId: 'user-1',
+          name: 'Study',
+          colorHex: '#5C6BC0',
+        );
+        final date = DateTime(2026, 11, 15);
+        final todo = sampleTask(
+          'todo',
+          'Login UI',
+          KanbanStatus.todo,
+          priority: TaskPriority.high,
+          tags: [tag],
+          deadline: date,
+        ).copyWith(milestoneId: 'stage');
+        final stalled = todo.copyWith(
+          id: 'stalled',
+          status: KanbanStatus.inProgress,
+          isStalled: true,
+        );
+        final model = KanbanViewModel(
+          FakeKanbanRepository(
+            tasks: [
+              todo,
+              stalled,
+              stalled.copyWith(id: 'wrong-status', isStalled: false),
+              stalled.copyWith(id: 'wrong-stage', milestoneId: 'another'),
+              todo.copyWith(id: 'wrong-tag', tags: []),
+              stalled.copyWith(
+                id: 'wrong-priority',
+                priority: TaskPriority.low,
+              ),
+              todo.copyWith(id: 'wrong-date', deadline: DateTime(2026, 12, 2)),
+              stalled.copyWith(
+                id: 'wrong-search',
+                title: 'Other',
+                description: 'Other work',
+              ),
+            ],
+          ),
+        );
+        addTearDown(model.dispose);
+        await model.initialize();
+        model.setSearchQuery('login');
+        model.applyFilter(
+          KanbanFilter(
+            statuses: {KanbanStatus.todo},
+            includeStalled: true,
+            priorities: {TaskPriority.high},
+            tagIds: {tag.id},
+            milestoneId: 'stage',
+            deadlineStart: DateTime(2026, 11, 1),
+            deadlineEnd: DateTime(2026, 11, 30),
+          ),
+        );
+        expect(model.visibleTasks(KanbanStatus.todo).map((task) => task.id), [
+          'todo',
+        ]);
+        expect(
+          model.visibleTasks(KanbanStatus.inProgress).map((task) => task.id),
+          ['stalled'],
+        );
+      },
+    );
+
+    for (final selection in [
+      (name: 'Stalled only', statuses: <KanbanStatus>{}, remainsVisible: false),
+      (
+        name: 'matching normal status plus Stalled',
+        statuses: {KanbanStatus.inProgress},
+        remainsVisible: true,
+      ),
+      (
+        name: 'nonmatching normal status plus Stalled',
+        statuses: {KanbanStatus.todo},
+        remainsVisible: false,
+      ),
+    ]) {
+      test('resumed task updates ${selection.name} results', () async {
+        final model = KanbanViewModel(
+          FakeKanbanRepository(
+            tasks: [
+              sampleTask(
+                '1',
+                'Study',
+                KanbanStatus.inProgress,
+              ).copyWith(isStalled: true),
+            ],
+          ),
+        );
+        addTearDown(model.dispose);
+        await model.initialize();
+        model.applyFilter(
+          KanbanFilter(statuses: selection.statuses, includeStalled: true),
+        );
+        expect(model.visibleTasks(KanbanStatus.inProgress), hasLength(1));
+        expect(await model.resumeTask('1'), isTrue);
+        expect(model.allTasks.single.isStalled, isFalse);
+        expect(
+          model.visibleTasks(KanbanStatus.inProgress),
+          hasLength(selection.remainsVisible ? 1 : 0),
+        );
+        expect(model.activeFilter.includeStalled, isTrue);
+      });
+    }
+  });
+
   test('committed create stays successful when its refresh fails', () async {
     final repo = FakeKanbanRepository();
     final model = KanbanViewModel(repo);

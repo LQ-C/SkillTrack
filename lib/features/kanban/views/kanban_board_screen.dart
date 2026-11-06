@@ -1,6 +1,8 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+
+import '../../ai_task_generation/widgets/task_generation_constraints_field.dart';
 import 'package:flutter/semantics.dart';
 import 'package:flutter/services.dart';
 
@@ -21,6 +23,7 @@ import '../widgets/filter_sheet.dart';
 import '../widgets/kanban_status_column.dart';
 import '../widgets/kanban_task_card.dart';
 import '../widgets/project_progress_card.dart';
+import '../widgets/milestone_progress_section.dart';
 import '../widgets/sort_sheet.dart';
 import '../widgets/tag_management_sheet.dart';
 import '../widgets/task_tag_chip.dart';
@@ -432,6 +435,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
             SizedBox(
               width: columnWidth,
               child: KanbanStatusColumn(
+                milestoneTitle: widget.viewModel.milestoneTitle,
                 dragEnabled:
                     widget.viewModel.activeSort == KanbanSort.custom &&
                     !widget.viewModel.isSaving,
@@ -535,6 +539,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                     elevation: 8 * (1 - progress),
                     shadowColor: Colors.black38,
                     child: KanbanTaskCard(
+                      milestoneTitle: widget.viewModel.milestoneTitle(
+                        task.milestoneId,
+                      ),
                       task: task,
                       onTap: () {},
                       onAction: (_) {},
@@ -664,7 +671,14 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
           taskId: task?.id,
         ),
       );
-      if (changed == true && mounted) await _refreshWithEntrance();
+      if (mounted) {
+        if (changed == true) {
+          await _refreshWithEntrance();
+        } else {
+          // A milestone is saved immediately, even when the task form is cancelled.
+          await widget.viewModel.refresh(showLoading: false);
+        }
+      }
     } finally {
       if (mounted) setState(() => _openingRouteId = null);
     }
@@ -713,46 +727,66 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     try {
       final append = widget.appendViewModel;
       if (append == null || append.isGeneratingTasks) return;
-      FocusScope.of(context).unfocus();
-      final request = append.generateMoreTasks();
-      showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (dialogContext) => PopScope(
-          canPop: false,
-          child: Center(
-            child: Card(
-              margin: const EdgeInsets.all(28),
-              child: Padding(
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const CircularProgressIndicator(),
-                    const SizedBox(height: 20),
-                    Text(
-                      'Generating additional tasks…',
-                      style: Theme.of(dialogContext).textTheme.titleMedium,
-                    ),
-                  ],
+      if (append.pendingGeneratedTasks.isEmpty) {
+        final savedConstraints = await append.loadGenerationConstraints();
+        if (!mounted) return;
+        if (savedConstraints == null) {
+          final message = append.errorMessage;
+          if (message != null) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+          return;
+        }
+        FocusScope.of(context).unfocus();
+        final constraints = await showDialog<String>(
+          context: context,
+          builder: (_) => TaskGenerationConstraintsDialog(
+            initialConstraints: savedConstraints,
+          ),
+        );
+        if (!mounted || constraints == null) return;
+        final request = append.generateMoreTasks(constraints: constraints);
+        showDialog<void>(
+          context: context,
+          barrierDismissible: false,
+          builder: (dialogContext) => PopScope(
+            canPop: false,
+            child: Center(
+              child: Card(
+                margin: const EdgeInsets.all(28),
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const CircularProgressIndicator(),
+                      const SizedBox(height: 20),
+                      Text(
+                        'Generating additional tasks…',
+                        style: Theme.of(dialogContext).textTheme.titleMedium,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),
           ),
-        ),
-      );
-      final drafts = await request;
-      if (!mounted) return;
-      // This context belongs to the board beneath the busy dialog.
-      Navigator.of(context).pop();
-      if (drafts == null) {
-        final message = append.errorMessage;
-        if (message != null) {
-          ScaffoldMessenger.of(
-            context,
-          ).showSnackBar(SnackBar(content: Text(message)));
+        );
+        final drafts = await request;
+        if (!mounted) return;
+        // This context belongs to the board beneath the busy dialog.
+        Navigator.of(context).pop();
+        if (drafts == null) {
+          final message = append.errorMessage;
+          if (message != null) {
+            ScaffoldMessenger.of(
+              context,
+            ).showSnackBar(SnackBar(content: Text(message)));
+          }
+          return;
         }
-        return;
       }
       final added = await AppRouter.additionalTaskPreview(context, append);
       if (!mounted || added != true) return;
@@ -1070,6 +1104,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       'tag' => filter.copyWith(tagIds: {...filter.tagIds}..remove(value)),
       'overdue' => filter.copyWith(overdueOnly: false),
       'completed' => filter.copyWith(completedOnly: false),
+      'stalled' => filter.copyWith(includeStalled: false),
       'start' => filter.copyWith(clearDeadlineStart: true),
       _ => filter.copyWith(clearDeadlineEnd: true),
     });
@@ -1077,10 +1112,27 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
 
   Widget _filterChips(KanbanFilter filter) {
     final chips = <Widget>[
+      if (filter.milestoneId != null || filter.noMilestoneOnly)
+        InputChip(
+          label: Text(
+            filter.noMilestoneOnly
+                ? 'No milestone'
+                : widget.viewModel.milestoneTitle(filter.milestoneId) ??
+                      'Milestone',
+          ),
+          onDeleted: () => widget.viewModel.applyFilter(
+            filter.copyWith(clearMilestone: true, noMilestoneOnly: false),
+          ),
+        ),
       for (final status in filter.statuses)
         InputChip(
           label: Text(status.label),
           onDeleted: () => _removeFilter('status', status),
+        ),
+      if (filter.includeStalled)
+        InputChip(
+          label: const Text('Stalled'),
+          onDeleted: () => _removeFilter('stalled', true),
         ),
       for (final priority in filter.priorities)
         InputChip(
@@ -1292,6 +1344,8 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                           total: model.totalTaskCount,
                           onTap: _navigationBusy ? null : _showProgress,
                         ),
+                        if (model.availableMilestones.isNotEmpty)
+                          MilestoneProgressSection(viewModel: model),
                         if (model.hasActiveFilters)
                           _filterChips(model.activeFilter),
                         if (model.activeSort != KanbanSort.custom)

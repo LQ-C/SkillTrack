@@ -1,3 +1,4 @@
+import '../../projects/models/project_milestone.dart';
 import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 import '../services/ai_task_generation_service.dart';
@@ -15,6 +16,9 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     required DateTime endDate,
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) async => GeneratedTaskDraft.parseTasks(
     await _service.generateRaw(
       title: title,
@@ -22,10 +26,14 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
       endDate: endDate,
       mode: mode,
       existingTasks: existingTasks,
+      constraints: constraints,
+      projectId: projectId,
+      existingMilestones: existingMilestones,
     ),
     startDate: startDate,
     endDate: endDate,
     minimumTaskCount: mode == TaskGenerationMode.append ? 0 : 3,
+    existingMilestones: existingMilestones,
   );
 
   @override
@@ -38,6 +46,9 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     required String feedback,
     required List<GeneratedTaskDraft> currentDraft,
     List<ExistingTaskSummary> existingTasks = const [],
+    String constraints = '',
+    String? projectId,
+    List<ProjectMilestone> existingMilestones = const [],
   }) async => GeneratedTaskDraft.parseTasks(
     await _service.reviseRaw(
       title: title,
@@ -47,10 +58,15 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
       feedback: feedback,
       currentDraft: currentDraft,
       existingTasks: existingTasks,
+      constraints: constraints,
+      projectId: projectId,
+      existingMilestones: existingMilestones,
     ),
     startDate: startDate,
     endDate: endDate,
     minimumTaskCount: 1,
+    previousDraft: currentDraft,
+    existingMilestones: existingMilestones,
     preservedDeadlines: {
       for (final task in currentDraft)
         normalizedTaskTitle(task.title): task.deadline,

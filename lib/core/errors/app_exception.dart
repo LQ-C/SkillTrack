@@ -10,6 +10,29 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const deadlineDatePassed = 'Choose today or a future date.';
+  static const deadlineTimePassed = 'Choose a time later than now.';
+  static const progressUpdateRequired = 'Enter a progress update.';
+  static const progressUpdateTooLong = 'Use 1000 characters or fewer.';
+  static const saveProgressUpdateFailed =
+      'Unable to save your progress update. Check your connection and try again.';
+  static const milestoneNameRequired = 'Enter a milestone name.';
+  static const milestoneNameTooLong = 'Use 150 characters or fewer.';
+  static const createMilestoneFailed =
+      'Unable to create the milestone. Check your connection and try again.';
+  static const milestoneBoardUnavailable =
+      'Use an active project board you own. Refresh the board and try again.';
+  static const taskSetupIncomplete =
+      'Task setup is incomplete. Please contact support.';
+  static const invalidMilestone =
+      'Choose a valid milestone with a name of 1–150 characters.';
+  static const milestoneReorder =
+      'Reorder within a milestone, or use Edit to change its milestone.';
+  static const invalidGenerationConstraints =
+      'Constraints must be 1000 characters or fewer.';
+  static const taskChanged = 'Task changed. Refresh it and try again.';
+  static const updateTaskTimerFailed =
+      'Unable to update the timer. Please try again.';
   static const attachmentTooLarge =
       'Choose a non-empty file of 10 MB or smaller.';
   static const savedRefreshFailed =

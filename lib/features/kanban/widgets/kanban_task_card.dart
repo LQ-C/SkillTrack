@@ -25,8 +25,10 @@ class KanbanTaskCard extends StatelessWidget {
     required this.task,
     required this.onTap,
     required this.onAction,
+    this.milestoneTitle,
   });
   final KanbanTask task;
+  final String? milestoneTitle;
   final VoidCallback? onTap;
   final ValueChanged<TaskCardAction>? onAction;
 
@@ -131,6 +133,17 @@ class KanbanTaskCard extends StatelessWidget {
                       ),
                     ],
                   ),
+                  if (milestoneTitle != null) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Milestone · $milestoneTitle',
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                        color: Theme.of(context).colorScheme.primary,
+                      ),
+                    ),
+                  ],
                   if (task.description.isNotEmpty) ...[
                     const SizedBox(height: 4),
                     Text(

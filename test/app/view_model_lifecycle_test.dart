@@ -73,6 +73,7 @@ class _ProjectRepository extends FakeProjectRepository {
   Future<ProjectWithProgress> createProject({
     required String name,
     String? description,
+    String? constraints,
     DateTime? startDate,
     DateTime? endDate,
   }) async {
@@ -80,6 +81,7 @@ class _ProjectRepository extends FakeProjectRepository {
     return super.createProject(
       name: name,
       description: description,
+      constraints: constraints,
       startDate: startDate,
       endDate: endDate,
     );

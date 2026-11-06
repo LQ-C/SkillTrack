@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../app/widgets/app_content.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../app/router/app_router.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
 import '../models/task_activity.dart';
@@ -12,6 +13,7 @@ import 'activity_timeline.dart';
 import 'attachment_section.dart';
 import 'checklist_section.dart';
 import 'task_tag_chip.dart';
+import 'task_timer_section.dart';
 
 class TaskDetailsSheet extends StatefulWidget {
   const TaskDetailsSheet({
@@ -40,7 +42,7 @@ class TaskDetailsSheet extends StatefulWidget {
 class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   late Future<List<TaskActivity>> _activity;
   late int _activityVersion;
-  bool _resuming = false;
+  bool _resuming = false, _addingProgress = false;
   @override
   void initState() {
     super.initState();
@@ -77,6 +79,23 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
     super.dispose();
   }
 
+  Future<void> _addProgress() async {
+    if (_addingProgress || widget.viewModel.isSaving) return;
+    setState(() => _addingProgress = true);
+    try {
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => _ProgressUpdateDialog(
+          viewModel: widget.viewModel,
+          taskId: widget.taskId,
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _addingProgress = false);
+    }
+  }
+
   Future<void> _resume(KanbanTask task) async {
     if (_resuming) return;
     setState(() => _resuming = true);
@@ -91,6 +110,22 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
     } finally {
       if (mounted) setState(() => _resuming = false);
     }
+  }
+
+  Future<void> _toggleTimer(KanbanTask task) async {
+    final saved = await widget.viewModel.setTaskTimerPaused(
+      task.id,
+      task.isTracking,
+    );
+    if (!mounted || saved || widget.viewModel.isSaving) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          widget.viewModel.errorMessage ??
+              AppErrorMessages.updateTaskTimerFailed,
+        ),
+      ),
+    );
   }
 
   void _showResumeError() => ScaffoldMessenger.of(context).showSnackBar(
@@ -264,6 +299,12 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                               ],
                             ),
                           ],
+                          const SizedBox(height: 16),
+                          TaskTimerSection(
+                            task: task,
+                            isSaving: widget.viewModel.isSaving,
+                            onToggle: () => _toggleTimer(task),
+                          ),
                           const Divider(height: 28),
                           ChecklistSection(
                             task: task,
@@ -275,6 +316,21 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                   ),
                   const SizedBox(height: 12),
                   AttachmentSection(task: task, viewModel: widget.viewModel),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: TextButton.icon(
+                      key: const Key('add-progress-update'),
+                      onPressed:
+                          _addingProgress ||
+                              widget.viewModel.isSaving ||
+                              task.isArchived ||
+                              widget.viewModel.isBoardArchived
+                          ? null
+                          : _addProgress,
+                      icon: const Icon(Icons.edit_note_outlined),
+                      label: const Text('Add progress update'),
+                    ),
+                  ),
                   const Divider(height: 28),
                   FutureBuilder<List<TaskActivity>>(
                     future: _activity,
@@ -304,5 +360,103 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
         ),
       );
     },
+  );
+}
+
+class _ProgressUpdateDialog extends StatefulWidget {
+  const _ProgressUpdateDialog({required this.viewModel, required this.taskId});
+  final KanbanViewModel viewModel;
+  final String taskId;
+  @override
+  State<_ProgressUpdateDialog> createState() => _ProgressUpdateDialogState();
+}
+
+class _ProgressUpdateDialogState extends State<_ProgressUpdateDialog> {
+  final _form = GlobalKey<FormState>();
+  final _text = TextEditingController();
+  String? _error;
+  @override
+  void dispose() {
+    _text.dispose();
+    super.dispose();
+  }
+
+  Future<void> _save() async {
+    if (widget.viewModel.isSaving || !_form.currentState!.validate()) return;
+    setState(() => _error = null);
+    final saved = await widget.viewModel.addProgressUpdate(
+      widget.taskId,
+      _text.text,
+    );
+    if (!mounted) return;
+    if (saved) {
+      AppRouter.back(context);
+    } else {
+      setState(
+        () => _error =
+            widget.viewModel.errorMessage ??
+            AppErrorMessages.saveProgressUpdateFailed,
+      );
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.viewModel,
+    builder: (context, child) => PopScope(
+      canPop: !widget.viewModel.isSaving,
+      child: AlertDialog(
+        title: const Text('Add progress update'),
+        content: SingleChildScrollView(
+          child: Form(
+            key: _form,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextFormField(
+                  key: const Key('progress-update-text'),
+                  controller: _text,
+                  autofocus: true,
+                  minLines: 3,
+                  maxLines: 5,
+                  enabled: !widget.viewModel.isSaving,
+                  decoration: const InputDecoration(
+                    labelText: 'What progress did you make?',
+                  ),
+                  validator: (value) =>
+                      TaskActivity.validateProgressText(value ?? ''),
+                ),
+                if (_error != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 12),
+                    child: Semantics(
+                      liveRegion: true,
+                      child: Text(
+                        _error!,
+                        style: TextStyle(
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: widget.viewModel.isSaving
+                ? null
+                : () => AppRouter.back(context),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            key: const Key('save-progress-update'),
+            onPressed: widget.viewModel.isSaving ? null : _save,
+            child: Text(widget.viewModel.isSaving ? 'Saving...' : 'Save'),
+          ),
+        ],
+      ),
+    ),
   );
 }
