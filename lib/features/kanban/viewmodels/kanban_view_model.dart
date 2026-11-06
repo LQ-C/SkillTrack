@@ -24,8 +24,37 @@ class KanbanViewModel extends ChangeNotifier {
     this._repository, {
     ProjectRepository? projectRepository,
     String? projectId,
+    DateTime Function()? clock,
   }) : _projectRepository = projectRepository,
-       _projectId = projectId;
+       _projectId = projectId,
+       _clock = clock ?? DateTime.now;
+  final DateTime Function() _clock;
+
+  DateTime get malaysiaNow => DateFormatter.malaysiaTime(_clock());
+
+  String? manualDeadlineError(
+    DateTime? deadline, {
+    required bool hasTime,
+    KanbanTask? original,
+  }) {
+    if (deadline == null) return null;
+    if (original != null &&
+        original.deadline?.isAtSameMomentAs(deadline) == true &&
+        original.hasDeadlineTime == hasTime) {
+      return null;
+    }
+
+    final now = _clock();
+    final today = DateFormatter.today(now: now);
+    if (deadline.isBefore(DateFormatter.fromMalaysia(today))) {
+      return AppErrorMessages.deadlineDatePassed;
+    }
+    if (hasTime && !deadline.isAfter(now)) {
+      return AppErrorMessages.deadlineTimePassed;
+    }
+    return null;
+  }
+
   final ProjectRepository? _projectRepository;
   final String? _projectId;
   List<ProjectMilestone> _milestones = [];

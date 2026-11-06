@@ -35,6 +35,8 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   late DateTime? _deadline;
   String? _milestoneId;
   late bool _hasTime;
+  late final bool _openedWithOverdueDeadline;
+  String? _deadlineError;
   late Set<String> _tagIds;
   bool _moreOptions = false;
   bool _isShowingDialog = false;
@@ -53,6 +55,12 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
         : DateFormatter.malaysiaTime(task!.deadline!);
     _milestoneId = task?.milestoneId;
     _hasTime = task?.hasDeadlineTime ?? false;
+    _openedWithOverdueDeadline =
+        widget.viewModel.manualDeadlineError(
+          task?.deadline,
+          hasTime: _hasTime,
+        ) !=
+        null;
     _tagIds = task?.tags.map((tag) => tag.id).toSet() ?? {};
   }
 
@@ -76,11 +84,38 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
         .toSet();
     final selectedTagIds = _tagIds.intersection(availableIds).toList();
     final task = widget.task;
-    final deadline = _deadline == null
+    final selected = _deadline;
+    final original = task?.deadline;
+    final originalWall = original == null
         ? null
+        : DateFormatter.malaysiaTime(original);
+    final unchanged =
+        originalWall != null &&
+        selected != null &&
+        _hasTime == task!.hasDeadlineTime &&
+        DateUtils.isSameDay(selected, originalWall) &&
+        (!_hasTime ||
+            TimeOfDay.fromDateTime(selected) ==
+                TimeOfDay.fromDateTime(originalWall));
+    final deadline = selected == null
+        ? null
+        : unchanged
+        ? original
         : _hasTime
-        ? DateFormatter.fromMalaysia(_deadline!)
-        : DateFormatter.endOfDateUtc(_deadline!);
+        ? DateFormatter.fromMalaysia(selected)
+        : DateFormatter.endOfDateUtc(selected);
+    final deadlineHasTime = deadline == null
+        ? null
+        : unchanged
+        ? task.deadlineHasTime
+        : _hasTime;
+    final deadlineError = widget.viewModel.manualDeadlineError(
+      deadline,
+      hasTime: _hasTime,
+      original: _openedWithOverdueDeadline ? task : null,
+    );
+    setState(() => _deadlineError = deadlineError);
+    if (deadlineError != null) return;
     final ok = task == null
         ? await widget.viewModel.createTask(
             title: _title.text,
@@ -88,7 +123,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             status: _status,
             priority: _priority,
             deadline: deadline,
-            deadlineHasTime: _deadline == null ? null : _hasTime,
+            deadlineHasTime: deadlineHasTime,
             tagIds: selectedTagIds,
             milestoneId: _milestoneId,
             checklist: [
@@ -103,7 +138,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             status: _status,
             priority: _priority,
             deadline: deadline,
-            deadlineHasTime: _deadline == null ? null : _hasTime,
+            deadlineHasTime: deadlineHasTime,
             tagIds: selectedTagIds,
             milestoneId: _milestoneId,
             clearMilestone: _milestoneId == null,
@@ -192,14 +227,29 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
     if (_isShowingDialog || widget.viewModel.isSaving) return;
     setState(() => _isShowingDialog = true);
     try {
+      final today = DateFormatter.dateOnly(widget.viewModel.malaysiaNow);
+      final lastDate = DateTime(2100).isBefore(today) ? today : DateTime(2100);
+      final current = DateFormatter.dateOnly(_deadline ?? today);
+      final initial = current.isBefore(today)
+          ? today
+          : current.isAfter(lastDate)
+          ? lastDate
+          : current;
       final selected = await showDatePicker(
         context: context,
-        initialDate: _deadline ?? DateFormatter.today(),
-        firstDate: DateTime(2020),
-        lastDate: DateTime(2100),
+        initialDate: initial,
+        currentDate: today,
+        firstDate: today,
+        lastDate: lastDate,
       );
       if (selected != null && mounted) {
+        final error = widget.viewModel.manualDeadlineError(
+          DateFormatter.endOfDateUtc(selected),
+          hasTime: false,
+        );
         setState(() {
+          _deadlineError = error;
+          if (error != null) return;
           final old = _deadline;
           _deadline = DateTime.utc(
             selected.year,
@@ -219,25 +269,30 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
     if (_isShowingDialog || widget.viewModel.isSaving) return;
     setState(() => _isShowingDialog = true);
     try {
+      final now = widget.viewModel.malaysiaNow;
+      final date = _deadline ?? now;
       final selected = await showTimePicker(
         context: context,
-        initialTime: _hasTime && _deadline != null
-            ? TimeOfDay.fromDateTime(_deadline!)
-            : TimeOfDay.fromDateTime(
-                DateFormatter.malaysiaTime(DateTime.now()),
-              ),
+        initialTime: TimeOfDay.fromDateTime(_hasTime ? date : now),
       );
       if (selected != null && mounted) {
+        final candidate = DateTime.utc(
+          date.year,
+          date.month,
+          date.day,
+          selected.hour,
+          selected.minute,
+        );
+        final error = widget.viewModel.manualDeadlineError(
+          DateFormatter.fromMalaysia(candidate),
+          hasTime: true,
+        );
         setState(() {
-          final date = _deadline ?? DateFormatter.today();
-          _deadline = DateTime.utc(
-            date.year,
-            date.month,
-            date.day,
-            selected.hour,
-            selected.minute,
-          );
-          _hasTime = true;
+          _deadlineError = error;
+          if (error == null) {
+            _deadline = candidate;
+            _hasTime = true;
+          }
         });
       }
     } finally {
@@ -258,7 +313,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
   String _dateLabel(BuildContext context) {
     final date = _deadline;
     if (date == null) return 'No deadline';
-    if (DateUtils.isSameDay(date, DateFormatter.today())) return 'Today';
+    if (DateUtils.isSameDay(date, widget.viewModel.malaysiaNow)) return 'Today';
     return MaterialLocalizations.of(context).formatMediumDate(date);
   }
 
@@ -376,6 +431,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             onPressed: () => setState(() {
               _deadline = null;
               _hasTime = false;
+              _deadlineError = null;
             }),
             icon: const Icon(Icons.close, size: 20),
           ),
@@ -606,7 +662,10 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
             tooltip: 'Task options',
             onSelected: (value) {
               if (value == 'clear-time' && !widget.viewModel.isSaving) {
-                setState(() => _hasTime = false);
+                setState(() {
+                  _hasTime = false;
+                  _deadlineError = null;
+                });
               }
               if (value == 'reset') {
                 setState(() {
@@ -616,6 +675,7 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                   _priority = TaskPriority.medium;
                   _deadline = null;
                   _hasTime = false;
+                  _deadlineError = null;
                   _tagIds.clear();
                   _checklist.clear();
                   _checked.clear();
@@ -708,58 +768,61 @@ class _TaskFormSheetState extends State<TaskFormSheet> {
                 ),
               ListenableBuilder(
                 listenable: widget.viewModel,
-                builder: (context, child) => Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (widget.viewModel.errorMessage != null)
-                      Padding(
-                        padding: const EdgeInsets.only(bottom: 8),
-                        child: Semantics(
-                          liveRegion: true,
-                          child: Text(
-                            widget.viewModel.errorMessage!,
-                            textAlign: TextAlign.center,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: theme.colorScheme.error,
+                builder: (context, child) {
+                  final error = _deadlineError ?? widget.viewModel.errorMessage;
+                  return Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (error != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Semantics(
+                            liveRegion: true,
+                            child: Text(
+                              error,
+                              textAlign: TextAlign.center,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: theme.colorScheme.error,
+                              ),
                             ),
                           ),
                         ),
-                      ),
-                    SizedBox(
-                      height: 56,
-                      child: FilledButton(
-                        key: const Key('save-task-button'),
-                        onPressed:
-                            _isLeaving ||
-                                widget.viewModel.isSaving ||
-                                (isNew && widget.viewModel.boardId == null)
-                            ? null
-                            : _submit,
-                        style: FilledButton.styleFrom(
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(18),
+                      SizedBox(
+                        height: 56,
+                        child: FilledButton(
+                          key: const Key('save-task-button'),
+                          onPressed:
+                              _isLeaving ||
+                                  widget.viewModel.isSaving ||
+                                  (isNew && widget.viewModel.boardId == null)
+                              ? null
+                              : _submit,
+                          style: FilledButton.styleFrom(
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(18),
+                            ),
                           ),
-                        ),
-                        child: widget.viewModel.isSaving
-                            ? Row(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  const SizedBox(
-                                    width: 18,
-                                    height: 18,
-                                    child: CircularProgressIndicator(
-                                      strokeWidth: 2,
+                          child: widget.viewModel.isSaving
+                              ? Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                        strokeWidth: 2,
+                                      ),
                                     ),
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Text(isNew ? 'Creating…' : 'Saving…'),
-                                ],
-                              )
-                            : Text(isNew ? 'Create Task' : 'Save Changes'),
+                                    const SizedBox(width: 10),
+                                    Text(isNew ? 'Creating…' : 'Saving…'),
+                                  ],
+                                )
+                              : Text(isNew ? 'Create Task' : 'Save Changes'),
+                        ),
                       ),
-                    ),
-                  ],
-                ),
+                    ],
+                  );
+                },
               ),
             ],
           ),

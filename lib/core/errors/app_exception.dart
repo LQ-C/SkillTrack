@@ -10,6 +10,8 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const deadlineDatePassed = 'Choose today or a future date.';
+  static const deadlineTimePassed = 'Choose a time later than now.';
   static const progressUpdateRequired = 'Enter a progress update.';
   static const progressUpdateTooLong = 'Use 1000 characters or fewer.';
   static const saveProgressUpdateFailed =

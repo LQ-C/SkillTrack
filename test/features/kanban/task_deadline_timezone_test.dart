@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/core/utils/date_formatter.dart';
+import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/ai_task_generation/models/task_generation_request.dart';
 import 'package:skilltrack/features/kanban/models/kanban_filter.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
@@ -9,6 +10,67 @@ import 'package:skilltrack/features/kanban/viewmodels/kanban_view_model.dart';
 import 'package:skilltrack/features/kanban/widgets/task_form_sheet.dart';
 import 'package:skilltrack/features/projects/models/learning_project.dart';
 import 'fake_repository.dart';
+
+final _title = find.byKey(const Key('task-title-field'));
+final _save = find.byKey(const Key('save-task-button'));
+
+Future<void> _showForm(
+  WidgetTester tester,
+  FakeKanbanRepository repository,
+  DateTime Function() clock, {
+  KanbanTask? task,
+}) async {
+  final model = KanbanViewModel(repository, clock: clock);
+  addTearDown(model.dispose);
+  await model.initialize('board-1');
+  await tester.pumpWidget(
+    MaterialApp(
+      builder: (context, child) => MediaQuery(
+        data: MediaQuery.of(context).copyWith(alwaysUse24HourFormat: true),
+        child: child!,
+      ),
+      initialRoute: '/form',
+      routes: {
+        '/': (_) => const Scaffold(body: Text('Board')),
+        '/form': (_) => TaskFormSheet(viewModel: model, task: task),
+      },
+    ),
+  );
+  await tester.pumpAndSettle();
+}
+
+Future<void> _openDate(WidgetTester tester) async {
+  await tester.ensureVisible(find.text('Deadline'));
+  await tester.tap(find.text('Deadline'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _confirmPicker(WidgetTester tester) async {
+  await tester.tap(find.text('OK'));
+  await tester.pumpAndSettle();
+}
+
+Future<void> _pickTime(
+  WidgetTester tester,
+  String previousLabel,
+  String hour,
+  String minute,
+) async {
+  final timeButton = find.widgetWithText(TextButton, previousLabel);
+  await tester.ensureVisible(timeButton);
+  await tester.pumpAndSettle();
+  await tester.tap(timeButton);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byTooltip('Switch to text input mode'));
+  await tester.pumpAndSettle();
+  final fields = find.descendant(
+    of: find.byType(TimePickerDialog),
+    matching: find.byType(TextField),
+  );
+  await tester.enterText(fields.at(0), hour);
+  await tester.enterText(fields.at(1), minute);
+  await _confirmPicker(tester);
+}
 
 void main() {
   test('Malaysia wall components round trip with microsecond precision', () {
@@ -249,7 +311,10 @@ void main() {
         deadline: DateTime.utc(2026, 11, 1, 16, 30),
       );
       final repo = FakeKanbanRepository(tasks: [task]);
-      final model = KanbanViewModel(repo);
+      final model = KanbanViewModel(
+        repo,
+        clock: () => DateTime.utc(2026, 11, 2, 7),
+      );
       await model.initialize('board-1');
       await tester.pumpWidget(
         MaterialApp(
@@ -273,4 +338,246 @@ void main() {
       model.dispose();
     },
   );
+
+  group('manual deadline validation', () {
+    // 14:30 in Malaysia, regardless of the process timezone.
+    final afternoon = DateTime.utc(2026, 11, 6, 6, 30);
+
+    testWidgets('yesterday is disabled and today saves at Malaysia day end', (
+      tester,
+    ) async {
+      final repository = FakeKanbanRepository();
+      await _showForm(tester, repository, () => afternoon.toLocal());
+      await tester.enterText(_title, 'Due today');
+      await _openDate(tester);
+      final dialog = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(dialog.firstDate, DateTime(2026, 11, 6));
+      expect(dialog.currentDate, DateTime(2026, 11, 6));
+      final yesterday = find.ancestor(
+        of: find.text('5'),
+        matching: find.byWidgetPredicate(
+          (widget) => widget is Semantics && widget.properties.enabled == false,
+        ),
+      );
+      expect(yesterday, findsOneWidget);
+      await tester.tap(find.text('6'));
+      await tester.pumpAndSettle();
+      await _confirmPicker(tester);
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(
+        repository.stored.single.deadline,
+        DateTime.utc(2026, 11, 6, 15, 59, 59, 999),
+      );
+      expect(repository.stored.single.deadlineHasTime, false);
+    });
+
+    testWidgets(
+      'today accepts a future time and rejects elapsed time without replacing it',
+      (tester) async {
+        final repository = FakeKanbanRepository();
+        await _showForm(tester, repository, () => afternoon);
+        await tester.enterText(_title, 'Timed task');
+        await _pickTime(tester, 'No time', '15', '00');
+        expect(find.text('15:00'), findsOneWidget);
+        await _pickTime(tester, '15:00', '14', '29');
+        expect(find.text(AppErrorMessages.deadlineTimePassed), findsOneWidget);
+        expect(find.text('15:00'), findsOneWidget);
+        expect(repository.stored, isEmpty);
+        await tester.tap(_save);
+        await tester.pumpAndSettle();
+        expect(repository.stored.single.deadline, DateTime.utc(2026, 11, 6, 7));
+        expect(repository.stored.single.deadlineHasTime, true);
+      },
+    );
+
+    testWidgets(
+      'future date accepts midnight, but changing it to today requires a new time',
+      (tester) async {
+        final repository = FakeKanbanRepository();
+        await _showForm(tester, repository, () => afternoon);
+        await tester.enterText(_title, 'Keep the title');
+        await _openDate(tester);
+        await tester.tap(find.text('7'));
+        await tester.pumpAndSettle();
+        await _confirmPicker(tester);
+        await _pickTime(tester, 'No time', '00', '00');
+        expect(find.text('00:00'), findsOneWidget);
+        expect(find.text(AppErrorMessages.deadlineTimePassed), findsNothing);
+
+        await _openDate(tester);
+        await tester.tap(find.text('6'));
+        await tester.pumpAndSettle();
+        await _confirmPicker(tester);
+        await tester.tap(_save);
+        await tester.pumpAndSettle();
+        expect(find.byType(TaskFormSheet), findsOneWidget);
+        expect(find.text(AppErrorMessages.deadlineTimePassed), findsOneWidget);
+        expect(find.text('Keep the title'), findsOneWidget);
+        expect(find.text('00:00'), findsOneWidget);
+        expect(repository.stored, isEmpty);
+
+        await _openDate(tester);
+        await tester.tap(find.text('7'));
+        await tester.pumpAndSettle();
+        await _confirmPicker(tester);
+        await tester.tap(_save);
+        await tester.pumpAndSettle();
+        expect(
+          repository.stored.single.deadline,
+          DateTime.utc(2026, 11, 6, 16),
+        );
+      },
+    );
+
+    testWidgets('a time that expires before Save leaves the new form intact', (
+      tester,
+    ) async {
+      var now = afternoon;
+      final repository = FakeKanbanRepository();
+      await _showForm(tester, repository, () => now);
+      await tester.enterText(_title, 'Retained title');
+      await tester.enterText(
+        find.widgetWithText(TextFormField, 'Description or notes'),
+        'Retained description',
+      );
+      await _pickTime(tester, 'No time', '14', '31');
+      now = now.add(const Duration(minutes: 2));
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(repository.stored, isEmpty);
+      expect(find.text(AppErrorMessages.deadlineTimePassed), findsOneWidget);
+      expect(find.text('Retained title'), findsOneWidget);
+      expect(find.text('Retained description'), findsOneWidget);
+      expect(find.text('14:31'), findsOneWidget);
+    });
+
+    testWidgets(
+      'overdue picker opens at today and cancelling preserves the exact stored deadline',
+      (tester) async {
+        final deadline = DateTime.utc(2026, 11, 5, 15, 59);
+        final task = sampleTask(
+          'old',
+          'Overdue',
+          KanbanStatus.todo,
+          deadline: deadline,
+        ).copyWith(deadlineHasTime: false);
+        final repository = FakeKanbanRepository(tasks: [task]);
+        await _showForm(tester, repository, () => afternoon, task: task);
+        await _openDate(tester);
+        final dialog = tester.widget<DatePickerDialog>(
+          find.byType(DatePickerDialog),
+        );
+        expect(dialog.initialDate, DateTime(2026, 11, 6));
+        expect(dialog.firstDate, DateTime(2026, 11, 6));
+        await tester.tap(find.text('Cancel'));
+        await tester.pumpAndSettle();
+        await tester.enterText(_title, 'Renamed overdue task');
+        await tester.tap(_save);
+        await tester.pumpAndSettle();
+        expect(repository.stored.single.title, 'Renamed overdue task');
+        expect(repository.stored.single.deadline, deadline);
+        expect(repository.stored.single.deadlineHasTime, false);
+      },
+    );
+
+    testWidgets('an overdue deadline can be replaced with a valid date', (
+      tester,
+    ) async {
+      final task = sampleTask(
+        'old',
+        'Overdue',
+        KanbanStatus.todo,
+        deadline: DateTime.utc(2026, 11, 5, 15, 59),
+      ).copyWith(deadlineHasTime: false);
+      final repository = FakeKanbanRepository(tasks: [task]);
+      await _showForm(tester, repository, () => afternoon, task: task);
+      await _openDate(tester);
+      await _confirmPicker(tester);
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(
+        repository.stored.single.deadline,
+        DateTime.utc(2026, 11, 6, 15, 59, 59, 999),
+      );
+      expect(repository.stored.single.deadlineHasTime, false);
+    });
+
+    testWidgets('an overdue deadline can be cleared', (tester) async {
+      final task = sampleTask(
+        'old',
+        'Overdue',
+        KanbanStatus.todo,
+        deadline: DateTime.utc(2026, 11, 5, 7),
+      );
+      final repository = FakeKanbanRepository(tasks: [task]);
+      await _showForm(tester, repository, () => afternoon, task: task);
+      await tester.tap(find.byTooltip('Clear deadline'));
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(repository.stored.single.deadline, isNull);
+    });
+
+    testWidgets('a deadline expiring while Edit is open must be corrected', (
+      tester,
+    ) async {
+      var now = afternoon;
+      final deadline = now.add(const Duration(minutes: 1));
+      final task = sampleTask(
+        'old',
+        'Task',
+        KanbanStatus.todo,
+        deadline: deadline,
+      );
+      final repository = FakeKanbanRepository(tasks: [task]);
+      await _showForm(tester, repository, () => now, task: task);
+      await tester.enterText(_title, 'Renamed');
+      now = now.add(const Duration(minutes: 2));
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(repository.stored.single.title, 'Task');
+      expect(find.text(AppErrorMessages.deadlineTimePassed), findsOneWidget);
+      await _pickTime(tester, '14:31', '15', '00');
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(repository.stored.single.title, 'Renamed');
+      expect(repository.stored.single.deadline, DateTime.utc(2026, 11, 6, 7));
+    });
+
+    testWidgets('the date-only selection expires at Malaysia midnight', (
+      tester,
+    ) async {
+      var now = DateTime.utc(2026, 11, 5, 15, 59, 59);
+      final repository = FakeKanbanRepository();
+      await _showForm(tester, repository, () => now);
+      await tester.enterText(_title, 'Midnight test');
+      await _openDate(tester);
+      final before = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(before.firstDate, DateTime(2026, 11, 5));
+      await _confirmPicker(tester);
+
+      now = DateTime.utc(2026, 11, 5, 16);
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(repository.stored, isEmpty);
+      expect(find.text(AppErrorMessages.deadlineDatePassed), findsOneWidget);
+      await _openDate(tester);
+      final after = tester.widget<DatePickerDialog>(
+        find.byType(DatePickerDialog),
+      );
+      expect(after.firstDate, DateTime(2026, 11, 6));
+      expect(after.initialDate, DateTime(2026, 11, 6));
+      await _confirmPicker(tester);
+      await tester.tap(_save);
+      await tester.pumpAndSettle();
+      expect(
+        repository.stored.single.deadline,
+        DateTime.utc(2026, 11, 6, 15, 59, 59, 999),
+      );
+    });
+  });
 }
