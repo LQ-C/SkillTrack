@@ -56,21 +56,15 @@ KanbanTask _task({int score = 80, bool stalled = true}) => sampleTask(
 
 Future<KanbanViewModel> _showDetails(
   WidgetTester tester,
-  _ActivityRepository repository, {
-  bool notificationWarning = false,
-}) async {
+  _ActivityRepository repository,
+) async {
   final model = KanbanViewModel(repository);
   await model.initialize('board-1');
   addTearDown(model.dispose);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: TaskDetailsSheet(
-          taskId: '1',
-          viewModel: model,
-          onEdit: (_) {},
-          showStalledWarning: notificationWarning,
-        ),
+        body: TaskDetailsSheet(taskId: '1', viewModel: model, onEdit: (_) {}),
       ),
     ),
   );
@@ -342,11 +336,7 @@ void main() {
           ),
         );
         expect(find.byType(TaskStagnationIndicator), findsNothing);
-        await _showDetails(
-          tester,
-          _ActivityRepository(task),
-          notificationWarning: true,
-        );
+        await _showDetails(tester, _ActivityRepository(task));
         expect(find.text('Task marked as stalled'), findsNothing);
         expect(find.text('Stagnation'), findsNothing);
       },
@@ -365,13 +355,10 @@ void main() {
     expect(find.byType(LinearProgressIndicator), findsNothing);
   });
 
-  testWidgets('notification hint cannot override the persisted stalled flag', (
-    tester,
-  ) async {
+  testWidgets('unstalled task does not show Resume Task', (tester) async {
     await _showDetails(
       tester,
       _ActivityRepository(_task(score: 0, stalled: false)),
-      notificationWarning: true,
     );
     expect(find.text('Task marked as stalled'), findsNothing);
     expect(find.text('Resume Task'), findsNothing);
@@ -381,11 +368,7 @@ void main() {
     tester,
   ) async {
     final repository = _ActivityRepository(_task());
-    final model = await _showDetails(
-      tester,
-      repository,
-      notificationWarning: true,
-    );
+    final model = await _showDetails(tester, repository);
     expect(find.text('Task marked as stalled'), findsOneWidget);
     await tester.tap(find.text('Resume Task'));
     await tester.pumpAndSettle();

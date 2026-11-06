@@ -68,6 +68,7 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
 
   @override
   Future<List<KanbanTask>> getTasks(String boardId) async {
+    boardReads++;
     if (failLoad) throw StateError('offline');
     return (tasksByBoard?[boardId] ??
             stored.where((task) => task.boardId == boardId))
@@ -186,7 +187,109 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
     }
   }
 
+  final editRequestIds = <String>[];
+  final _savedEdits = <String>{};
+  bool loseEditResponseOnce = false;
+  int boardReads = 0, taskReads = 0, existenceReads = 0;
+
   @override
+  Future<KanbanTask?> getTask(String boardId, String taskId) async {
+    taskReads++;
+    return _activeTask(boardId, taskId);
+  }
+
+  @override
+  Future<bool> hasActiveTask(String boardId, String taskId) async {
+    existenceReads++;
+    return _activeTask(boardId, taskId) != null;
+  }
+
+  KanbanTask? _activeTask(String boardId, String taskId) {
+    if (failLoad) throw StateError('offline');
+    return (tasksByBoard?[boardId] ?? stored)
+        .where(
+          (task) =>
+              task.boardId == boardId && task.id == taskId && !task.isArchived,
+        )
+        .firstOrNull;
+  }
+
+  @override
+  Future<void> retryAttachmentCleanup() async {}
+
+  @override
+  Future<KanbanTask> saveTaskEdit(
+    KanbanTask task, {
+    required String requestId,
+    List<String>? tagIds,
+  }) async {
+    editRequestIds.add(requestId);
+    final original = stored.firstWhere((item) => item.id == task.id);
+    if (_savedEdits.contains(requestId)) return original;
+    final snapshot = List.of(stored);
+    final activityCount = activityEvents.length;
+    try {
+      var current = original;
+      if (original.status != task.status) {
+        final order = stored
+            .where(
+              (item) =>
+                  item.boardId == task.boardId &&
+                  item.status == task.status &&
+                  !item.isArchived,
+            )
+            .fold(
+              0,
+              (max, item) => item.sortOrder > max ? item.sortOrder : max,
+            );
+        current = await moveTask(original, task.status, order + 1000);
+      }
+      await updateTask(
+        task.copyWith(
+          sortOrder: current.sortOrder,
+          completedAt: current.completedAt,
+          clearCompletedAt: current.completedAt == null,
+          trackingStartedAt: current.trackingStartedAt,
+          clearTrackingStartedAt: current.trackingStartedAt == null,
+          elapsedSeconds: current.elapsedSeconds,
+        ),
+      );
+      await addActivity(task.id, 'updated', newValues: {'title': task.title});
+      if (original.status != task.status) {
+        await addActivity(
+          task.id,
+          task.status == KanbanStatus.completed
+              ? 'completed'
+              : original.status == KanbanStatus.completed
+              ? 'reopened'
+              : 'moved',
+          oldValues: {'status': original.status.value},
+          newValues: {'status': task.status.value},
+        );
+      }
+      if (tagIds != null) {
+        final oldIds = original.tags.map((tag) => tag.id).toSet();
+        final newIds = tagIds.toSet();
+        for (final id in oldIds.difference(newIds)) {
+          await removeTagFromTask(task.id, id);
+        }
+        for (final id in newIds.difference(oldIds)) {
+          await attachTagToTask(task.id, id);
+        }
+      }
+    } catch (_) {
+      stored = snapshot;
+      activityEvents.removeRange(activityCount, activityEvents.length);
+      rethrow;
+    }
+    _savedEdits.add(requestId);
+    if (loseEditResponseOnce) {
+      loseEditResponseOnce = false;
+      throw StateError('response lost');
+    }
+    return stored.firstWhere((item) => item.id == task.id);
+  }
+
   Future<KanbanTask> updateTask(KanbanTask task) async {
     stored = stored.map((item) => item.id == task.id ? task : item).toList();
     return task;

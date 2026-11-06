@@ -207,19 +207,24 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.requestFailed;
         return null;
       }
-      final current = await _tasks.getTaskSummaries(boardId);
-      if (_disposed) return null;
-      final fresh = _saveDraft ?? _withoutDuplicates(_pending!, current);
+      var fresh = _saveDraft;
+      if (fresh == null) {
+        final current = await _tasks.getTaskSummaries(boardId);
+        if (_disposed) return null;
+        fresh = _withoutDuplicates(_pending!, current);
+      }
       if (fresh.isEmpty) {
         _pendingConstraints = '';
         _feedbackMessage = AppErrorMessages.additionalTasksAlreadyExist;
         return true;
       }
-      _saveDraft = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
+      final payload = _saveDraft ??= List.unmodifiable(
+        GeneratedTaskDraft.grouped(fresh),
+      );
       _saveRequestId ??= createOperationId();
       await _tasks.createGeneratedTasks(
         boardId,
-        fresh,
+        payload,
         requestId: _saveRequestId,
       );
       _pendingConstraints = '';

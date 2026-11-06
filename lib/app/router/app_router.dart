@@ -84,18 +84,11 @@ class TaskDetailsRouteArgs {
     required this.boardId,
     required this.projectName,
     required this.taskId,
-    this.showStalledWarning = false,
-    this.openRecommendations = false,
-    this.resourceTitles = const [],
-    this.resourceCount = 0,
   });
   final String projectId;
   final String boardId;
   final String projectName;
   final String taskId;
-  final bool showStalledWarning, openRecommendations;
-  final List<String> resourceTitles;
-  final int resourceCount;
   bool get isValid =>
       projectId.trim().isNotEmpty &&
       boardId.trim().isNotEmpty &&
@@ -495,7 +488,10 @@ class _TaskRouteState extends State<_TaskRoute> {
     projectRepository: widget.projectRepository,
     projectId: widget.args.projectId,
   );
-  late final Future<void> _ready = _model.initialize(widget.args.boardId);
+  late final Future<void> _ready = _model.initialize(
+    widget.args.boardId,
+    widget.args.taskId,
+  );
 
   @override
   void dispose() {
@@ -545,7 +541,10 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     projectRepository: widget.projectRepository,
     projectId: widget.args.projectId,
   );
-  late final Future<void> _ready = _model.initialize(widget.args.boardId);
+  late final Future<void> _ready = _model.initialize(
+    widget.args.boardId,
+    widget.args.taskId,
+  );
 
   @override
   void dispose() {
@@ -593,10 +592,6 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           viewModel: _model,
           onEdit: _isOpeningEdit ? null : _edit,
           fullScreen: true,
-          showStalledWarning: widget.args.showStalledWarning,
-          showRecommendations: widget.args.openRecommendations,
-          resourceTitles: widget.args.resourceTitles,
-          resourceCount: widget.args.resourceCount,
         ),
       );
     },

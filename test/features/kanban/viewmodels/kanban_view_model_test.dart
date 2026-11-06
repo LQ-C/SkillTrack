@@ -1,8 +1,12 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'dart:typed_data';
+
+import 'package:skilltrack/core/constants/app_constants.dart';
 import 'package:skilltrack/core/errors/app_exception.dart';
 import 'package:skilltrack/features/kanban/models/kanban_filter.dart';
 import 'package:skilltrack/features/kanban/models/kanban_sort.dart';
 import 'package:skilltrack/features/kanban/models/kanban_status.dart';
+import 'package:skilltrack/features/kanban/services/attachment_reader.dart';
 import 'package:skilltrack/features/kanban/models/task_checklist_item.dart';
 import 'package:skilltrack/features/kanban/models/task_priority.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
@@ -11,6 +15,96 @@ import 'package:skilltrack/features/kanban/viewmodels/kanban_view_model.dart';
 import '../fake_repository.dart';
 
 void main() {
+  test(
+    'atomic edit retry keeps the request ID after a lost response',
+    () async {
+      final task = sampleTask('1', 'Original', KanbanStatus.todo);
+      final repo = FakeKanbanRepository(tasks: [task])
+        ..loseEditResponseOnce = true;
+      final model = KanbanViewModel(repo);
+      addTearDown(model.dispose);
+      await model.initialize('board-1', task.id);
+
+      Future<bool> save() => model.updateTask(
+        task,
+        title: 'Updated',
+        description: 'Details',
+        status: KanbanStatus.inProgress,
+        priority: TaskPriority.high,
+      );
+
+      expect(await save(), isFalse);
+      expect(model.allTasks.single.title, 'Original');
+      expect(await save(), isTrue);
+      expect(repo.editRequestIds.toSet(), hasLength(1));
+      expect(repo.activityEvents.map((event) => event.action), [
+        'updated',
+        'moved',
+      ]);
+      expect(model.allTasks.single.title, 'Updated');
+      expect(model.allTasks.single.isTracking, isTrue);
+      expect(repo.taskReads, 1);
+      expect(repo.boardReads, 0);
+    },
+  );
+
+  test('duplicate retains a date-only deadline', () async {
+    final task = sampleTask('1', 'Original', KanbanStatus.todo).copyWith(
+      deadline: DateTime.utc(2026, 11, 10, 15, 59),
+      deadlineHasTime: false,
+    );
+    final repo = FakeKanbanRepository(tasks: [task]);
+    final model = KanbanViewModel(repo);
+    addTearDown(model.dispose);
+    await model.initialize('board-1');
+
+    expect(await model.duplicateTask(task), isTrue);
+    final duplicate = repo.stored.singleWhere((item) => item.id != task.id);
+    expect(duplicate.deadline, task.deadline);
+    expect(duplicate.deadlineHasTime, isFalse);
+  });
+
+  test('a targeted board refresh leaves sibling tasks intact', () async {
+    final first = sampleTask('1', 'First', KanbanStatus.todo);
+    final second = sampleTask('2', 'Second', KanbanStatus.completed);
+    final repo = FakeKanbanRepository(tasks: [first, second]);
+    final model = KanbanViewModel(repo);
+    addTearDown(model.dispose);
+    await model.initialize('board-1');
+
+    repo.stored[0] = first.copyWith(title: 'Renamed');
+    await model.refresh(showLoading: false, taskId: first.id);
+    expect(
+      model.allTasks.map((item) => item.title),
+      unorderedEquals(['Renamed', 'Second']),
+    );
+    repo.stored.removeAt(0);
+    await model.refresh(showLoading: false, taskId: first.id);
+    expect(model.allTasks.single, second);
+    expect(repo.boardReads, 1);
+    expect(repo.taskReads, 2);
+  });
+
+  test(
+    'attachment reader rejects a stream that exceeds the upload limit',
+    () async {
+      final stream = Stream.fromIterable([
+        Uint8List(AppLimits.maxAttachmentBytes),
+        [1],
+      ]);
+      await expectLater(
+        readTaskAttachment(stream, declaredSize: 1),
+        throwsA(
+          isA<AppException>().having(
+            (error) => error.message,
+            'message',
+            AppErrorMessages.attachmentTooLarge,
+          ),
+        ),
+      );
+    },
+  );
+
   group('Stalled filtering', () {
     test('selection survives copying and is reset by clear', () {
       final filter = KanbanFilter(includeStalled: true);

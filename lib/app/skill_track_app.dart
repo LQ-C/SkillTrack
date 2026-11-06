@@ -45,6 +45,7 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   StreamSubscription<PushNotificationTap>? _pushSubscription;
   final _navigatorKey = GlobalKey<NavigatorState>();
   bool _pendingPushNavigation = false;
+  String? _attachmentCleanupUser;
 
   @override
   void initState() {
@@ -69,6 +70,12 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   }
 
   Future<void> _syncSession({bool resumed = false}) async {
+    final cleanupUser = widget.kanbanRepository.currentUserId;
+    if (cleanupUser != null &&
+        (resumed || cleanupUser != _attachmentCleanupUser)) {
+      unawaited(widget.kanbanRepository.retryAttachmentCleanup());
+    }
+    _attachmentCleanupUser = cleanupUser;
     unawaited(
       widget.pushController?.syncSession(resumed: resumed) ?? Future.value(),
     );

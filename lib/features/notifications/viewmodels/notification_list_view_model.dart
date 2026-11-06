@@ -22,16 +22,9 @@ class NotificationOpenResult {
     required this.boardId,
     required this.projectName,
     this.taskId,
-    this.openRecommendations = false,
-    this.showStalledWarning = false,
-    this.resourceTitles = const [],
-    this.resourceCount = 0,
   });
   final String projectId, boardId, projectName;
   final String? taskId;
-  final bool openRecommendations, showStalledWarning;
-  final List<String> resourceTitles;
-  final int resourceCount;
 }
 
 class NotificationListViewModel extends ChangeNotifier {
@@ -311,8 +304,9 @@ class NotificationListViewModel extends ChangeNotifier {
         if (boardId == null || boardId.isEmpty) return _unavailable();
         final taskId = item.taskId;
         if (taskId == null || taskId.isEmpty) return _unavailable();
-        final tasks = await _kanban.getTasks(boardId);
-        if (!tasks.any((task) => task.id == taskId)) return _unavailable();
+        if (!await _kanban.hasActiveTask(boardId, taskId)) {
+          return _unavailable();
+        }
       }
       if (_disposed || _repository.currentUserId != item.userId) return null;
       return NotificationOpenResult(
@@ -322,15 +316,6 @@ class NotificationListViewModel extends ChangeNotifier {
         taskId: item.contextType == NotificationContextType.project
             ? null
             : item.taskId,
-        openRecommendations:
-            item.type == NotificationType.learningResourceRecommendation,
-        showStalledWarning: item.type == NotificationType.stalledTask,
-        resourceTitles:
-            (item.actionData['resource_titles'] as List? ?? const [])
-                .whereType<String>()
-                .toList(),
-        resourceCount:
-            (item.actionData['resource_count'] as num?)?.toInt() ?? 0,
       );
     } catch (_) {
       return _unavailable();

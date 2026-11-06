@@ -80,7 +80,7 @@ class CreateProjectViewModel extends ChangeNotifier
   String? get errorMessage => _errorMessage;
 
   static DateTime? _dateOnly(DateTime? value) =>
-      value == null ? null : DateTime(value.year, value.month, value.day);
+      value == null ? null : DateFormatter.dateOnly(value);
 
   void setStartDate(DateTime? value) {
     if (_disposed || _isSaving || _isGeneratingTasks || _pendingTasks != null) {

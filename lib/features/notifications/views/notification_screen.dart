@@ -118,10 +118,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
             boardId: destination.boardId,
             projectName: destination.projectName,
             taskId: destination.taskId!,
-            showStalledWarning: destination.showStalledWarning,
-            openRecommendations: destination.openRecommendations,
-            resourceTitles: destination.resourceTitles,
-            resourceCount: destination.resourceCount,
           ),
         );
       }

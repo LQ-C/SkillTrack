@@ -420,7 +420,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     );
   }
 
-  Widget _boardTrack(double columnWidth) => SizedBox(
+  Widget _boardTrack(
+    double columnWidth,
+    Map<KanbanStatus, List<KanbanTask>> columns,
+  ) => SizedBox(
     key: const Key('kanban-board-track'),
     width:
         columnWidth * KanbanStatus.values.length +
@@ -441,7 +444,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                     !widget.viewModel.isSaving,
                 key: ValueKey(KanbanStatus.values[index]),
                 status: KanbanStatus.values[index],
-                tasks: _columnTasks(KanbanStatus.values[index]),
+                tasks: columns[KanbanStatus.values[index]]!,
                 scrollController: _listControllers[index],
                 viewportKey: _listKeys[index],
                 boardViewportKey: _overviewKey,
@@ -672,11 +675,16 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
         ),
       );
       if (mounted) {
-        if (changed == true) {
+        if (task != null) {
+          await widget.viewModel.refresh(showLoading: false, taskId: task.id);
+        } else if (changed == true) {
           await _refreshWithEntrance();
         } else {
-          // A milestone is saved immediately, even when the task form is cancelled.
-          await widget.viewModel.refresh(showLoading: false);
+          // Milestones and tags can be saved independently of the task.
+          await widget.viewModel.refresh(
+            showLoading: false,
+            catalogsOnly: true,
+          );
         }
       }
     } finally {
@@ -697,7 +705,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
           taskId: task.id,
         ),
       );
-      if (mounted) await widget.viewModel.refresh(showLoading: false);
+      if (mounted) {
+        await widget.viewModel.refresh(showLoading: false, taskId: task.id);
+      }
     } finally {
       if (mounted) setState(() => _openingRouteId = null);
     }
@@ -1212,7 +1222,11 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     builder: (context, child) {
       final model = widget.viewModel;
       final empty = model.isBoardEmpty;
-      final noResults = !empty && model.isResultEmpty && _departingTask == null;
+      final columns = {
+        for (final status in KanbanStatus.values) status: _columnTasks(status),
+      };
+      final noResults =
+          !empty && columns.values.every((tasks) => tasks.isEmpty);
       final append = widget.appendViewModel;
       return Scaffold(
         appBar: AppBar(
@@ -1395,7 +1409,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                                             : null,
                                         child: AnimatedBuilder(
                                           animation: _boardController,
-                                          child: _boardTrack(columnWidth),
+                                          child: _boardTrack(
+                                            columnWidth,
+                                            columns,
+                                          ),
                                           builder: (context, child) {
                                             final scale = _boardScale.value;
                                             final selectedCenter =

@@ -15,6 +15,8 @@ abstract class KanbanRepository {
   Future<String?> getFirstBoardId({bool archived = false});
   Future<void> setBoardArchived(String boardId, bool archived);
   Future<List<KanbanTask>> getTasks(String boardId);
+  Future<KanbanTask?> getTask(String boardId, String taskId);
+  Future<bool> hasActiveTask(String boardId, String taskId);
   Future<List<KanbanTask>> getArchivedTasks(String boardId);
   Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId);
   Future<KanbanTask> createTask(KanbanTask task);
@@ -23,7 +25,11 @@ abstract class KanbanRepository {
     List<GeneratedTaskDraft> tasks, {
     String? requestId,
   });
-  Future<KanbanTask> updateTask(KanbanTask task);
+  Future<KanbanTask> saveTaskEdit(
+    KanbanTask task, {
+    required String requestId,
+    List<String>? tagIds,
+  });
   Future<KanbanTask> resumeTask(KanbanTask task);
   Future<KanbanTask> setTaskTimerPaused(KanbanTask task, bool paused);
   Future<void> archiveTask(String taskId, bool archived);
@@ -56,6 +62,7 @@ abstract class KanbanRepository {
     String? mimeType,
   );
   Future<void> deleteAttachment(TaskAttachment attachment);
+  Future<void> retryAttachmentCleanup();
   Future<String> getAttachmentUrl(TaskAttachment attachment);
   Future<List<TaskActivity>> getTaskActivity(String taskId);
   Future<void> addProgressUpdate(

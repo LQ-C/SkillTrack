@@ -709,7 +709,7 @@ void main() {
       final (projects, board) = await project();
       final tasks = FakeKanbanRepository()..loseGeneratedResponseOnce = true;
       final generator = FakeTaskGenerationRepository()
-        ..result = [draft('Extra', 0)];
+        ..result = [draft('Added elsewhere', 0), draft('Extra', 1)];
       final model = AppendTaskGenerationViewModel(
         projectId: projects.stored.single.project.id,
         boardId: board,
@@ -719,12 +719,19 @@ void main() {
       );
       addTearDown(model.dispose);
       await model.generateMoreTasks();
+      tasks.stored.add(
+        sampleTask(
+          'other',
+          'Added elsewhere',
+          KanbanStatus.todo,
+        ).copyWith(boardId: board),
+      );
       expect(await model.confirmGeneratedTasks(), isNull);
-      expect(tasks.stored, hasLength(1));
+      expect(tasks.stored.where((task) => task.title == 'Extra'), hasLength(1));
       expect(model.canCustomizeGeneratedTasks, isFalse);
       expect(model.updateGeneratedTask(0, draft('Changed', 0)), isFalse);
       expect(await model.confirmGeneratedTasks(), isTrue);
-      expect(tasks.stored, hasLength(1));
+      expect(tasks.stored.where((task) => task.title == 'Extra'), hasLength(1));
       expect(tasks.generatedRequestIds.toSet(), hasLength(1));
       expect(tasks.generatedInsertCalls, 2);
     },

@@ -22,19 +22,11 @@ class TaskDetailsSheet extends StatefulWidget {
     required this.viewModel,
     required this.onEdit,
     this.fullScreen = false,
-    this.showStalledWarning = false,
-    this.showRecommendations = false,
-    this.resourceTitles = const [],
-    this.resourceCount = 0,
   });
   final String taskId;
   final KanbanViewModel viewModel;
   final ValueChanged<KanbanTask>? onEdit;
   final bool fullScreen;
-  final bool showStalledWarning;
-  final bool showRecommendations;
-  final List<String> resourceTitles;
-  final int resourceCount;
   @override
   State<TaskDetailsSheet> createState() => _TaskDetailsSheetState();
 }
