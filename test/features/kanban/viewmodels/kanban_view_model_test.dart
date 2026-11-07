@@ -11,10 +11,53 @@ import 'package:skilltrack/features/kanban/models/task_checklist_item.dart';
 import 'package:skilltrack/features/kanban/models/task_priority.dart';
 import 'package:skilltrack/features/kanban/models/task_tag.dart';
 import 'package:skilltrack/features/kanban/viewmodels/kanban_view_model.dart';
+import 'package:skilltrack/features/kanban/viewmodels/archived_tasks_view_model.dart';
 
 import '../fake_repository.dart';
 
 void main() {
+  for (final operation in ['create', 'move', 'archive', 'restore', 'resume']) {
+    test(
+      '$operation retry resends its original request after losing a response',
+      () async {
+        final initial = sampleTask(
+          'task',
+          'Study',
+          KanbanStatus.todo,
+        ).copyWith(isStalled: true, isArchived: operation == 'restore');
+        final repo = FakeKanbanRepository(
+          tasks: operation == 'create' ? [] : [initial],
+        )..loseTaskActionResponseOnce = operation;
+        final model = KanbanViewModel(repo);
+        final archive = ArchivedTasksViewModel(repo);
+        addTearDown(model.dispose);
+        addTearDown(archive.dispose);
+        await model.initialize('board-1');
+        await archive.loadArchivedTasks('board-1');
+
+        Future<bool> submit() => switch (operation) {
+          'create' => model.createTask(title: 'Study', checklist: ['Verify']),
+          'move' => model.moveTask(
+            initial.id,
+            KanbanStatus.inProgress,
+            newIndex: 0,
+          ),
+          'archive' => model.archiveTask(initial.id),
+          'restore' => archive.restoreTask(initial.id),
+          _ => model.resumeTask(initial.id),
+        };
+        expect(await submit(), isFalse);
+        final committed = repo.stored.single;
+        final logCount = repo.activityEvents.length;
+        expect(await submit(), isTrue);
+        expect(repo.taskRequests, hasLength(2));
+        expect(repo.taskRequests.toSet(), hasLength(1));
+        expect(repo.stored.single, committed);
+        expect(repo.activityEvents, hasLength(logCount));
+      },
+    );
+  }
+
   test(
     'atomic edit retry keeps the request ID after a lost response',
     () async {

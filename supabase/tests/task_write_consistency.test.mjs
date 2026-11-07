@@ -140,6 +140,9 @@ test('atomic task edits and durable attachment deletion', async (t) => {
     });
 
     await t.test('attachment history and queue roll back together, then retry safely', async () => {
+      assert.equal((await first(
+        "select relkind from pg_class where oid = 'public.task_attachment_cleanup'::regclass"
+      )).relkind, 'v');
       const remove = () => db.query('select delete_kanban_task_attachment($1)', [attachment]);
       const queued = async () => (await db.query('select storage_path from task_attachment_cleanup order by storage_path')).rows.map(row => row.storage_path);
       await db.exec("set test.fail_action='attachment_removed'");
@@ -160,6 +163,24 @@ test('atomic task edits and durable attachment deletion', async (t) => {
       await assert.rejects(save(), {code:'42501'});
       await db.exec(`set request.jwt.claim.sub='${owner}'`);
       assert.deepEqual(await queued(), [`${owner}/notes`, `${owner}/other`]);
+      const acknowledged = await first(
+        'delete from task_attachment_cleanup where user_id=$1 and storage_path=$2 returning storage_path',
+        [owner, `${owner}/notes`],
+      );
+      assert.equal(acknowledged.storage_path, `${owner}/notes`);
+      assert.deepEqual(await queued(), [`${owner}/other`]);
+      assert.equal(await first(
+        'delete from kanban_write_requests where request_id=$1 returning request_id',
+        ['test-atomic-task-edit-001'],
+      ), undefined);
+      assert.equal((await first(
+        'select request_id from kanban_write_requests where request_id=$1',
+        ['test-atomic-task-edit-001'],
+      )).request_id, 'test-atomic-task-edit-001');
+      await assert.rejects(db.query(`insert into kanban_write_requests
+        (user_id,request_id,board_id,payload,saved_count)
+        values ($1,'skilltrack:v1:attachment_cleanup:forged',null,
+          jsonb_build_object('storage_path',$2::text),0)`, [owner, `${other}/foreign`]), {code:'42501'});
     });
   } finally {
     await db.close();

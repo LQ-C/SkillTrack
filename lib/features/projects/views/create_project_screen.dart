@@ -6,7 +6,6 @@ import '../../ai_task_generation/widgets/task_generation_constraints_field.dart'
 import '../../../app/widgets/app_content.dart';
 
 import '../../../app/router/app_router.dart';
-import '../../kanban/repositories/kanban_repository.dart';
 import '../models/learning_project.dart';
 import '../repositories/project_repository.dart';
 import '../../ai_task_generation/repositories/ai_task_generation_repository.dart';
@@ -17,12 +16,10 @@ class CreateProjectScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.generationRepository,
-    this.taskRepository,
     this.project,
   });
   final ProjectRepository repository;
   final TaskGenerationRepository? generationRepository;
-  final KanbanRepository? taskRepository;
   final LearningProject? project;
 
   @override
@@ -45,7 +42,6 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
       widget.repository,
       original: project,
       generationRepository: widget.generationRepository,
-      taskRepository: widget.taskRepository,
     );
     _name = TextEditingController(text: project?.name);
     _description = TextEditingController(text: project?.description);
@@ -387,7 +383,7 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                                       _isLeaving ||
                                           _model.isSaving ||
                                           _model.isGeneratingTasks ||
-                                          _model.pendingProject != null
+                                          _model.hasPendingConfirmation
                                       ? null
                                       : _submit,
                                   child: Text(
@@ -425,25 +421,12 @@ class _CreateProjectScreenState extends State<CreateProjectScreen> {
                                       ? null
                                       : _generateTasks,
                                   child: Text(
-                                    _model.pendingProject != null
+                                    _model.hasPendingConfirmation
                                         ? 'Retry Saving Tasks'
                                         : 'Generate Tasks',
                                   ),
                                 ),
                               ),
-                              if (_model.pendingProject != null) ...[
-                                const SizedBox(height: 12),
-                                TextButton(
-                                  key: const Key('open-empty-project-button'),
-                                  onPressed: _model.isSaving
-                                      ? null
-                                      : () => AppRouter.back(
-                                          context,
-                                          _model.pendingProject,
-                                        ),
-                                  child: const Text('Open empty project'),
-                                ),
-                              ],
                             ],
                           ),
                         ),

@@ -6,7 +6,7 @@ import '../../../core/utils/date_formatter.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../../core/utils/operation_id.dart';
-import '../../kanban/repositories/kanban_repository.dart';
+import '../../../core/utils/retryable_write.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
 import '../../ai_task_generation/models/task_generation_request.dart';
 import '../../ai_task_generation/view_models/generated_task_preview_state.dart';
@@ -21,22 +21,20 @@ class CreateProjectViewModel extends ChangeNotifier
     this._repository, {
     this.original,
     TaskGenerationRepository? generationRepository,
-    KanbanRepository? taskRepository,
   }) : _generationRepository = generationRepository,
-       _taskRepository = taskRepository,
        _startDate = _dateOnly(original?.startDate),
        _endDate = _dateOnly(original?.endDate);
   final ProjectRepository _repository;
   final TaskGenerationRepository? _generationRepository;
-  final KanbanRepository? _taskRepository;
   bool _disposed = false;
   final LearningProject? original;
   bool _isSaving = false;
   bool _isGeneratingTasks = false;
   bool _isConfirmingGeneratedTasks = false;
   bool _isRevisingGeneratedTasks = false;
-  String? _saveRequestId;
-  ProjectWithProgress? _pendingProject;
+  ({String user, String id})? _confirmation;
+  bool _confirmationUncertain = false;
+  final _emptyProjectWrites = RetryableWrite<ProjectWithProgress>();
   List<GeneratedTaskDraft>? _pendingTasks;
   String? _pendingName, _pendingDescription;
   String _pendingConstraints = '';
@@ -52,7 +50,7 @@ class CreateProjectViewModel extends ChangeNotifier
       !_disposed &&
       !_isSaving &&
       !_isGeneratingTasks &&
-      _pendingProject == null;
+      !hasPendingConfirmation;
   bool get isSaving => _isSaving;
   bool get isGeneratingTasks => _isGeneratingTasks;
   @override
@@ -68,7 +66,7 @@ class CreateProjectViewModel extends ChangeNotifier
   @override
   List<GeneratedTaskDraft> get pendingGeneratedTasks =>
       UnmodifiableListView(_pendingTasks ?? const <GeneratedTaskDraft>[]);
-  ProjectWithProgress? get pendingProject => _pendingProject;
+  bool get hasPendingConfirmation => _confirmationUncertain;
   String? get nameError => _nameError;
   String? get descriptionError => _descriptionError;
   DateTime? get startDate => _startDate;
@@ -132,7 +130,7 @@ class CreateProjectViewModel extends ChangeNotifier
         _isSaving ||
         _isGeneratingTasks ||
         _pendingTasks != null ||
-        _pendingProject != null) {
+        hasPendingConfirmation) {
       return null;
     }
     final projectConstraints = LearningProject.normalizeConstraints(
@@ -144,20 +142,37 @@ class CreateProjectViewModel extends ChangeNotifier
       notifyListeners();
       return null;
     }
-    if (!_validateForm(name, description)) return null;
+    final input = (
+      user: _repository.currentUserId,
+      name: name.trim(),
+      description: description.trim().isEmpty ? null : description.trim(),
+      constraints: projectConstraints,
+      start: _startDate,
+      end: _endDate,
+    );
+    if (!_emptyProjectWrites.contains(input) &&
+        !_validateForm(name, description)) {
+      return null;
+    }
     _isSaving = true;
     notifyListeners();
     try {
-      final text = description.trim().isEmpty ? null : description.trim();
+      final text = input.description;
       if (original == null) {
         if (_repository.currentUserId == null) {
           _errorMessage = 'Sign in to create a project.';
           return null;
         }
-        final created = await _createProject(
-          name.trim(),
-          text,
-          constraints: projectConstraints,
+        final created = await _emptyProjectWrites.run(
+          input,
+          (id) => _repository.saveNewProject(
+            requestId: id,
+            name: input.name,
+            description: input.description,
+            constraints: input.constraints,
+            startDate: input.start,
+            endDate: input.end,
+          ),
         );
         return _disposed ? null : created;
       }
@@ -224,18 +239,6 @@ class CreateProjectViewModel extends ChangeNotifier
     return _nameError == null && _descriptionError == null && dateError == null;
   }
 
-  Future<ProjectWithProgress> _createProject(
-    String name,
-    String? description, {
-    String? constraints,
-  }) => _repository.createProject(
-    name: name,
-    description: description,
-    constraints: constraints,
-    startDate: _startDate,
-    endDate: _endDate,
-  );
-
   Future<List<GeneratedTaskDraft>?> generateTaskPreview({
     required String name,
     required String description,
@@ -258,7 +261,7 @@ class CreateProjectViewModel extends ChangeNotifier
       notifyListeners();
       return null;
     }
-    if (_generationRepository == null || _taskRepository == null) {
+    if (_generationRepository == null) {
       _errorMessage = AppErrorMessages.generateTasksFailed;
       notifyListeners();
       return null;
@@ -318,66 +321,37 @@ class CreateProjectViewModel extends ChangeNotifier
       notifyListeners();
       return null;
     }
+    final user = _repository.currentUserId;
+    if (user == null ||
+        (_confirmation != null && _confirmation!.user != user)) {
+      _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
+      notifyListeners();
+      return null;
+    }
+    final attempt = _confirmation ??= (user: user, id: createOperationId());
+    _confirmationUncertain = true;
     _isSaving = true;
     _isConfirmingGeneratedTasks = true;
     _errorMessage = null;
     notifyListeners();
     try {
-      if (_pendingProject == null) {
-        try {
-          final description = _pendingDescription!;
-          _pendingProject = await _createProject(
-            _pendingName!,
-            description.isEmpty ? null : description,
-            constraints: _pendingConstraints,
-          );
-        } catch (_) {
-          _errorMessage = AppErrorMessages.createProjectFailed;
-          return null;
-        }
-      }
-      final project = _pendingProject!;
-      final boardId = project.boardId;
-      if (boardId == null || boardId.isEmpty) {
-        _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
-        return null;
-      }
-      try {
-        if (_saveRequestId != null) {
-          final saved = await _taskRepository!.getTasks(boardId);
-          // Refuse legacy partial batches rather than treating matching titles
-          // as proof that every checklist was saved.
-          if (saved.isNotEmpty &&
-              (saved.length != _pendingTasks!.length ||
-                  !saved.every(
-                    (task) => _pendingTasks!.any(
-                      (draft) =>
-                          draft.title == task.title &&
-                          draft.checklist.length ==
-                              task.checklistItems.length &&
-                          Iterable.generate(draft.checklist.length).every(
-                            (index) =>
-                                task.checklistItems[index].title ==
-                                    draft.checklist[index] &&
-                                task.checklistItems[index].position == index,
-                          ),
-                    ),
-                  ))) {
-            throw const AppException(AppErrorMessages.saveGeneratedTasksFailed);
-          }
-        }
-        _saveRequestId ??= createOperationId();
-        await _taskRepository!.createGeneratedTasks(
-          boardId,
-          _pendingTasks!,
-          requestId: _saveRequestId,
-        );
-        _pendingConstraints = '';
-        return _disposed ? null : project;
-      } catch (_) {
-        _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
-        return null;
-      }
+      final project = await _repository.saveNewProject(
+        requestId: attempt.id,
+        name: _pendingName!,
+        description: _pendingDescription,
+        constraints: _pendingConstraints,
+        startDate: generationStartDate,
+        endDate: generationEndDate,
+        generatedTasks: _pendingTasks!,
+      );
+      return _disposed ? null : project;
+    } on ProjectWriteRejected catch (error) {
+      _confirmationUncertain = false;
+      if (!_disposed) _errorMessage = error.message;
+      return null;
+    } catch (_) {
+      if (!_disposed) _errorMessage = AppErrorMessages.saveGeneratedTasksFailed;
+      return null;
     } finally {
       _isSaving = false;
       _isConfirmingGeneratedTasks = false;
@@ -390,6 +364,8 @@ class CreateProjectViewModel extends ChangeNotifier
     List<GeneratedTaskDraft> tasks, {
     String? error,
   }) {
+    if (hasPendingConfirmation) return;
+    _confirmation = null;
     _pendingTasks = List.unmodifiable(GeneratedTaskDraft.grouped(tasks));
     _errorMessage = error;
     notifyListeners();
@@ -402,7 +378,7 @@ class CreateProjectViewModel extends ChangeNotifier
         _isSaving ||
         _isGeneratingTasks ||
         _isRevisingGeneratedTasks ||
-        _pendingProject != null ||
+        hasPendingConfirmation ||
         _pendingTasks == null ||
         _pendingTasks!.isEmpty ||
         _generationRepository == null) {
@@ -445,6 +421,7 @@ class CreateProjectViewModel extends ChangeNotifier
         endDate: generationEndDate,
       );
       if (invalid != null) throw AppException(invalid);
+      _confirmation = null;
       _pendingTasks = List.unmodifiable(checked);
       return true;
     } catch (error) {
@@ -469,9 +446,10 @@ class CreateProjectViewModel extends ChangeNotifier
         _isSaving ||
         _isRevisingGeneratedTasks ||
         _pendingTasks == null ||
-        _pendingProject != null) {
+        hasPendingConfirmation) {
       return;
     }
+    _confirmation = null;
     _pendingTasks = null;
     _pendingName = null;
     _pendingDescription = null;

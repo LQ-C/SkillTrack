@@ -216,34 +216,29 @@ class SupabaseKanbanRepository implements KanbanRepository {
   }
 
   @override
-  Future<KanbanTask> createTask(KanbanTask task) => _guard(() async {
-    final data = task.toMap()..remove('id');
-    if (task.status == KanbanStatus.inProgress) data['status'] = 'todo';
-    final row = await _client
-        .from('kanban_tasks')
-        .insert(data)
-        .select()
-        .single();
-    var created = KanbanTask.fromMap(row);
-    try {
-      if (task.status == KanbanStatus.inProgress) {
-        created = await _updateTracking(
-          created,
-          'move',
-          status: KanbanStatus.inProgress,
-          order: task.sortOrder,
-        );
-      }
-      await addActivity(
-        created.id,
-        'created',
-        newValues: {'title': created.title},
-      );
-    } catch (_) {
-      await _client.from('kanban_tasks').delete().eq('id', created.id);
-      rethrow;
-    }
-    return created;
+  Future<KanbanTask> createTask(KanbanTask task) => saveTaskCreation(
+    task,
+    requestId: createOperationId(),
+    tagIds: const [],
+    checklist: const [],
+  );
+
+  @override
+  Future<KanbanTask> saveTaskCreation(
+    KanbanTask task, {
+    required String requestId,
+    required List<String> tagIds,
+    required List<String> checklist,
+  }) => _saveTaskAction(task, 'create_task', requestId, {
+    'title': task.title,
+    'description': task.description,
+    'status': task.status.value,
+    'priority': task.priority.name,
+    'deadline': task.deadline?.toUtc().toIso8601String(),
+    'deadline_has_time': task.deadlineHasTime,
+    'milestone_id': task.milestoneId,
+    'tag_ids': tagIds,
+    'checklist': checklist,
   });
 
   @override
@@ -310,48 +305,86 @@ class SupabaseKanbanRepository implements KanbanRepository {
   });
 
   @override
-  Future<KanbanTask> resumeTask(KanbanTask task) => _guard(() async {
-    final now = DateTime.now().toUtc().toIso8601String();
+  Future<KanbanTask> resumeTask(KanbanTask task) =>
+      saveTaskResume(task, requestId: createOperationId());
+
+  @override
+  Future<void> archiveTask(String taskId, bool archived) => _guard(() async {
     final row = await _client
         .from('kanban_tasks')
-        .update({
-          'is_stalled': false,
-          'stagnation_score': 0,
-          'stalled_at': null,
-          'updated_at': now,
-        })
-        .eq('id', task.id)
-        .eq('board_id', task.boardId)
         .select()
+        .eq('id', taskId)
         .single();
-    await addActivity(task.id, 'resumed');
-    return KanbanTask.fromMap(
-      row,
-      tags: task.tags,
-      checklistItems: task.checklistItems,
-      attachments: task.attachments,
+    await saveTaskArchive(
+      KanbanTask.fromMap(row),
+      archived,
+      requestId: createOperationId(),
     );
   });
 
   @override
-  Future<void> archiveTask(String taskId, bool archived) => _guard(() async {
-    if (archived) {
-      final row = await _client
-          .from('kanban_tasks')
-          .select()
-          .eq('id', taskId)
-          .single();
-      final task = KanbanTask.fromMap(row);
-      if (task.isTracking) await _updateTracking(task, 'pause');
-    }
-    await _client
-        .from('kanban_tasks')
-        .update({
-          'is_archived': archived,
-          'updated_at': DateTime.now().toUtc().toIso8601String(),
-        })
-        .eq('id', taskId);
-    await addActivity(taskId, archived ? 'archived' : 'restored');
+  Future<KanbanTask> saveTaskResume(
+    KanbanTask task, {
+    required String requestId,
+  }) => _saveExistingTaskAction(task, 'resume', requestId);
+
+  @override
+  Future<KanbanTask> saveTaskArchive(
+    KanbanTask task,
+    bool archived, {
+    required String requestId,
+  }) => _saveExistingTaskAction(
+    task,
+    archived ? 'archive' : 'restore',
+    requestId,
+  );
+
+  @override
+  Future<KanbanTask> saveTaskMove(
+    KanbanTask task,
+    KanbanStatus status, {
+    required String requestId,
+    int? newIndex,
+  }) => _saveExistingTaskAction(task, 'move', requestId, {
+    'status': status.value,
+    'expected_sort_order': task.sortOrder,
+    'new_index': newIndex,
+  });
+
+  Future<KanbanTask> _saveExistingTaskAction(
+    KanbanTask task,
+    String operation,
+    String requestId, [
+    Map<String, dynamic> changes = const {},
+  ]) => _saveTaskAction(task, operation, requestId, {
+    'task_id': task.id,
+    'expected_updated_at': task.updatedAt.toUtc().toIso8601String(),
+    ...changes,
+  });
+
+  Future<KanbanTask> _saveTaskAction(
+    KanbanTask task,
+    String operation,
+    String requestId,
+    Map<String, dynamic> payload,
+  ) => _guard(() async {
+    final result =
+        await _client.rpc(
+              'save_skilltrack_task_action',
+              params: {
+                'p_board_id': task.boardId,
+                'p_operation': operation,
+                'p_request_id': requestId,
+                'p_payload': payload,
+              },
+            )
+            as Map<String, dynamic>;
+    return KanbanTask.fromMap(
+      result['task'] as Map<String, dynamic>,
+      tags: task.tags,
+      checklistItems: task.checklistItems,
+      attachments: task.attachments,
+    );
   });
 
   @override

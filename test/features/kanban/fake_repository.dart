@@ -119,6 +119,149 @@ class FakeKanbanRepository extends Fake implements KanbanRepository {
     return created;
   }
 
+  final taskRequests = <({String operation, String id, Object payload})>[];
+  final _actionReceipts = <(String, String), KanbanTask>{};
+  String? loseTaskActionResponseOnce;
+
+  Future<KanbanTask> _atomicAction(
+    String operation,
+    String id,
+    Object payload,
+    Future<KanbanTask> Function() action,
+  ) async {
+    taskRequests.add((operation: operation, id: id, payload: payload));
+    final key = (operation, id);
+    if (_actionReceipts[key] case final result?) return result;
+    final previous = List.of(stored);
+    final boardSnapshots = tasksByBoard?.map(
+      (key, tasks) => MapEntry(key, List.of(tasks)),
+    );
+    final logs = activityEvents.length;
+    final KanbanTask result;
+    try {
+      result = await action();
+    } catch (_) {
+      stored = previous;
+      if (boardSnapshots != null) tasksByBoard!.addAll(boardSnapshots);
+      activityEvents.removeRange(logs, activityEvents.length);
+      rethrow;
+    }
+    _actionReceipts[key] = result;
+    if (loseTaskActionResponseOnce == operation) {
+      loseTaskActionResponseOnce = null;
+      throw StateError('response lost');
+    }
+    return result;
+  }
+
+  @override
+  Future<KanbanTask> saveTaskCreation(
+    KanbanTask task, {
+    required String requestId,
+    required List<String> tagIds,
+    required List<String> checklist,
+  }) => _atomicAction(
+    'create',
+    requestId,
+    (task, tagIds.join(','), checklist.join(',')),
+    () async {
+      final created = await createTask(task);
+      for (final tag in tagIds) {
+        await attachTagToTask(created.id, tag);
+      }
+      for (final (index, title) in checklist.indexed) {
+        if (title.isNotEmpty) {
+          await createChecklistItem(created.id, title, index);
+        }
+      }
+      await addActivity(
+        created.id,
+        'created',
+        newValues: {'title': created.title},
+      );
+      return stored.singleWhere((item) => item.id == created.id);
+    },
+  );
+
+  @override
+  Future<KanbanTask> saveTaskMove(
+    KanbanTask task,
+    KanbanStatus status, {
+    required String requestId,
+    int? newIndex,
+  }) => _atomicAction('move', requestId, (task, status, newIndex), () async {
+    List<KanbanTask> column(KanbanStatus status) =>
+        stored
+            .where(
+              (item) =>
+                  item.boardId == task.boardId &&
+                  item.status == status &&
+                  !item.isArchived,
+            )
+            .toList()
+          ..sort((a, b) => a.sortOrder.compareTo(b.sortOrder));
+    final oldIndex = column(
+      task.status,
+    ).indexWhere((item) => item.id == task.id);
+    final target = column(status)..removeWhere((item) => item.id == task.id);
+    final index = (newIndex ?? target.length).clamp(0, target.length);
+    final before = index > 0 ? target[index - 1].sortOrder : 0;
+    final after = index < target.length
+        ? target[index].sortOrder
+        : before + 2000;
+    final normalize = after - before <= 1;
+    final order = normalize ? (index + 1) * 1000 : (before + after) ~/ 2;
+    final moved = task.status == status
+        ? task.copyWith(sortOrder: order)
+        : await moveTask(task, status, order);
+    if (normalize) {
+      target.insert(index, moved);
+      await reorderTasks([
+        for (final (position, item) in target.indexed)
+          item.copyWith(sortOrder: (position + 1) * 1000),
+      ]);
+    } else if (task.status == status) {
+      await reorderTasks([moved]);
+    }
+    if (task.status != status) {
+      await addActivity(
+        task.id,
+        status == KanbanStatus.completed
+            ? 'completed'
+            : task.status == KanbanStatus.completed
+            ? 'reopened'
+            : 'moved',
+        oldValues: {'status': task.status.value, 'position': oldIndex},
+        newValues: {'status': status.value, 'position': index},
+      );
+    }
+    return stored.singleWhere((item) => item.id == task.id);
+  });
+
+  @override
+  Future<KanbanTask> saveTaskArchive(
+    KanbanTask task,
+    bool archived, {
+    required String requestId,
+  }) => _atomicAction(
+    archived ? 'archive' : 'restore',
+    requestId,
+    task,
+    () async {
+      await archiveTask(task.id, archived);
+      await addActivity(task.id, archived ? 'archived' : 'restored');
+      return (tasksByBoard?[task.boardId] ?? stored).singleWhere(
+        (item) => item.id == task.id,
+      );
+    },
+  );
+
+  @override
+  Future<KanbanTask> saveTaskResume(
+    KanbanTask task, {
+    required String requestId,
+  }) => _atomicAction('resume', requestId, task, () => resumeTask(task));
+
   @override
   Future<void> createGeneratedTasks(
     String boardId,

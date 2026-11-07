@@ -122,18 +122,49 @@ $$;
 revoke all on function public.save_kanban_task_edit(uuid,timestamptz,text,jsonb,uuid[],uuid[]) from public, anon;
 grant execute on function public.save_kanban_task_edit(uuid,timestamptz,text,jsonb,uuid[],uuid[]) to authenticated;
 
-create table if not exists public.task_attachment_cleanup (
-  user_id uuid not null references auth.users(id) on delete cascade,
-  storage_path text not null check (split_part(storage_path, '/', 1) = user_id::text),
-  created_at timestamptz not null default now(),
-  primary key (user_id, storage_path)
-);
-alter table public.task_attachment_cleanup enable row level security;
-revoke all on public.task_attachment_cleanup from public, anon, authenticated;
-grant select, insert, delete on public.task_attachment_cleanup to authenticated;
-drop policy if exists own_attachment_cleanup on public.task_attachment_cleanup;
-create policy own_attachment_cleanup on public.task_attachment_cleanup to authenticated
-  using (user_id = auth.uid()) with check (user_id = auth.uid());
+-- Queue rows use the existing receipt table and outlive task/board deletion.
+alter table public.kanban_write_requests alter column board_id drop not null;
+alter table public.kanban_write_requests
+  drop constraint if exists kanban_write_requests_receipt_scope_check;
+alter table public.kanban_write_requests
+  add constraint kanban_write_requests_receipt_scope_check check (
+    (board_id is null) = (request_id like 'skilltrack:v1:%')
+  );
+
+drop policy if exists kanban_write_requests_check_cleanup_path on public.kanban_write_requests;
+create policy kanban_write_requests_check_cleanup_path on public.kanban_write_requests
+  as restrictive for insert to authenticated with check (
+    request_id not like 'skilltrack:v1:attachment_cleanup:%'
+    or (payload->>'storage_path' is not null
+      and split_part(payload->>'storage_path', '/', 1) = auth.uid()::text)
+  );
+
+-- A client can acknowledge only its own cleanup rows. Save receipts are durable.
+grant delete on public.kanban_write_requests to authenticated;
+drop policy if exists kanban_write_requests_ack_cleanup on public.kanban_write_requests;
+create policy kanban_write_requests_ack_cleanup on public.kanban_write_requests
+  for delete to authenticated using (true);
+drop policy if exists kanban_write_requests_ack_cleanup_scope on public.kanban_write_requests;
+create policy kanban_write_requests_ack_cleanup_scope on public.kanban_write_requests
+  as restrictive for delete to authenticated using (
+    user_id = auth.uid() and board_id is null
+    and request_id like 'skilltrack:v1:attachment_cleanup:%'
+  );
+
+-- Keep the existing Flutter/PostgREST endpoint. A fresh install uses a view.
+-- An installation with the previous physical queue can continue using it.
+do $cleanup_view$
+begin
+  if to_regclass('public.task_attachment_cleanup') is null then
+    create view public.task_attachment_cleanup with (security_invoker = true) as
+      select user_id, payload->>'storage_path' as storage_path, created_at
+        from public.kanban_write_requests
+        where board_id is null and request_id like 'skilltrack:v1:attachment_cleanup:%';
+  end if;
+end;
+$cleanup_view$;
+revoke all on public.task_attachment_cleanup from public, anon;
+grant select, delete on public.task_attachment_cleanup to authenticated;
 
 create or replace function public.queue_deleted_task_attachment()
 returns trigger language plpgsql security invoker set search_path = public, pg_temp as $$
@@ -141,8 +172,17 @@ begin
   -- Queue only files the signed-in owner can remove via the Storage API.
   if split_part(old.storage_path, '/', 1) = auth.uid()::text
       and not exists (select 1 from public.task_attachments a where a.storage_path = old.storage_path) then
-    insert into public.task_attachment_cleanup(user_id, storage_path)
-      values (auth.uid(), old.storage_path) on conflict do nothing;
+    if exists (select 1 from pg_class
+        where oid = 'public.task_attachment_cleanup'::regclass and relkind in ('r','p')) then
+      insert into public.task_attachment_cleanup(user_id, storage_path)
+        values (auth.uid(), old.storage_path) on conflict do nothing;
+    else
+      insert into public.kanban_write_requests(user_id, request_id, board_id, payload, saved_count)
+        values (auth.uid(), 'skilltrack:v1:attachment_cleanup:'
+          || encode(sha256(convert_to(old.storage_path, 'UTF8')), 'hex'), null,
+          jsonb_build_object('storage_path', old.storage_path), 0)
+        on conflict (user_id, request_id) do nothing;
+    end if;
   end if;
   return old;
 end;

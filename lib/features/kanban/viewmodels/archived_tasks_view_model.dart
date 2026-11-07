@@ -3,6 +3,7 @@ import 'dart:collection';
 import 'package:flutter/foundation.dart';
 
 import '../../../core/errors/app_exception.dart';
+import '../../../core/utils/retryable_write.dart';
 import '../models/kanban_task.dart';
 import '../repositories/kanban_repository.dart';
 
@@ -10,6 +11,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   ArchivedTasksViewModel(this._repository);
 
   final KanbanRepository _repository;
+  final _restoreWrites = RetryableWrite<KanbanTask>();
   bool _disposed = false;
   String? _boardId;
   List<KanbanTask> _tasks = [];
@@ -102,14 +104,13 @@ class ArchivedTasksViewModel extends ChangeNotifier {
   }
 
   Future<bool> restoreTask(String taskId) async {
-    if (_disposed || _isSaving || !_tasks.any((task) => task.id == taskId)) {
-      return false;
-    }
+    final task = _tasks.where((task) => task.id == taskId).firstOrNull;
+    if (_disposed || _isSaving || task == null) return false;
     _isSaving = true;
     _errorMessage = null;
     notifyListeners();
     try {
-      await _repository.archiveTask(taskId, false);
+      await _restore(task);
       if (_disposed) return false;
       _tasks = _tasks.where((task) => task.id != taskId).toList();
       _hasChanges = true;
@@ -125,6 +126,12 @@ class ArchivedTasksViewModel extends ChangeNotifier {
     }
   }
 
+  Future<KanbanTask> _restore(KanbanTask task) => _restoreWrites.run((
+    user: _repository.currentUserId,
+    board: task.boardId,
+    task: task.id,
+  ), (id) => _repository.saveTaskArchive(task, false, requestId: id));
+
   Future<bool> restoreAllTasks() async {
     if (_disposed || _isSaving || _tasks.isEmpty) return false;
     _isSaving = true;
@@ -135,7 +142,7 @@ class ArchivedTasksViewModel extends ChangeNotifier {
     try {
       for (final task in pending) {
         try {
-          await _repository.archiveTask(task.id, false);
+          await _restore(task);
           restored++;
           _hasChanges = true;
         } catch (_) {

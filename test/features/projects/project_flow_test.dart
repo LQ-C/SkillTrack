@@ -28,6 +28,7 @@ void main() {
     tester.view.devicePixelRatio = 1;
     addTearDown(tester.view.resetPhysicalSize);
     addTearDown(tester.view.resetDevicePixelRatio);
+    projects.generatedTaskRepository = kanban;
     await tester.pumpWidget(
       SkillTrackApp(
         projectRepository: projects,
@@ -1062,9 +1063,8 @@ void main() {
     final tasks = FakeKanbanRepository();
     final generator = FakeTaskGenerationRepository();
     final model = CreateProjectViewModel(
-      projects,
+      (projects)..generatedTaskRepository = tasks,
       generationRepository: generator,
-      taskRepository: tasks,
     );
     addTearDown(model.dispose);
     final today = DateUtils.dateOnly(DateTime.now());
@@ -1122,8 +1122,8 @@ void main() {
     tester,
   ) async {
     final model = CreateProjectViewModel(
-      FakeProjectRepository(),
-      taskRepository: FakeKanbanRepository(),
+      (FakeProjectRepository())
+        ..generatedTaskRepository = FakeKanbanRepository(),
       generationRepository: FakeTaskGenerationRepository(),
     );
     addTearDown(model.dispose);

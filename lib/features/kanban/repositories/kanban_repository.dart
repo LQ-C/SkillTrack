@@ -20,6 +20,27 @@ abstract class KanbanRepository {
   Future<List<KanbanTask>> getArchivedTasks(String boardId);
   Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId);
   Future<KanbanTask> createTask(KanbanTask task);
+  Future<KanbanTask> saveTaskCreation(
+    KanbanTask task, {
+    required String requestId,
+    required List<String> tagIds,
+    required List<String> checklist,
+  });
+  Future<KanbanTask> saveTaskMove(
+    KanbanTask task,
+    KanbanStatus status, {
+    required String requestId,
+    int? newIndex,
+  });
+  Future<KanbanTask> saveTaskArchive(
+    KanbanTask task,
+    bool archived, {
+    required String requestId,
+  });
+  Future<KanbanTask> saveTaskResume(
+    KanbanTask task, {
+    required String requestId,
+  });
   Future<void> createGeneratedTasks(
     String boardId,
     List<GeneratedTaskDraft> tasks, {

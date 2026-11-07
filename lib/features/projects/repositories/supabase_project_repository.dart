@@ -2,6 +2,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
+import '../../../core/utils/operation_id.dart';
+import '../../ai_task_generation/models/generated_task_draft.dart';
 import '../models/learning_project.dart';
 import '../models/project_milestone.dart';
 import '../models/project_with_progress.dart';
@@ -136,41 +138,63 @@ class SupabaseProjectRepository implements ProjectRepository {
     String? constraints,
     DateTime? startDate,
     DateTime? endDate,
+  }) => saveNewProject(
+    requestId: createOperationId(),
+    name: name,
+    description: description,
+    constraints: constraints,
+    startDate: startDate,
+    endDate: endDate,
+  );
+
+  @override
+  Future<ProjectWithProgress> saveNewProject({
+    required String requestId,
+    required String name,
+    String? description,
+    String? constraints,
+    DateTime? startDate,
+    DateTime? endDate,
+    List<GeneratedTaskDraft>? generatedTasks,
   }) => _guard(() async {
-    final userId = _userId();
-    final row = await _client
-        .from('projects')
-        .insert({
-          'owner_id': userId,
-          'name': name,
-          'description': description,
-          'constraints_text': _constraints(constraints),
-          'status': 'active',
-          'start_date': startDate?.toIso8601String().split('T').first,
-          'end_date': endDate?.toIso8601String().split('T').first,
-        })
-        .select()
-        .single();
-    final project = LearningProject.fromMap(row);
+    _userId();
     try {
-      final board = await _client
-          .from('kanban_boards')
-          .insert({'project_id': project.id, 'name': 'Kanban Board'})
-          .select('id')
-          .single();
+      final result =
+          await _client.rpc(
+                'save_new_skilltrack_project',
+                params: {
+                  'p_request_id': requestId,
+                  'p_name': name,
+                  'p_description': description,
+                  'p_constraints': _constraints(constraints),
+                  'p_start_date': startDate?.toIso8601String().split('T').first,
+                  'p_end_date': endDate?.toIso8601String().split('T').first,
+                  'p_tasks': generatedTasks
+                      ?.map((task) => task.toRevisionJson())
+                      .toList(),
+                },
+              )
+              as Map<String, dynamic>;
       return ProjectWithProgress(
-        project: project,
-        boardId: board['id'].toString(),
-        totalTaskCount: 0,
+        project: LearningProject.fromMap(
+          result['project'] as Map<String, dynamic>,
+        ),
+        boardId: result['board_id'] as String,
+        totalTaskCount: result['total_task_count'] as int,
         completedTaskCount: 0,
       );
-    } catch (_) {
-      await _client
-          .from('projects')
-          .delete()
-          .eq('id', project.id)
-          .eq('owner_id', userId);
-      throw const AppException(AppErrorMessages.createProjectFailed);
+    } on PostgrestException catch (error) {
+      // Only an explicit database rejection makes it safe to edit the payload.
+      final code = error.code;
+      if (error.hint == 'skilltrack_project_setup') {
+        throw const ProjectWriteRejected(AppErrorMessages.createProjectFailed);
+      }
+      if (code == 'P0001' ||
+          (code != null &&
+              RegExp(r'^(22|23|40|42)[0-9A-Z]{3}$').hasMatch(code))) {
+        throw const ProjectWriteRejected();
+      }
+      rethrow;
     }
   });
 

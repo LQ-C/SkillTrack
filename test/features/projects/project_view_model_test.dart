@@ -1,8 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
-import 'package:skilltrack/core/errors/app_exception.dart';
-import 'package:skilltrack/features/kanban/models/kanban_status.dart';
+import 'package:skilltrack/core/utils/date_formatter.dart';
 import 'package:skilltrack/features/projects/models/project_with_progress.dart';
 import 'package:skilltrack/features/projects/viewmodels/create_project_view_model.dart';
 import 'package:skilltrack/features/projects/viewmodels/project_dashboard_view_model.dart';
@@ -42,9 +41,8 @@ void main() {
       final generation = FakeTaskGenerationRepository();
       final tasks = FakeKanbanRepository();
       final model = CreateProjectViewModel(
-        projects,
+        (projects)..generatedTaskRepository = tasks,
         generationRepository: generation,
-        taskRepository: tasks,
       );
       addTearDown(model.dispose);
       final now = DateTime.now();
@@ -127,9 +125,8 @@ void main() {
       ..pending = Completer<List<GeneratedTaskDraft>>();
     final tasks = FakeKanbanRepository();
     final model = CreateProjectViewModel(
-      projects,
+      (projects)..generatedTaskRepository = tasks,
       generationRepository: generation,
-      taskRepository: tasks,
     );
     addTearDown(model.dispose);
     final today = DateTime.now();
@@ -172,9 +169,8 @@ void main() {
     final generation = FakeTaskGenerationRepository();
     final tasks = FakeKanbanRepository();
     final model = CreateProjectViewModel(
-      projects,
+      (projects)..generatedTaskRepository = tasks,
       generationRepository: generation,
-      taskRepository: tasks,
     );
     addTearDown(model.dispose);
     expect(await model.generateTaskPreview(name: '', description: ''), isNull);
@@ -194,9 +190,8 @@ void main() {
     final projects = FakeProjectRepository();
     final generation = FakeTaskGenerationRepository()..fail = true;
     final model = CreateProjectViewModel(
-      projects,
+      (projects)..generatedTaskRepository = FakeKanbanRepository(),
       generationRepository: generation,
-      taskRepository: FakeKanbanRepository(),
     );
     addTearDown(model.dispose);
     final today = DateTime.now();
@@ -226,9 +221,8 @@ void main() {
       final generation = FakeTaskGenerationRepository();
       final tasks = FakeKanbanRepository();
       final model = CreateProjectViewModel(
-        projects,
+        (projects)..generatedTaskRepository = tasks,
         generationRepository: generation,
-        taskRepository: tasks,
       );
       addTearDown(model.dispose);
       final today = DateTime.now();
@@ -260,9 +254,8 @@ void main() {
       final projects = FakeProjectRepository()..failBoardCreation = true;
       final generation = FakeTaskGenerationRepository();
       final model = CreateProjectViewModel(
-        projects,
+        (projects)..generatedTaskRepository = FakeKanbanRepository(),
         generationRepository: generation,
-        taskRepository: FakeKanbanRepository(),
       );
       addTearDown(model.dispose);
       final today = DateTime.now();
@@ -288,9 +281,8 @@ void main() {
     final generation = FakeTaskGenerationRepository();
     final tasks = FakeKanbanRepository();
     final model = CreateProjectViewModel(
-      projects,
+      (projects)..generatedTaskRepository = tasks,
       generationRepository: generation,
-      taskRepository: tasks,
     );
     addTearDown(model.dispose);
     final today = DateTime.now();
@@ -318,9 +310,8 @@ void main() {
       final generation = FakeTaskGenerationRepository();
       final tasks = FakeKanbanRepository()..failGeneratedInsert = true;
       final model = CreateProjectViewModel(
-        projects,
+        (projects)..generatedTaskRepository = tasks,
         generationRepository: generation,
-        taskRepository: tasks,
       );
       addTearDown(model.dispose);
       final today = DateTime.now();
@@ -330,67 +321,36 @@ void main() {
         await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
         hasLength(3),
       );
-      expect(model.pendingProject, isNull);
+      expect(model.hasPendingConfirmation, isFalse);
       expect(await model.confirmGeneratedTasks(), isNull);
-      expect(model.pendingProject, isNotNull);
-      expect(projects.stored.length, 1);
+      expect(model.hasPendingConfirmation, isTrue);
+      expect(projects.stored, isEmpty);
       expect(model.errorMessage, contains('could not be saved'));
       tasks.failGeneratedInsert = false;
       final result = await model.confirmGeneratedTasks();
       expect(result?.project.id, projects.stored.single.project.id);
       expect(projects.stored.length, 1);
       expect(generation.calls, 1);
+      expect(projects.projectRequests.toSet(), hasLength(1));
       expect(tasks.generatedInsertCalls, 2);
       expect(tasks.stored.length, 3);
     },
   );
 
   test(
-    'retry does not accept generated tasks missing their checklists',
+    'empty project retry reuses the exact request and returns the committed IDs',
     () async {
-      final projects = FakeProjectRepository();
-      final start = DateTime.now();
-      final generation = FakeTaskGenerationRepository()
-        ..result = [
-          for (var index = 0; index < 3; index++)
-            GeneratedTaskDraft(
-              title: 'Step ${index + 1}',
-              description: 'Study',
-              priority: 'medium',
-              deadline: start,
-              position: index,
-              checklist: ['Action $index'],
-            ),
-        ];
-      final tasks = FakeKanbanRepository()..failGeneratedInsert = true;
-      final model = CreateProjectViewModel(
-        projects,
-        generationRepository: generation,
-        taskRepository: tasks,
-      );
+      final projects = FakeProjectRepository()..loseProjectResponseOnce = true;
+      final model = CreateProjectViewModel(projects);
       addTearDown(model.dispose);
-      model.setStartDate(start);
-      model.setEndDate(start.add(const Duration(days: 7)));
-      expect(
-        await model.generateTaskPreview(name: 'Flutter', description: 'Study'),
-        hasLength(3),
-      );
-      expect(await model.confirmGeneratedTasks(), isNull);
-      final boardId = model.pendingProject!.boardId!;
-      tasks.stored = [
-        for (var index = 0; index < 3; index++)
-          sampleTask(
-            '${index + 1}',
-            'Step ${index + 1}',
-            KanbanStatus.todo,
-            order: (index + 1) * 1000,
-          ).copyWith(boardId: boardId),
-      ];
-      tasks.failGeneratedInsert = false;
-      expect(await model.confirmGeneratedTasks(), isNull);
-      expect(model.errorMessage, AppErrorMessages.saveGeneratedTasksFailed);
-      expect(tasks.generatedInsertCalls, 1);
-      expect(projects.stored.length, 1);
+      expect(await model.submit(name: 'Build', description: 'Plan'), isNull);
+      final original = projects.stored.single;
+      final recovered = await model.submit(name: 'Build', description: 'Plan');
+      expect(recovered?.project.id, original.project.id);
+      expect(recovered?.boardId, original.boardId);
+      expect(projects.projectRequests, hasLength(2));
+      expect(projects.projectRequests.toSet(), hasLength(1));
+      expect(projects.stored, hasLength(1));
     },
   );
 
@@ -727,14 +687,44 @@ void main() {
       expect(await model.submit(name: 'History', description: ''), isNull);
     },
   );
+  test('confirmed project rejection leaves the preview editable', () async {
+    final projects = FakeProjectRepository()..failBoardCreation = true;
+    final model = CreateProjectViewModel(
+      projects,
+      generationRepository: FakeTaskGenerationRepository(),
+    );
+    addTearDown(model.dispose);
+    final today = DateFormatter.today();
+    model.setStartDate(today);
+    model.setEndDate(today.add(const Duration(days: 7)));
+    await model.generateTaskPreview(name: 'App', description: 'Build');
+    expect(await model.confirmGeneratedTasks(), isNull);
+    expect(model.hasPendingConfirmation, isFalse);
+    expect(model.canCustomizeGeneratedTasks, isTrue);
+    final plan = model.pendingGeneratedTasks;
+    model.setGeneratedTaskPreview([
+      plan.first.copyWith(title: 'Revised step'),
+      ...plan.skip(1),
+    ]);
+    projects.failBoardCreation = false;
+    expect(await model.confirmGeneratedTasks(), isNotNull);
+    expect(
+      projects.projectRequests.map((request) => request.id).toSet(),
+      hasLength(2),
+    );
+    expect(
+      projects.generatedTaskRepository!.stored.first.title,
+      'Revised step',
+    );
+  });
+
   test(
     'initial confirmation retries a lost committed response without duplicates',
     () async {
       final projects = FakeProjectRepository();
       final tasks = FakeKanbanRepository()..loseGeneratedResponseOnce = true;
       final model = CreateProjectViewModel(
-        projects,
-        taskRepository: tasks,
+        (projects)..generatedTaskRepository = tasks,
         generationRepository: FakeTaskGenerationRepository(),
       );
       addTearDown(model.dispose);
@@ -745,7 +735,12 @@ void main() {
       await model.generateTaskPreview(name: 'App', description: 'Build an app');
       expect(await model.confirmGeneratedTasks(), isNull);
       expect(tasks.stored, hasLength(3));
-      expect(await model.confirmGeneratedTasks(), isNotNull);
+      final committed = projects.stored.single;
+      final recovered = await model.confirmGeneratedTasks();
+      expect(recovered?.project.id, committed.project.id);
+      expect(recovered?.boardId, committed.boardId);
+      expect(projects.projectRequests, hasLength(2));
+      expect(projects.projectRequests.toSet(), hasLength(1));
       expect(tasks.stored, hasLength(3));
       expect(projects.stored, hasLength(1));
       expect(tasks.generatedRequestIds.toSet(), hasLength(1));

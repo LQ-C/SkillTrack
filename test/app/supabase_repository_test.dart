@@ -70,6 +70,26 @@ class _ApiFixture {
       request.response.write(
         jsonEncode({'message': failMessage, 'code': failCode}),
       );
+    } else if (table == 'save_new_skilltrack_project') {
+      final payload = jsonDecode(body) as Map;
+      final row = {
+        'id': 'project-1',
+        'owner_id': 'user',
+        'name': payload['p_name'],
+        'description': payload['p_description'],
+        'constraints_text': payload['p_constraints'],
+        'start_date': payload['p_start_date'],
+        'end_date': payload['p_end_date'],
+        'status': 'active',
+      };
+      tables['projects'] = [row];
+      request.response.write(
+        jsonEncode({
+          'project': row,
+          'board_id': 'board-1',
+          'total_task_count': (payload['p_tasks'] as List?)?.length ?? 0,
+        }),
+      );
     } else if (table == 'projects' &&
         (request.method == 'POST' || request.method == 'PATCH')) {
       final payload = (jsonDecode(body) as Map).cast<String, dynamic>();
@@ -492,9 +512,13 @@ void main() {
             ? 'Flutter only'
             : null;
         expect(created.project.constraints, expected);
-        final sent =
-            jsonDecode(api.requestBodies[api.requestBodies.length - 2]) as Map;
-        expect(sent['constraints_text'], expected);
+        final sent = jsonDecode(api.requestBodies.last) as Map;
+        expect(sent['p_constraints'], expected);
+        expect(
+          api.requests.last.path,
+          endsWith('/rpc/save_new_skilltrack_project'),
+        );
+        expect(sent['p_request_id'], isNotEmpty);
       }
       final loaded = await repo.getProject('project-1');
       expect(loaded!.constraints, 'Flutter only');

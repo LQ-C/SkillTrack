@@ -148,7 +148,6 @@ class AppRouter {
         page = CreateProjectScreen(
           repository: projectRepository,
           generationRepository: taskGenerationRepository,
-          taskRepository: kanbanRepository,
         );
       case AppRoutes.generatedTaskPreview:
         page = arguments is GeneratedTaskPreviewRouteArgs && arguments.isValid
