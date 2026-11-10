@@ -9,12 +9,10 @@ from typing import Any
 
 
 class FakeGateway:
-    def __init__(self, *, max_attempts: int = 3, video_bytes: bytes = b"simulated-video"):
+    def __init__(self, *, video_bytes: bytes = b"simulated-video"):
         self.lock = threading.Lock()
-        self.jobs: dict[str, dict[str, Any]] = {}
         self.keys: dict[tuple[str, str, str], str] = {}
         self.transcripts: dict[str, dict[str, Any]] = {}
-        self.max_attempts = max_attempts
         self.video_bytes = video_bytes
         self.now = 1000.0
         self.downloaded_path: Path | None = None
@@ -27,22 +25,23 @@ class FakeGateway:
         with self.lock:
             key = (resource_id, file_id, version)
             if key in self.keys:
-                existing = self.jobs[self.keys[key]]
+                existing = self.transcripts[self.keys[key]]
                 if (existing["storage_bucket"], existing["storage_path"]) != (bucket, path):
                     raise ValueError("Version already enqueued for another object")
-                return existing["job_id"]
-            job_id = str(uuid.uuid4())
-            self.keys[key] = job_id
-            self.jobs[job_id] = {
-                "job_id": job_id, "resource_id": resource_id,
+                return existing["id"]
+            transcript_id = str(uuid.uuid4())
+            self.keys[key] = transcript_id
+            self.transcripts[transcript_id] = {
+                "id": transcript_id, "resource_id": resource_id,
                 "source_file_id": file_id, "source_version": version,
                 "storage_bucket": bucket, "storage_path": path,
                 "status": "pending", "claim_token": None,
+                "transcript_text": None, "language": None, "segments": [],
                 "lease_until": None, "attempt_count": 0,
                 "next_attempt_at": self.now,
             }
             self.history.append("pending")
-            return job_id
+            return transcript_id
 
     def advance(self, seconds: float) -> None:
         with self.lock:
@@ -50,14 +49,14 @@ class FakeGateway:
 
     def claim(self, lease_seconds: int) -> dict[str, Any] | None:
         with self.lock:
-            for job in self.jobs.values():
+            for job in self.transcripts.values():
                 expired = job["status"] == "processing" and job["lease_until"] <= self.now
-                if expired and job["attempt_count"] >= self.max_attempts:
+                if expired and job["attempt_count"] >= 3:
                     job["status"] = "failed"
                     self.history.append("failed")
                     continue
                 due = job["status"] == "pending" and job["next_attempt_at"] <= self.now
-                if job["attempt_count"] < self.max_attempts and (due or expired):
+                if job["attempt_count"] < 3 and (due or expired):
                     job["status"] = "processing"
                     job["attempt_count"] += 1
                     job["claim_token"] = str(uuid.uuid4())
@@ -66,9 +65,9 @@ class FakeGateway:
                     return dict(job)
             return None
 
-    def renew(self, job_id: str, token: str, lease_seconds: int) -> bool:
+    def renew(self, transcript_id: str, token: str, lease_seconds: int) -> bool:
         with self.lock:
-            job = self.jobs[job_id]
+            job = self.transcripts[transcript_id]
             if not self._owns(job, token):
                 return False
             job["lease_until"] = self.now + lease_seconds
@@ -85,33 +84,28 @@ class FakeGateway:
             raise OSError("simulated download failure")
         destination.write_bytes(self.video_bytes)
 
-    def complete(self, job_id: str, token: str, transcript: str,
+    def complete(self, transcript_id: str, token: str, transcript: str,
                  language: str | None, segments: list[dict[str, Any]]) -> bool:
         with self.lock:
-            job = self.jobs[job_id]
+            job = self.transcripts[transcript_id]
             if job["status"] == "ready" and job["claim_token"] == token:
-                return job_id in self.transcripts
+                return transcript_id in self.transcripts
             if not self._owns(job, token):
                 return False
-            self.transcripts[job_id] = {
-                "resource_id": job["resource_id"],
-                "source_file_id": job["source_file_id"],
-                "source_version": job["source_version"],
-                "transcript_text": transcript,
-                "language": language,
-                "segments": segments,
-            }
+            if not transcript.strip():
+                raise ValueError("Invalid transcript")
+            job.update(transcript_text=transcript, language=language, segments=segments)
             job["status"] = "ready"
             job["lease_until"] = None
             self.history.append("ready")
             return True
 
-    def fail(self, job_id: str, token: str, error_code: str) -> bool:
+    def fail(self, transcript_id: str, token: str, error_code: str) -> bool:
         with self.lock:
-            job = self.jobs[job_id]
+            job = self.transcripts[transcript_id]
             if not self._owns(job, token):
                 return False
-            job["status"] = "failed" if job["attempt_count"] >= self.max_attempts else "pending"
+            job["status"] = "failed" if job["attempt_count"] >= 3 else "pending"
             job["error_code"] = error_code
             job["next_attempt_at"] = self.now + min(30, job["attempt_count"] * 2) * 60
             job["claim_token"] = None

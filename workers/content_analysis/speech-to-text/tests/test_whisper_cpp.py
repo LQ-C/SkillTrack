@@ -55,7 +55,7 @@ class WhisperCppTests(unittest.TestCase):
             for file in (cli, ffmpeg, model):
                 file.touch()
             gateway = FakeGateway()
-            job_id = gateway.enqueue("SAMPLE-RESOURCE-001", "video-1", "v1")
+            transcript_id = gateway.enqueue("SAMPLE-RESOURCE-001", "video-1", "v1")
 
             def fake_run(command, **kwargs):
                 self.assertIs(kwargs["stdout"], subprocess.DEVNULL)
@@ -77,7 +77,7 @@ class WhisperCppTests(unittest.TestCase):
             transcriber = WhisperCppTranscriber(str(cli), str(model), str(ffmpeg))
             with patch("skilltrack_speech.transcriber.subprocess.run", side_effect=fake_run):
                 self.assertEqual(process_one(gateway, transcriber), "ready")
-            saved = gateway.transcripts[job_id]
+            saved = gateway.transcripts[transcript_id]
             self.assertEqual(saved["resource_id"], "SAMPLE-RESOURCE-001")
             self.assertEqual(saved["language"], "ms")
             self.assertEqual(len(saved["segments"]), 2)
@@ -96,7 +96,10 @@ class WhisperCppTests(unittest.TestCase):
             with patch("skilltrack_speech.transcriber.subprocess.run",
                        return_value=subprocess.CompletedProcess([], 1)):
                 self.assertEqual(process_one(gateway, transcriber), "transcription_failed")
-            self.assertEqual(gateway.transcripts, {})
+            self.assertEqual(len(gateway.transcripts), 1)
+            row = next(iter(gateway.transcripts.values()))
+            self.assertIsNone(row["transcript_text"])
+            self.assertEqual(row["status"], "pending")
             self.assertFalse(gateway.downloaded_path.exists())
 
     def test_cpu_mode_adds_no_gpu_flag(self):

@@ -1,4 +1,4 @@
-"""Poll Supabase for one video transcription at a time."""
+"""Claim and complete one video_transcripts work row at a time."""
 
 from __future__ import annotations
 
@@ -7,6 +7,7 @@ from pathlib import Path
 import tempfile
 import threading
 import time
+from uuid import UUID
 from typing import Any, Protocol
 
 from .config import Config
@@ -16,11 +17,11 @@ from .transcriber import WhisperCppTranscriber
 
 class Gateway(Protocol):
     def claim(self, lease_seconds: int) -> dict[str, Any] | None: ...
-    def renew(self, job_id: str, token: str, lease_seconds: int) -> bool: ...
+    def renew(self, transcript_id: str, token: str, lease_seconds: int) -> bool: ...
     def download(self, bucket: str, storage_path: str, destination: Path) -> None: ...
-    def complete(self, job_id: str, token: str, transcript: str,
+    def complete(self, transcript_id: str, token: str, transcript: str,
                  language: str | None, segments: list[dict[str, Any]]) -> bool: ...
-    def fail(self, job_id: str, token: str, error_code: str) -> bool: ...
+    def fail(self, transcript_id: str, token: str, error_code: str) -> bool: ...
 
 
 class Transcriber(Protocol):
@@ -40,7 +41,7 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
     payload = gateway.claim(lease_seconds)
     if payload is None:
         return None
-    job_id = _required(payload, "job_id")
+    transcript_id = _required(payload, "id")
     token = _required(payload, "claim_token")
     bucket = _required(payload, "storage_bucket")
     storage_path = _required(payload, "storage_path")
@@ -54,7 +55,7 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
     def keep_lease() -> None:
         while not stop.wait(renew_seconds):
             try:
-                if not gateway.renew(job_id, token, lease_seconds):
+                if not gateway.renew(transcript_id, token, lease_seconds):
                     lost_claim.set()
                     return
             except Exception:
@@ -78,21 +79,21 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
             if lost_claim.is_set():
                 return "lease_lost"
             phase = "save_failed"
-            if not gateway.complete(job_id, token, text, language, segments):
+            if not gateway.complete(transcript_id, token, text, language, segments):
                 return "lease_lost"
             return "ready"
     except Exception:
         # Do not persist or print raw exception text: it may contain a signed URL or path.
         if lost_claim.is_set():
             return "lease_lost"
-        gateway.fail(job_id, token, phase)
+        gateway.fail(transcript_id, token, phase)
         return phase
     finally:
         stop.set()
         heartbeat.join(timeout=5)
 
 
-def run_forever(config: Config) -> None:
+def run_forever(config: Config, draft_resource_id: str | None = None) -> None:
     gateway = SupabaseGateway(config)
     transcriber = WhisperCppTranscriber(config.whisper_cpp_exe, config.model_file,
                                        config.ffmpeg_exe, config.transcribe_timeout_seconds,
@@ -100,6 +101,7 @@ def run_forever(config: Config) -> None:
     print("Worker running with local whisper.cpp; Ctrl+C to stop")
     while True:
         try:
+            gateway.discover(draft_resource_id)
             outcome = process_one(
                 gateway, transcriber,
                 lease_seconds=config.lease_seconds,
@@ -107,6 +109,8 @@ def run_forever(config: Config) -> None:
             )
             if outcome is not None:
                 print(f"Transcription job outcome: {outcome}")
+            if outcome == "ready":
+                continue
         except KeyboardInterrupt:
             raise
         except Exception:
@@ -118,7 +122,10 @@ def run_forever(config: Config) -> None:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="Check for one job then exit")
+    parser.add_argument("--draft-resource-id", type=UUID,
+                        help="Discover only this non-hidden draft video UUID (test option)")
     args = parser.parse_args()
+    draft_resource_id = str(args.draft_resource_id) if args.draft_resource_id else None
     try:
         from dotenv import load_dotenv
     except ImportError as exc:
@@ -127,8 +134,10 @@ def main() -> int:
     config = Config.from_env()
     try:
         if args.once:
+            gateway = SupabaseGateway(config)
+            gateway.discover(draft_resource_id)
             outcome = process_one(
-                SupabaseGateway(config),
+                gateway,
                 WhisperCppTranscriber(config.whisper_cpp_exe, config.model_file,
                                       config.ffmpeg_exe, config.transcribe_timeout_seconds,
                                       config.whisper_cpp_language, config.whisper_cpp_use_gpu),
@@ -136,7 +145,7 @@ def main() -> int:
             )
             print(outcome or "no pending jobs")
         else:
-            run_forever(config)
+            run_forever(config, draft_resource_id)
     except KeyboardInterrupt:
         print("Worker stopped")
     return 0

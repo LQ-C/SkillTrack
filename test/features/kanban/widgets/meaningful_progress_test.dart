@@ -71,19 +71,6 @@ Future<void> _details(WidgetTester tester, KanbanViewModel model) async {
     ),
   );
   await tester.pumpAndSettle();
-  await tester.scrollUntilVisible(
-    find.byKey(const Key('add-progress-update')),
-    250,
-    scrollable: find
-        .descendant(
-          of: find.byType(TaskDetailsSheet),
-          matching: find.byType(Scrollable),
-        )
-        .first,
-  );
-  await tester.pumpAndSettle();
-  await tester.tap(find.byKey(const Key('add-progress-update')));
-  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -214,52 +201,21 @@ void main() {
     },
   );
   testWidgets(
-    'dialog validates, retains failed input, blocks double submit and refreshes activity',
+    'Task Details shows a saved progress note without an add action',
     (tester) async {
       final repo = _ProgressRepository();
+      await repo.addActivity(
+        't',
+        'updated',
+        newValues: {
+          'change': 'progress_update',
+          'progress_text': 'Verified the API',
+        },
+      );
       final model = await _model(repo);
       addTearDown(model.dispose);
       await _details(tester, model);
-      final save = find.byKey(const Key('save-progress-update'));
-      await tester.tap(save);
-      await tester.pumpAndSettle();
-      expect(
-        find.text(AppErrorMessages.progressUpdateRequired),
-        findsOneWidget,
-      );
-      expect(repo.attempts, 0);
-      final input = find.byKey(const Key('progress-update-text'));
-      await tester.enterText(input, 'x' * 1001);
-      await tester.tap(save);
-      await tester.pumpAndSettle();
-      expect(find.text(AppErrorMessages.progressUpdateTooLong), findsOneWidget);
-      expect(repo.attempts, 0);
-      await tester.enterText(input, '  Verified the API  ');
-      repo.pending = Completer<void>();
-      repo.failProgress = true;
-      await tester.tap(save);
-      await tester.tap(save);
-      await tester.pump();
-      expect(repo.attempts, 1);
-      expect(tester.widget<FilledButton>(save).onPressed, isNull);
-      expect(tester.widget<TextFormField>(input).enabled, isFalse);
-      repo.pending!.complete();
-      await tester.pumpAndSettle();
-      expect(
-        find.text(AppErrorMessages.saveProgressUpdateFailed),
-        findsOneWidget,
-      );
-      expect(
-        tester.widget<TextFormField>(input).controller!.text,
-        '  Verified the API  ',
-      );
-      expect(find.byType(TaskDetailsSheet), findsOneWidget);
-      repo.pending = null;
-      repo.failProgress = false;
-      await tester.tap(save);
-      await tester.pumpAndSettle();
-      expect(find.byType(AlertDialog), findsNothing);
-      expect(find.byType(TaskDetailsSheet), findsOneWidget);
+
       await tester.scrollUntilVisible(
         find.text('Verified the API'),
         150,
@@ -270,24 +226,11 @@ void main() {
             )
             .first,
       );
+      expect(find.text('Progress update'), findsOneWidget);
       expect(find.text('Verified the API'), findsOneWidget);
-      expect(repo.activityEvents, hasLength(1));
-      expect(repo.progressRequestIds.toSet(), hasLength(1));
+      expect(find.text('Add progress update'), findsNothing);
+      expect(find.byKey(const Key('add-progress-update')), findsNothing);
+      expect(repo.attempts, 0);
     },
   );
-  testWidgets('cancelling the progress dialog saves nothing', (tester) async {
-    final repo = _ProgressRepository();
-    final model = await _model(repo);
-    addTearDown(model.dispose);
-    await _details(tester, model);
-    await tester.enterText(
-      find.byKey(const Key('progress-update-text')),
-      'Draft progress',
-    );
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(find.byType(AlertDialog), findsNothing);
-    expect(repo.attempts, 0);
-    expect(model.allTasks.single.isStalled, isTrue);
-  });
 }

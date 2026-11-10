@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
-from urllib.parse import quote, urlparse
+from urllib.parse import quote, unquote, urlparse
 from urllib.request import Request, urlopen
 
 from .config import Config
@@ -22,12 +22,10 @@ class SupabaseGateway:
         if parsed.scheme != "https" or not parsed.hostname or parsed.username or parsed.password:
             raise ValueError("SUPABASE_URL must be an HTTPS project URL")
         self.config = config
+        self.discovery_cursor: str | None = None
 
     def _headers(self) -> dict[str, str]:
-        return {
-            "apikey": self.config.service_role_key,
-            "Authorization": f"Bearer {self.config.service_role_key}",
-        }
+        return {"apikey": self.config.service_role_key}
 
     def _rpc(self, name: str, payload: dict[str, Any]) -> Any:
         request = Request(
@@ -44,36 +42,83 @@ class SupabaseGateway:
             status = getattr(exc, "code", "network")
             raise GatewayError(f"Backend RPC {name} failed ({status})") from None
 
+    def discover(self, draft_resource_id: str | None = None) -> None:
+        rows = self._rpc("video_transcription_candidates", {
+            "p_limit": self.config.discovery_batch_size,
+            "p_after_id": self.discovery_cursor if draft_resource_id is None else None,
+            "p_draft_resource_id": draft_resource_id,
+        })
+        if not isinstance(rows, list):
+            raise GatewayError("Backend returned invalid discovery candidates")
+        for row in rows:
+            path = self._video_path(row.get("external_url"))
+            if path is not None:
+                self._rpc("enqueue_discovered_video", {
+                    "p_resource_id": row["id"],
+                    "p_external_url": row["external_url"],
+                    "p_storage_bucket": self.config.video_bucket,
+                    "p_storage_path": path,
+                    "p_allow_draft": draft_resource_id is not None,
+                })
+        # Advance only after the page succeeds. Replaying a page is idempotent.
+        if draft_resource_id is None:
+            self.discovery_cursor = (
+                rows[-1]["id"] if len(rows) == self.config.discovery_batch_size else None
+            )
+
+    def _video_path(self, value: Any) -> str | None:
+        if not isinstance(value, str):
+            return None
+        try:
+            url = urlparse(value)
+            project = urlparse(self.config.supabase_url)
+            if (url.scheme != "https" or url.netloc != project.netloc
+                    or url.username or url.password or url.query or url.fragment
+                    or "?" in value or "#" in value):
+                return None
+            for mode in ("public", "authenticated"):
+                prefix = f"/storage/v1/object/{mode}/{quote(self.config.video_bucket, safe='')}/"
+                if url.path.startswith(prefix):
+                    path = unquote(url.path[len(prefix):], errors="strict")
+                    if (path and len(path) <= 1024 and "\\" not in path
+                            and all(part not in ("", ".", "..") for part in path.split("/"))
+                            and not any(ord(char) < 32 for char in path)):
+                        return path
+        except (ValueError, UnicodeError):
+            pass
+        return None
+
+    # Atomic RPCs claim and update video_transcripts by its primary key.
     def claim(self, lease_seconds: int) -> dict[str, Any] | None:
-        result = self._rpc("claim_transcription_job", {"p_lease_seconds": lease_seconds})
+        result = self._rpc("claim_video_transcript", {"p_lease_seconds": lease_seconds})
         if result is None:
             return None
         if not isinstance(result, dict):
             raise GatewayError("Backend returned an invalid job")
         return result
 
-    def renew(self, job_id: str, token: str, lease_seconds: int) -> bool:
-        return self._rpc("renew_transcription_claim", {
-            "p_job_id": job_id,
+    def renew(self, transcript_id: str, token: str, lease_seconds: int) -> bool:
+        return self._rpc("renew_video_transcript", {
+            "p_transcript_id": transcript_id,
             "p_claim_token": token,
             "p_lease_seconds": lease_seconds,
         }) is True
 
     def complete(
-        self, job_id: str, token: str, transcript: str,
+        self, transcript_id: str, token: str, transcript: str,
         language: str | None, segments: list[dict[str, Any]],
     ) -> bool:
-        return self._rpc("complete_transcription_job", {
-            "p_job_id": job_id,
+        return self._rpc("complete_video_transcript", {
+            "p_transcript_id": transcript_id,
             "p_claim_token": token,
             "p_transcript_text": transcript,
             "p_language": language,
             "p_segments": segments,
         }) is True
 
-    def fail(self, job_id: str, token: str, error_code: str) -> bool:
-        return self._rpc("fail_transcription_job", {
-            "p_job_id": job_id,
+    def fail(self, transcript_id: str, token: str, error_code: str) -> bool:
+        return self._rpc("fail_video_transcript", {
+            "p_transcript_id": transcript_id,
             "p_claim_token": token,
             "p_error_code": error_code,
         }) is True

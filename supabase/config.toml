@@ -3,3 +3,6 @@ verify_jwt = false
 
 [functions.project-push-notification-dispatcher]
 verify_jwt = false
+
+[functions.resource-analysis-queue]
+verify_jwt = false

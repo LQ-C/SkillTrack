@@ -4,21 +4,23 @@ This Windows worker downloads an authorized marketplace video from Supabase Stor
 
 ## Integration status
 
-The available SkillTrack code has no marketplace resource table, resource-file table, uploader, or successful upload callback. The SQL in `../../../supabase/migrations/001_video_transcription.sql` is **local and unapplied**. It uses opaque text resource/file IDs until the real schema is available; there is no invented marketplace foreign key.
+The project owner confirmed the existing `public.learning_resources` contract: UUID `id`, text `kind`, `status` and `external_url`, and non-null boolean `moderation_hidden`. Its base DDL and a resource-file table are absent from this checkout. Discovery uses the current Storage URL setup and does not create or alter marketplace tables.
 
-After **both** the Storage upload and resource/file save succeed, the trusted backend must verify ownership and call `enqueue_video_transcription` with the original resource ID, unique video file ID, immutable source version, bucket, and object path. Do not call this service-role RPC from Flutter. Retries with the same identifiers are safe. The teammate must check the real ID types, resource/file relationship, bucket/path, and upload callback, then add the real ownership check or foreign key before applying the migration.
+Migration order is `001_video_transcription.sql`, `002_video_transcription_discovery.sql`, `003_consolidate_video_transcripts.sql`, then `004_simplify_video_transcripts.sql` in `../../../../supabase/migrations/`. Apply only the migrations not already installed. Stop all worker processes/discovery and take a backup before upgrading. Migration 003 copies every queue row and verifies the copy before removing the jobs table. Migration 004 removes job_id, queued_at, completed_at and max_attempts, replaces the legacy worker RPCs and returns video_transcripts.id as the sole work identifier. Start the updated worker only after 004 commits. Old worker processes must not run against the simplified schema.
 
-Example RPC arguments (**sample IDs only**):
+The final table holds file identity, Storage location, nullable transcript_text, language, segments, status, attempt_count, claim_token, lease_expires_at, next_attempt_at, error_code, created_at and updated_at. Existing transcript UUIDs, content and created_at stay intact. Unfinished work remains as pending/processing/failed rows with NULL text. Active tokens, leases and retry counts survive; after a worker restart, an abandoned processing row is eligible again when its lease expires. Removed auxiliary timestamps and custom per-row retry limits are intentionally discarded. The server policy is now three attempts, including the first attempt. Existing failed rows stay failed, pending rows already at the limit become failed, and processing rows at the limit can finish before their lease expires.
 
-```json
-{
-  "p_resource_id": "SAMPLE-RESOURCE-001",
-  "p_source_file_id": "SAMPLE-VIDEO-FILE-001",
-  "p_source_version": "sample-version-1",
-  "p_storage_bucket": "marketplace-videos",
-  "p_storage_path": "owner/resource/upload-version-1.mp4"
-}
-```
+The worker uses claim_video_transcript, renew_video_transcript, complete_video_transcript and fail_video_transcript. All state changes use the transcript primary key and atomic backend RPCs. Claiming uses FOR UPDATE SKIP LOCKED. Completion stores text and ready status in one update; ready rows require nonempty text. Enqueue and discovery return that same primary key and preserve source-version deduplication.
+
+Both migrations use transactions and RESTRICT drops. Migration 003 checks that every work row was copied. Migration 004 checks remaining stored routine bodies for obsolete references and stops on dependent routines/views/foreign keys rather than silently removing callers. External scripts and dynamic SQL assembled outside this checkout require a deployment review. Historical migrations and their regression tests intentionally retain the previous schema references.
+
+The server role needs existing SELECT and UPDATE privileges on learning_resources and storage.objects for SELECT FOR SHARE. The migrations retain RLS and backend-only RPC/table access. They do not grant clients permission to claim work or write transcript text. The local resource fixture follows the owner-confirmed UUID schema; no resource foreign key or type conversion is added to legacy opaque transcription IDs.
+
+Normal discovery scans `kind = 'Video' AND status = 'published' AND moderation_hidden = false` in UUID order, one bounded page per cycle. Set `VIDEO_BUCKET` to the actual existing video bucket and optionally `DISCOVERY_BATCH_SIZE` (1�100, default 25). The worker accepts only stable HTTPS `/storage/v1/object/public/<bucket>/<path>` or `/storage/v1/object/authenticated/<bucket>/<path>` URLs on `SUPABASE_URL`. External, YouTube, signed, query-bearing and traversal URLs are skipped. Downloads use the authenticated Storage endpoint, never the resource URL itself.
+
+The backend rechecks resource eligibility and object existence. The Storage object UUID becomes source_file_id, with Storage version, etag or updated_at as source_version. Replacing an object creates a new identity/version and permits another job. Matching transcripts and all existing jobs are skipped, including terminal failed jobs. Discovery never resets attempts. The existing atomic enqueue handles concurrent duplicate discovery.
+
+The production uploader can still call `enqueue_video_transcription` after upload and resource creation commit. It must use the same Storage identity/version convention to deduplicate with automatic discovery. A future real file table needs an explicit adapter once its schema is available.
 
 ## Standalone tools on Windows
 
@@ -118,13 +120,47 @@ if (-not (Test-Path -LiteralPath '.env')) {
 }
 ```
 
-Edit `.env` with `SUPABASE_URL` and a **backend-only** `SUPABASE_SERVICE_ROLE_KEY`. Keep `.env` private. The example paths work with the local tools junction or a standalone installation in the same folder. After reviewing and applying the SQL to a **test** Supabase project and adding the trusted uploader enqueue call:
+Edit `.env` with `SUPABASE_URL` and a **backend-only** `SUPABASE_SERVICE_ROLE_KEY`. Keep `.env` private. The example paths work with the local tools junction or a standalone installation in the same folder. Set `VIDEO_BUCKET` to the actual bucket. After reviewing and applying the four SQL files to your test project:
 
 ```powershell
-& '..\.venv\Scripts\python.exe' -m skilltrack_speech.worker --once
+# Discover one explicitly selected draft video, then process at most one queued job.
+& '..\.venv\Scripts\python.exe' -m skilltrack_speech.worker --once --draft-resource-id 'YOUR-DRAFT-RESOURCE-UUID'
+# Continuously discover published videos and process the queue.
 & '..\.venv\Scripts\python.exe' -m skilltrack_speech.worker
 ```
 
 The worker polls outward; the PC has no public endpoint. It claims one job with a token and renewable lease, handles bounded retries, and saves transcript and ready status in one database transaction. The PC must stay on for jobs to run. The successful path is `pending → processing → ready`.
 
 The offline tests cover resource ID preservation, duplicate enqueue, stale claims, failures, temporary cleanup, JSON parsing, and command construction. A real PostgreSQL concurrent-claim test and live upload-to-transcript test still require a test database and the marketplace uploader. The PDF extractor, Flutter app, and recommendation logic are unchanged.
+
+`--draft-resource-id` targets discovery only. Claiming still uses the existing global queue, so an older eligible job may be processed first. Other drafts are never scanned. `--once` discovers one page and processes at most one job. Continuous mode immediately checks again after `ready`, and waits POLL_SECONDS when idle or after failure. Pagination restarts after the final page or a worker restart; deduplication makes replay safe.
+
+Offline verification uses `python -m unittest discover -s tests -v` here and `node --test supabase/tests/video_transcription_discovery.test.mjs supabase/tests/video_transcript_queue.test.mjs` from the repository root with PGLITE_MODULE pointing to an installed PGlite module if needed. SQL tests use a local fixture matching the owner-confirmed resource fields, not an exported production schema. Live verification still needs the actual bucket, resource rows, server-role grants, Storage version metadata and a real upload/replacement run. Queue-time object existence/version is checked; upload paths should be immutable during processing to avoid replacing bytes underneath an active job.
+
+## Upload and analyser handoff
+
+No uploader, Cloudinary integration or resource-file table is present in this checkout. The supported handoff is the verified Storage fallback: both a qualifying resource row and a matching committed storage.objects row must exist before enqueue. A resource insert alone never creates pending transcription work. If the real uploader uses Cloudinary, its asset identity/version, successful-upload callback and authenticated download contract still need integration; this worker only downloads from the configured Supabase Storage project/bucket.
+
+The tag analyser's production ResourceStore remains unavailable because resource ownership, catalog and saved-analysis contracts are missing. There is currently no production transcript reader to rewire. Its future authorized adapter must use read_ready_video_transcript(resource UUID, saved external_url, verified bucket, decoded path). Validate the saved URL against the configured project/bucket and derive the path from that same URL. The RPC rechecks resource eligibility and compares the Storage object's current ID/version to a ready transcript. A replacement version returns no old text while new work is pending. Recheck the same version when saving analysis results. Historical ready rows remain stored for their original versions.
+
+## Consolidation verification
+
+Run the Python tests and demo above. From the repository root, run:
+
+```powershell
+node --test supabase/tests/video_transcription_discovery.test.mjs supabase/tests/video_transcript_queue.test.mjs
+```
+
+This uses locally installed @electric-sql/pglite (or PGLITE_MODULE pointing to its dist/index.js). It covers final-schema discovery, migration of existing completed/unfinished work, transcript-ID continuity, removed-column dependencies, retry limits, expired leases, stale completion, ready-text constraints, current-version reads and backend-only access. PGlite serializes requests on one connection; simultaneous calls test claim exclusivity but are not a multi-session PostgreSQL lock/load test. Verify that separately on a local/test PostgreSQL instance before deployment.
+
+After migration, read-only SQL checks:
+
+```sql
+select to_regclass('public.video_transcription_jobs'); -- expected NULL
+select status, count(*) from public.video_transcripts group by status;
+select count(*) as invalid_ready_rows from public.video_transcripts
+where status = 'ready' and (transcript_text is null or btrim(transcript_text) = '');
+select relrowsecurity from pg_class where oid = 'public.video_transcripts'::regclass;
+```
+
+Verify actual deployed definitions/dependencies, service-role permissions, upload completion, stable Storage version metadata, replacement during processing and analyser ownership before enabling this on a live project. Prepared migrations have not been executed against live Supabase.
