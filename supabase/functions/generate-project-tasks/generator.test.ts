@@ -884,3 +884,33 @@ test("HTTP 400 diagnostics classify actionable causes without logging provider c
     assert.equal(details.upstreamStatus, 400);
   }
 });
+
+test("replacement mode includes current context and permits old task titles", () => {
+  assert.equal(parseGenerationMode("replace"), "replace");
+  const existing = existingTaskContext([{
+    title: "Build",
+    status: "completed",
+    sortOrder: 0,
+  }]);
+  const prompt = buildPrompt(
+    "replace",
+    "Project",
+    "Description",
+    "2027-02-01",
+    existing,
+    null,
+    "Use smaller steps",
+  );
+  assert.ok(prompt.includes("Use smaller steps"));
+  assert.ok(prompt.includes("completed"));
+  const result = sanitizeGenerated(
+    {
+      milestones: [
+        milestone("Build", [task("Build"), task("Test"), task("Ship")]),
+      ],
+    },
+    "replace",
+    existing,
+  );
+  assert.equal(result.milestones[0].tasks[0].title, "Build");
+});

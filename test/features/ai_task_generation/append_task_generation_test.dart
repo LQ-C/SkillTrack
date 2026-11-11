@@ -1,3 +1,4 @@
+import 'package:skilltrack/features/kanban/repositories/kanban_repository.dart';
 import 'package:skilltrack/features/ai_task_generation/models/generated_milestone_draft.dart';
 import 'package:skilltrack/features/projects/models/project_milestone.dart';
 import 'dart:async';
@@ -303,6 +304,55 @@ void main() {
     deadline: today.add(const Duration(days: 2)),
     position: position,
     checklist: ['Plan', 'Implement'],
+  );
+
+  test(
+    'replacement keeps matching old titles, cancels safely and freezes retry payload',
+    () async {
+      final (projects, board) = await project();
+      final tasks = ReplacementTasks();
+      final generator = FakeTaskGenerationRepository()
+        ..result = [
+          draft('Existing', 0),
+          draft('Second', 1),
+          draft('Third', 2),
+        ];
+      final model = AppendTaskGenerationViewModel(
+        projectId: projects.stored.single.project.id,
+        boardId: board,
+        projectRepository: projects,
+        taskRepository: tasks,
+        generationRepository: generator,
+      );
+      addTearDown(model.dispose);
+      expect(await model.generateMoreTasks(replacementFeedback: '  '), isNull);
+      expect(generator.calls, 0);
+      generator.fail = true;
+      expect(
+        await model.generateMoreTasks(replacementFeedback: 'Use smaller steps'),
+        isNull,
+      );
+      expect(tasks.writes, isEmpty);
+      generator.fail = false;
+      await model.generateMoreTasks(replacementFeedback: 'Use smaller steps');
+      expect(generator.lastMode, TaskGenerationMode.replace);
+      expect(model.pendingGeneratedTasks.first.title, 'Existing');
+      model.cancelGeneratedTaskPreview();
+      expect(tasks.writes, isEmpty);
+      await model.generateMoreTasks(replacementFeedback: 'Use smaller steps');
+      generator.failRevision = true;
+      final previous = model.pendingGeneratedTasks;
+      expect(await model.reviseGeneratedTasks('More tests'), false);
+      expect(model.pendingGeneratedTasks, previous);
+      tasks.fail = true;
+      expect(await model.confirmGeneratedTasks(), isNull);
+      expect(model.canCustomizeGeneratedTasks, false);
+      tasks.fail = false;
+      expect(await model.confirmGeneratedTasks(), true);
+      expect(tasks.writes.length, 2);
+      expect(tasks.writes[0], tasks.writes[1]);
+      expect(model.pendingGeneratedTasks, isEmpty);
+    },
   );
 
   test(
@@ -776,4 +826,31 @@ void main() {
     );
     expect(parsed.single.deadline, date);
   });
+}
+
+class ReplacementTasks extends FakeKanbanRepository
+    implements TaskListReplacementRepository {
+  bool fail = false;
+  final writes = <String>[];
+  @override
+  Future<Map<String, dynamic>> replacementContext(String boardId) async => {
+    'version': 'snapshot',
+    'count': 2,
+  };
+  @override
+  Future<void> replaceGeneratedTasks(
+    String boardId,
+    List<GeneratedTaskDraft> tasks, {
+    required String requestId,
+    required String expectedVersion,
+  }) async {
+    writes.add(
+      jsonEncode([
+        requestId,
+        expectedVersion,
+        tasks.map((t) => t.toRevisionJson()).toList(),
+      ]),
+    );
+    if (fail) throw StateError('lost response');
+  }
 }

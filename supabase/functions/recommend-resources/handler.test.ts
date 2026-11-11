@@ -60,7 +60,35 @@ function fixture() {
     },
   };
   const handler = (userId: string | null = "owner") =>
-    createRecommendationHandler({ userId, store, getEmbedder: () => embedder });
+    createRecommendationHandler({
+      userId,
+      store,
+      getEmbedder: () => embedder,
+      persistence: {
+        begin: async (_id, _user, mode) =>
+          mode === "automatic" && task && !task.is_stalled
+            ? {
+              cached: true,
+              result: {
+                generated: false,
+                status: "not_stalled",
+                recommendations: [],
+              },
+            }
+            : { cached: false, token: "claim" },
+        complete: async (_id, _user, _token, sources) => ({
+          generated: true,
+          status: sources.length ? "ok" : "empty",
+          recommendations: sources.map((source) => ({
+            resource_id: source.resource_id,
+            title: source.resource_id,
+            summary: "Saved summary",
+            type: "Video",
+          })),
+        }),
+        fail: async () => {},
+      },
+    });
   return {
     store,
     embedder,
@@ -116,6 +144,7 @@ Deno.test("non-stalled and no-access tasks produce empty states without native i
   const denied = fixture();
   denied.setVisible([]);
   assert.deepEqual(await (await denied.handler()(request())).json(), {
+    generated: true,
     status: "empty",
     recommendations: [],
   });
@@ -148,6 +177,7 @@ Deno.test("resource hidden after ranking is removed on the final user-RLS read",
     return Promise.resolve(f.matches);
   };
   assert.deepEqual(await (await f.handler()(request())).json(), {
+    generated: true,
     status: "empty",
     recommendations: [],
   });
@@ -165,7 +195,7 @@ Deno.test("resumed or edited task during inference never returns stale recommend
       return Promise.resolve(vector);
     };
     const response = await f.handler()(request());
-    assert.equal(response.status, resumed ? 200 : 409);
+    assert.equal(response.status, 409);
     assert.deepEqual((await response.json()).recommendations, []);
   }
 });

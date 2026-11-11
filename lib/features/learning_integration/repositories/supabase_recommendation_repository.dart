@@ -16,6 +16,24 @@ class SupabaseRecommendationRepository
       _client.auth.onAuthStateChange.map((event) => event.session?.user.id);
 
   @override
+  Future<SavedTaskRecommendations> loadRecommendations(String taskId) async {
+    final owner = currentUserId;
+    try {
+      if (owner == null) throw StateError('Signed out');
+      final result = await _client.rpc(
+        'task_recommendations',
+        params: {'p_task_id': taskId},
+      );
+      if (currentUserId != owner) throw StateError('Session changed');
+      return SavedTaskRecommendations.fromMap(
+        Map<String, dynamic>.from(result as Map),
+      );
+    } catch (_) {
+      throw const AppException(AppErrorMessages.loadRecommendationsFailed);
+    }
+  }
+
+  @override
   Future<List<ResourceRecommendation>> recommendationsForTask(
     String taskId, {
     RecommendationRequestMode mode = RecommendationRequestMode.automatic,

@@ -10,9 +10,14 @@ import { failure } from "../_shared/recommendations/http.js";
 export default {
   fetch: withSupabase({ auth: "user" }, async (request, context) => {
     try {
+      const store = new SupabaseRecommendationStore(
+        adminClient(),
+        context.supabase,
+      );
       return await createRecommendationHandler({
         userId: context.userClaims?.id ?? null,
-        store: new SupabaseRecommendationStore(adminClient(), context.supabase),
+        store,
+        persistence: store,
         getEmbedder: nativeEmbedder,
         config: rankingConfig(),
       })(request);

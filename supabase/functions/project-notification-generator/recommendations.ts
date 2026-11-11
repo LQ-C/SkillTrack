@@ -3,7 +3,7 @@ import {
   rankingConfig,
   SupabaseRecommendationStore,
 } from "../recommend-resources/store.ts";
-import { recommendForTask } from "../_shared/recommendations/recommend.ts";
+import { recommendAndSave } from "../_shared/recommendations/persistence.ts";
 import type { Embedder } from "../_shared/recommendations/indexer.ts";
 import type { Preferences, TaskCandidate } from "./generator.ts";
 
@@ -28,6 +28,7 @@ export class ScheduledRecommendationStore extends SupabaseRecommendationStore {
 }
 export type StalledAlertBackend = {
   state(task: TaskCandidate, episode: string): Promise<string>;
+  persistIndependently?: boolean;
   match(
     task: TaskCandidate,
     timeoutMs: number,
@@ -52,6 +53,21 @@ export function createStalledAlertDelivery(
     episode: string,
     preferences: Preferences,
   ): Promise<boolean> => {
+    // Save independently of alert preferences or an already delivered fallback.
+    // Cached generations do not embed. Failed generations retry on a later run.
+    let prepared: Awaited<ReturnType<StalledAlertBackend["match"]>> = null;
+    if (backend.persistIndependently && clock() < deadline) {
+      try {
+        prepared = await backend.match(
+          task,
+          Math.min(5000, deadline - clock()),
+        );
+      } catch {
+        console.warn(
+          "Saved recommendations unavailable; preserving existing set.",
+        );
+      }
+    }
     try {
       if (await backend.state(task, episode) !== "eligible") return false;
     } catch (error) {
@@ -59,11 +75,14 @@ export function createStalledAlertDelivery(
       // The atomic commit can still safely deliver fallback after a failed read.
       return await backend.commit(task, episode, null);
     }
-    let match = null;
+    let match = preferences.recommendation_enabled ? prepared : null;
     // One bounded attempt, never a retry loop that can delay ordinary alerts.
     // If fallback is delivered, this period is finished. If both inserts fail,
     // the next scheduled run retries with the same persisted episode identity.
-    if (preferences.recommendation_enabled && clock() < deadline) {
+    if (
+      !backend.persistIndependently && preferences.recommendation_enabled &&
+      clock() < deadline
+    ) {
       try {
         let timer: ReturnType<typeof setTimeout> | undefined;
         try {
@@ -107,6 +126,7 @@ export function scheduledStalledAlerts(
     return data;
   };
   return createStalledAlertDelivery({
+    persistIndependently: true,
     state: (task, episode) =>
       rpc("stalled_period_alert_state", {
         p_task_id: task.task_id,
@@ -114,19 +134,24 @@ export function scheduledStalledAlerts(
         p_stalled_at: episode,
       }),
     async match(task, timeoutMs) {
-      const result = await recommendForTask({
-        userId: task.user_id,
-        store: new ScheduledRecommendationStore(admin, task.user_id),
-        getEmbedder,
-        config: rankingConfig(),
-        embeddingTimeoutMs: timeoutMs,
-      }, task.task_id);
+      const store = new ScheduledRecommendationStore(admin, task.user_id);
+      const result = await recommendAndSave(
+        {
+          userId: task.user_id,
+          store,
+          getEmbedder,
+          config: rankingConfig(),
+          embeddingTimeoutMs: timeoutMs,
+        },
+        store,
+        task.task_id,
+      );
       if (!("sources" in result) || !result.sources?.length) return null;
       const first = result.sources[0];
       return {
         resourceId: first.resource_id,
         resourceVersion: first.source_version,
-        taskVersion: result.task_version,
+        taskVersion: result.task_version!,
       };
     },
     commit: (task, episode, match) =>

@@ -9,6 +9,7 @@ import '../../kanban/utils/kanban_colors.dart';
 import '../models/generated_task_draft.dart';
 import '../models/task_generation_request.dart';
 import '../view_models/generated_task_preview_state.dart';
+import '../view_models/append_task_generation_view_model.dart';
 import '../widgets/generated_task_edit_sheet.dart';
 
 class GeneratedTaskPreviewScreen extends StatefulWidget {
@@ -41,6 +42,33 @@ class _GeneratedTaskPreviewScreenState
 
   Future<void> _confirm(BuildContext context) async {
     if (_busy) return;
+    if (viewModel.generationMode == TaskGenerationMode.replace) {
+      setState(() => _isShowingOverlay = true);
+      final count =
+          (viewModel as AppendTaskGenerationViewModel).replacementCount;
+      final confirm = await showDialog<bool>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: const Text('Replace active task list?'),
+          content: Text(
+            'Archive all $count active tasks, including manual and completed tasks, and save this replacement? History, attachments, bookmarks and accumulated time are retained. Running timers stop. Already archived tasks and existing milestones are retained.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, false),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => AppRouter.back(dialogContext, true),
+              child: const Text('Replace task list'),
+            ),
+          ],
+        ),
+      );
+      if (!mounted) return;
+      setState(() => _isShowingOverlay = false);
+      if (confirm != true) return;
+    }
     final result = await viewModel.confirmGeneratedTasks();
     if (context.mounted && result != null) {
       setState(() => _isLeaving = true);
@@ -136,6 +164,8 @@ class _GeneratedTaskPreviewScreenState
       final canCustomize =
           !busy && !_isShowingOverlay && viewModel.canCustomizeGeneratedTasks;
       final append = viewModel.generationMode == TaskGenerationMode.append;
+      final replacement =
+          viewModel.generationMode == TaskGenerationMode.replace;
       final theme = Theme.of(context);
       return PopScope<Object?>(
         canPop: !busy,
@@ -145,7 +175,11 @@ class _GeneratedTaskPreviewScreenState
         child: Scaffold(
           appBar: AppBar(
             title: Text(
-              append ? 'Review Additional Tasks' : 'Review Generated Tasks',
+              viewModel.generationMode == TaskGenerationMode.replace
+                  ? 'Review Replacement Tasks'
+                  : append
+                  ? 'Review Additional Tasks'
+                  : 'Review Generated Tasks',
             ),
             leading: IconButton(
               tooltip: 'Back',
@@ -172,7 +206,9 @@ class _GeneratedTaskPreviewScreenState
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              append
+                              replacement
+                                  ? 'Review this replacement. Your saved tasks remain unchanged until you confirm; the current active list will be archived.'
+                                  : append
                                   ? 'These tasks will be added to your existing project. Your current tasks will not be changed.'
                                   : 'Review the generated plan before creating your project.',
                               style: theme.textTheme.bodyMedium?.copyWith(
@@ -336,9 +372,13 @@ class _GeneratedTaskPreviewScreenState
                           saving
                               ? append
                                     ? 'Adding tasks to your project…'
+                                    : replacement
+                                    ? 'Replacing task list…'
                                     : 'Creating project…'
                               : append
                               ? 'Add Tasks'
+                              : replacement
+                              ? 'Confirm Replacement'
                               : 'Confirm & Create',
                         ),
                       );

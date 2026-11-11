@@ -32,6 +32,17 @@ class FakeRecommendations implements RecommendationRepository {
     sessions.add(null);
   }
 
+  SavedTaskRecommendations saved = const SavedTaskRecommendations(
+    generated: false,
+    items: [],
+  );
+  int reads = 0;
+  @override
+  Future<SavedTaskRecommendations> loadRecommendations(String taskId) async {
+    reads++;
+    return saved;
+  }
+
   bool fail = false;
   List<ResourceRecommendation> items = [recommendation];
   Completer<List<ResourceRecommendation>>? pending;
@@ -42,10 +53,15 @@ class FakeRecommendations implements RecommendationRepository {
   }) async {
     calls++;
     modes.add(mode);
-    if (pending != null) return pending!.future;
+    if (pending != null) {
+      final result = await pending!.future;
+      saved = SavedTaskRecommendations(generated: true, items: result);
+      return result;
+    }
     if (fail) {
       throw const AppException(AppErrorMessages.loadRecommendationsFailed);
     }
+    saved = SavedTaskRecommendations(generated: true, items: List.of(items));
     return items;
   }
 }
@@ -81,6 +97,58 @@ fixture({bool stalled = true}) async {
 }
 
 void main() {
+  test(
+    'saved cards and successful empty sets survive reopening without matching',
+    () async {
+      for (final empty in [false, true]) {
+        final f = await fixture(stalled: false);
+        f.repo.items = empty ? [] : [recommendation];
+        await f.model.getRecommendations();
+        final reopened = TaskRecommendationsViewModel(
+          f.repo,
+          taskId: 't',
+          tasks: f.tasks,
+        );
+        await Future<void>.delayed(Duration.zero);
+        expect(reopened.hasRequested, true);
+        expect(reopened.items, f.repo.items);
+        expect(f.repo.calls, 1);
+        reopened.dispose();
+      }
+    },
+  );
+  test(
+    'refresh failure keeps cards; successful empty refresh replaces them',
+    () async {
+      final f = await fixture(stalled: false);
+      await f.model.getRecommendations();
+      f.repo.fail = true;
+      await f.model.getRecommendations();
+      expect(f.model.items, [recommendation]);
+      expect(f.model.hasRequested, true);
+      f.repo.fail = false;
+      f.repo.items = [];
+      await f.model.getRecommendations();
+      expect(f.model.items, isEmpty);
+      expect(f.model.hasRequested, true);
+    },
+  );
+  test('a new stalled episode generates again after resume', () async {
+    final f = await fixture();
+    await Future<void>.delayed(Duration.zero);
+    await f.tasks.resumeTask('t');
+    await Future<void>.delayed(Duration.zero);
+    expect(f.repo.calls, 1);
+    f.tasksRepo.stored = [
+      f.tasksRepo.stored.single.copyWith(
+        isStalled: true,
+        stalledAt: DateTime.utc(2026, 11, 12),
+      ),
+    ];
+    await f.tasks.refresh();
+    await Future<void>.delayed(Duration.zero);
+    expect(f.repo.calls, 2);
+  });
   test('model keeps resource identity and rejects malformed responses', () {
     final item = ResourceRecommendation.fromMap({
       'resource_id': 'id',
@@ -105,20 +173,23 @@ void main() {
     await f.tasks.refresh();
     expect(f.repo.calls, 1);
   });
-  test('resume clears results and ignores pending responses', () async {
-    final f = await fixture();
-    await Future<void>.delayed(Duration.zero);
-    f.repo.pending = Completer();
-    final pending = f.model.retry();
-    await f.tasks.resumeTask('t');
-    expect(f.model.eligible, true);
-    expect(f.model.hasRequested, false);
-    expect(f.model.items, isEmpty);
-    f.repo.pending!.complete([recommendation]);
-    await pending;
-    expect(f.model.items, isEmpty);
-    expect(f.model.isLoading, false);
-  });
+  test(
+    'resume preserves saved results and ignores pending responses',
+    () async {
+      final f = await fixture();
+      await Future<void>.delayed(Duration.zero);
+      f.repo.pending = Completer();
+      final pending = f.model.retry();
+      await f.tasks.resumeTask('t');
+      expect(f.model.eligible, true);
+      expect(f.model.hasRequested, true);
+      expect(f.model.items, [recommendation]);
+      f.repo.pending!.complete([recommendation]);
+      await pending;
+      expect(f.model.items, [recommendation]);
+      expect(f.model.isLoading, false);
+    },
+  );
   test('retries are guarded; failures preserve retry state', () async {
     final f = await fixture();
     await Future<void>.delayed(Duration.zero);
@@ -136,7 +207,7 @@ void main() {
     expect(f.model.errorMessage, isNull);
   });
   testWidgets(
-    'Task Details shows read-only cards, rebuilds do not request again, Resume clears automatic results but keeps manual action',
+    'Task Details shows read-only cards, rebuilds do not request again, Resume preserves saved results and refresh action',
     (tester) async {
       final f = await fixture();
       await tester.pumpWidget(
@@ -175,14 +246,14 @@ void main() {
       await tester.tap(find.text('Resume Task'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Get Recommendations'),
+        find.text('Refresh Recommendations'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
       expect(find.text('Learning resources'), findsOneWidget);
-      expect(find.text('Get Recommendations'), findsOneWidget);
-      expect(find.text(recommendation.title), findsNothing);
+      expect(find.text('Refresh Recommendations'), findsOneWidget);
+      expect(find.text(recommendation.title), findsOneWidget);
     },
   );
   testWidgets(
@@ -245,26 +316,19 @@ void main() {
       expect(f.tasks.allTasks.single.status, KanbanStatus.inProgress);
     },
   );
-  test(
-    'manual duplicate taps and automatic transitions share one request',
-    () async {
-      final f = await fixture(stalled: false);
-      f.repo.pending = Completer();
-      final pending = f.model.getRecommendations();
-      await f.model.getRecommendations();
-      await f.model.retry();
-      f.tasksRepo.stored = [
-        f.tasksRepo.stored.single.copyWith(isStalled: true),
-      ];
-      await f.tasks.refresh();
-      expect(f.repo.calls, 1);
-      f.repo.pending!.complete([recommendation]);
-      await pending;
-      expect(f.model.items, [recommendation]);
-      await f.tasks.refresh();
-      expect(f.repo.calls, 1);
-    },
-  );
+  test('duplicate manual taps share one request', () async {
+    final f = await fixture(stalled: false);
+    f.repo.pending = Completer();
+    final pending = f.model.getRecommendations();
+    await f.model.getRecommendations();
+    await f.model.retry();
+    expect(f.repo.calls, 1);
+    f.repo.pending!.complete([recommendation]);
+    await pending;
+    expect(f.model.items, [recommendation]);
+    await f.tasks.refresh();
+    expect(f.repo.calls, 1);
+  });
   test(
     'manual tap during automatic load does not submit a second request',
     () async {
@@ -310,6 +374,7 @@ void main() {
         await pending;
         expect(f.model.items, isEmpty);
         expect(f.model.eligible, change == 'edit');
+        await Future<void>.delayed(Duration.zero);
         expect(f.model.isLoading, false);
       }
     },
@@ -406,7 +471,7 @@ void main() {
       );
       f.repo.pending = null;
       f.repo.fail = true;
-      await tester.tap(find.text('Get Recommendations'));
+      await tester.tap(find.text('Refresh Recommendations'));
       await tester.pumpAndSettle();
       expect(find.text('Retry'), findsOneWidget);
       f.repo.fail = false;
@@ -415,7 +480,7 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
       expect(find.text(recommendation.title), findsOneWidget);
-      expect(find.text('Get Recommendations'), findsOneWidget);
+      expect(find.text('Refresh Recommendations'), findsOneWidget);
       expect(find.text('Open'), findsNothing);
       expect(
         f.repo.modes.every((mode) => mode == RecommendationRequestMode.manual),

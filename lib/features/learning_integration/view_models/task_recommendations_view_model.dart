@@ -1,7 +1,6 @@
 import 'dart:async';
 import 'package:flutter/foundation.dart';
 import '../../../core/errors/app_exception.dart';
-import '../../kanban/models/kanban_status.dart';
 import '../../kanban/viewmodels/kanban_view_model.dart';
 import '../models/resource_recommendation.dart';
 import '../repositories/recommendation_repository.dart';
@@ -27,122 +26,154 @@ class TaskRecommendationsViewModel extends ChangeNotifier {
   final String taskId;
   final String? _owner;
   StreamSubscription<String?>? _authSubscription;
-  bool _sessionEnded = false;
-  bool _projectActive;
+  bool _sessionEnded = false, _disposed = false, _projectActive;
+  bool _eligible = false,
+      _visible = false,
+      _loading = false,
+      _generated = false,
+      _retryLoad = false;
+  bool get eligible => _eligible;
+  bool get visible => _visible;
+  bool get isLoading => _loading;
+  bool get hasRequested => _generated;
   List<ResourceRecommendation> _items = const [];
   List<ResourceRecommendation> get items => _items;
-  bool _eligible = false;
-  bool get eligible => _eligible;
-  bool _stalled = false;
-  bool _loading = false;
-  bool get isLoading => _loading;
   String? _error;
   String? get errorMessage => _error;
-  RecommendationRequestMode? _mode;
-  bool get hasRequested => _mode != null;
-  (String, String, KanbanStatus, DateTime?)? _source;
+  Object? _source;
   int _version = 0;
-  bool _disposed = false;
+  Future<void>? _loadFuture;
+  RecommendationRequestMode _mode = RecommendationRequestMode.manual;
+  bool get _active =>
+      !_disposed &&
+      !_sessionEnded &&
+      _owner != null &&
+      _repository.currentUserId == _owner;
+  bool _current(int version) => _active && version == _version;
 
   void setProjectActive(bool active) {
     _projectActive = active;
     _syncTask();
   }
 
-  void _clear() {
-    _version++;
-    _items = const [];
-    _error = null;
-    _loading = false;
-    _mode = null;
-  }
-
   void _syncTask() {
     if (_disposed) return;
-    final task = _tasks.allTasks.where((task) => task.id == taskId).firstOrNull;
+    final task = _tasks.allTasks.where((t) => t.id == taskId).firstOrNull;
+    final visible = _active && task != null;
     final eligible =
-        !_sessionEnded &&
-        _owner != null &&
-        _repository.currentUserId == _owner &&
+        visible &&
         _projectActive &&
         !_tasks.isBoardArchived &&
-        task != null &&
         !task.isArchived &&
         !task.isCompleted;
-    final source = eligible
-        ? (task.title, task.description, task.status, task.updatedAt)
+    final source = visible
+        ? (
+            task.title,
+            task.description,
+            task.status,
+            task.updatedAt,
+            task.isStalled,
+            task.stalledAt,
+            eligible,
+          )
         : null;
-    final stalled = eligible && task.isStalled;
-    if (_eligible == eligible && _source == source && _stalled == stalled) {
+    if (_source == source && _visible == visible) return;
+    _source = source;
+    _visible = visible;
+    _eligible = eligible;
+    _version++;
+    _loading = false;
+    _error = null;
+    if (!visible) {
+      _items = const [];
+      _generated = false;
+      notifyListeners();
       return;
     }
-    // Any changed saved task invalidates in-flight results. Resume also clears
-    // automatic results even when a backend leaves updated_at unchanged.
-    if (_eligible != eligible ||
-        _source != source ||
-        (_stalled &&
-            !stalled &&
-            _mode == RecommendationRequestMode.automatic)) {
-      _clear();
-    }
-    _eligible = eligible;
-    _source = source;
-    _stalled = stalled;
-    if (eligible && stalled && !hasRequested) {
-      unawaited(_request(RecommendationRequestMode.automatic));
-    } else {
-      notifyListeners();
+    // Reload persisted associations on task changes, never blindly rerun matching.
+    _loadFuture = _load();
+  }
+
+  Future<void> _load() async {
+    final version = ++_version;
+    _loading = true;
+    _retryLoad = true;
+    _error = null;
+    notifyListeners();
+    try {
+      final saved = await _repository.loadRecommendations(taskId);
+      if (!_current(version)) return;
+      _items = saved.items;
+      _generated = saved.generated;
+      _retryLoad = false;
+      _loading = false;
+      final task = _tasks.allTasks.where((t) => t.id == taskId).firstOrNull;
+      if (_eligible &&
+          task != null &&
+          task.isStalled &&
+          (!saved.generated || task.stalledAt != saved.stalledAt)) {
+        await _request(RecommendationRequestMode.automatic);
+      }
+    } catch (error) {
+      if (_current(version)) {
+        _error = AppException.messageFor(
+          error,
+          fallback: AppErrorMessages.loadRecommendationsFailed,
+        );
+      }
+    } finally {
+      if (_current(version)) {
+        _loading = false;
+        notifyListeners();
+      }
     }
   }
 
-  Future<void> getRecommendations() =>
-      _request(RecommendationRequestMode.manual);
-  Future<void> retry() => _request(_mode ?? RecommendationRequestMode.manual);
+  Future<void> getRecommendations() async {
+    if (_loading && !_retryLoad) return;
+    final version = _version;
+    if (_loading) await _loadFuture;
+    if (!_current(version)) return;
+    await _request(RecommendationRequestMode.manual);
+  }
+
+  Future<void> retry() async {
+    if (_loading || !_active) return;
+    if (_retryLoad) {
+      _loadFuture = _load();
+      await _loadFuture;
+    } else {
+      await _request(_mode);
+    }
+  }
 
   Future<void> _request(RecommendationRequestMode mode) async {
-    if (_disposed ||
-        !_eligible ||
-        _loading ||
-        _repository.currentUserId != _owner ||
-        _sessionEnded) {
-      return;
-    }
+    if (!_active || !_eligible || _loading) return;
     final version = ++_version;
     _mode = mode;
     _loading = true;
-    _items = const [];
     _error = null;
+    _retryLoad = false;
     notifyListeners();
     try {
       final items = await _repository.recommendationsForTask(
         taskId,
         mode: mode,
       );
-      if (_disposed ||
-          version != _version ||
-          _repository.currentUserId != _owner) {
-        return;
-      }
+      if (!_current(version)) return;
       _items = List.unmodifiable(items);
+      _generated = true;
     } catch (error) {
-      if (_disposed ||
-          version != _version ||
-          _repository.currentUserId != _owner) {
-        return;
+      if (_current(version)) {
+        _error = AppException.messageFor(
+          error,
+          fallback: AppErrorMessages.loadRecommendationsFailed,
+        );
       }
-      _error = AppException.messageFor(
-        error,
-        fallback: AppErrorMessages.loadRecommendationsFailed,
-      );
     } finally {
-      if (!_disposed && version == _version) {
-        if (_repository.currentUserId != _owner) {
-          _sessionEnded = true;
-          _syncTask();
-        } else {
-          _loading = false;
-          notifyListeners();
-        }
+      if (_current(version)) {
+        _loading = false;
+        notifyListeners();
       }
     }
   }

@@ -521,7 +521,7 @@ export async function generateNotifications(
            */
           if (
             stagnation.currently_stalled &&
-            (settings.stalled_task_enabled ||
+            (store.deliverStalledAlert || settings.stalled_task_enabled ||
               settings.recommendation_enabled) &&
             stagnation.current_stalled_at
           ) {

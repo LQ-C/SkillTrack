@@ -1,3 +1,7 @@
+import type {
+  RecommendationPersistence,
+  SavedRecommendations,
+} from "../_shared/recommendations/persistence.ts";
 import { createClient, type SupabaseClient } from "npm:@supabase/supabase-js@2";
 import {
   DEFAULT_CONFIG,
@@ -42,7 +46,8 @@ export function adminClient() {
     auth: { persistSession: false, autoRefreshToken: false },
   });
 }
-export class SupabaseRecommendationStore implements RecommendationStore {
+export class SupabaseRecommendationStore
+  implements RecommendationStore, RecommendationPersistence {
   constructor(private admin: SupabaseClient, private user: SupabaseClient) {}
   async rpc(name: string, args: Record<string, unknown>) {
     const { data, error } = await this.admin.rpc(name, args).abortSignal(
@@ -50,6 +55,40 @@ export class SupabaseRecommendationStore implements RecommendationStore {
     );
     if (error) throw new RecommendationError(503, "recommendation_unavailable");
     return data;
+  }
+  async begin(taskId: string, userId: string, mode: RequestMode) {
+    return await this.rpc("begin_task_recommendations", {
+      p_task_id: taskId,
+      p_user_id: userId,
+      p_mode: mode,
+    });
+  }
+  async complete(
+    taskId: string,
+    userId: string,
+    token: string,
+    sources: { resource_id: string; source_version: string }[],
+    model: string,
+    textVersion: string,
+  ): Promise<SavedRecommendations> {
+    return await this.rpc("complete_task_recommendations", {
+      p_task_id: taskId,
+      p_user_id: userId,
+      p_token: token,
+      p_sources: sources.map((s) => ({
+        resource_id: s.resource_id,
+        source_version: s.source_version,
+      })),
+      p_model_id: model,
+      p_text_version: textVersion,
+    });
+  }
+  async fail(taskId: string, userId: string, token: string): Promise<void> {
+    await this.rpc("fail_task_recommendations", {
+      p_task_id: taskId,
+      p_user_id: userId,
+      p_token: token,
+    });
   }
   async loadTask(
     taskId: string,

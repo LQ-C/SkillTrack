@@ -670,6 +670,10 @@ void main() {
 }
 
 class _Recommendations implements RecommendationRepository {
+  @override
+  Future<SavedTaskRecommendations> loadRecommendations(String taskId) async =>
+      const SavedTaskRecommendations(generated: false, items: []);
+
   int calls = 0;
   RecommendationRequestMode? lastMode;
   @override

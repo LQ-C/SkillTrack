@@ -1,4 +1,8 @@
 import {
+  recommendAndSave,
+  type RecommendationPersistence,
+} from "../_shared/recommendations/persistence.ts";
+import {
   DEFAULT_CONFIG,
   RecommendationError,
 } from "../_shared/recommendations/semantic.js";
@@ -6,7 +10,6 @@ import { failure, json, readBody } from "../_shared/recommendations/http.js";
 import type { Embedder } from "../_shared/recommendations/indexer.ts";
 import {
   type RecommendationStore,
-  recommendForTask,
   type RequestMode,
 } from "../_shared/recommendations/recommend.ts";
 export type {
@@ -20,6 +23,7 @@ export function createRecommendationHandler(deps: {
   store: RecommendationStore;
   getEmbedder: () => Embedder;
   config?: typeof DEFAULT_CONFIG;
+  persistence: RecommendationPersistence;
 }) {
   return async (request: Request): Promise<Response> => {
     try {
@@ -34,12 +38,14 @@ export function createRecommendationHandler(deps: {
       ) throw new RecommendationError(400, "invalid_task_id");
       const taskId = body.task_id;
       const mode: RequestMode = body.mode === "manual" ? "manual" : "automatic";
-      const result = await recommendForTask(
+      const result = await recommendAndSave(
         { ...deps, userId: deps.userId },
+        deps.persistence,
         taskId,
         mode,
       );
       return json({
+        generated: result.generated,
         status: result.status,
         recommendations: result.recommendations,
       });

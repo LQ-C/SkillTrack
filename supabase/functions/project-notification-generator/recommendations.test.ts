@@ -161,3 +161,18 @@ Deno.test("failed preflight read can still safely commit the ordinary fallback",
   assert.equal(f.calls(), 0);
   assert.deepEqual([...f.saved.values()], ["stalled"]);
 });
+Deno.test("saved generation runs independently of alert preferences and handled fallback", async () => {
+  const f = fixture();
+  f.backend.persistIndependently = true;
+  await f.delivery(task, "episode", {
+    ...preferences,
+    recommendation_enabled: false,
+  });
+  assert.equal(f.calls(), 1);
+  assert.deepEqual([...f.saved.values()], ["stalled"]);
+  await f.delivery(task, "episode", preferences);
+  assert.equal(f.calls(), 2);
+  assert.equal(f.saved.size, 1);
+  // The real match adapter uses cached persistence on the second call, tested
+  // separately in persistence.test.ts and the SQL generation tests.
+});

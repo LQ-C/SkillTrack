@@ -42,6 +42,7 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String feedback = '',
     String? projectId,
     List<ProjectMilestone> existingMilestones = const [],
   }) async {

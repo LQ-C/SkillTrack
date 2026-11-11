@@ -280,3 +280,61 @@ test('failed notification insert rolls back and the same episode retries once; c
  const row=(await db.query('select type,message from notifications')).rows[0];
  assert.equal(row.type,'STALLED_TASK');assert.ok(row.message.includes('Changed after matching'));
 });
+
+async function persistentSetup(t) {
+ const f=await notificationSetup(t);const {db}=f;
+ for(const name of ['012_task_resource_bookmarks','013_resource_extractions','014_resource_image_analysis','015_persistent_task_recommendations'])
+  await db.exec(await readFile(new URL(`../migrations/${name}.sql`,import.meta.url),'utf8'));
+ await readerPolicy(db);
+ const begin=async(mode='manual',user=owner)=>(await db.query('select begin_task_recommendations($1,$2,$3) result',[task,user,mode])).rows[0].result;
+ const complete=async(token,sources=[{resource_id:relevant,source_version:f.version}],user=owner)=>(await db.query("select complete_task_recommendations($1,$2,$3,$4,'gte-small','skilltrack-v1-chunk400-mean-l2') result",[task,user,token,JSON.stringify(sources)])).rows[0].result;
+ const read=async(user=owner)=>(await db.query('select read_task_recommendations($1,$2) result',[task,user])).rows[0].result;
+ return {...f,begin,complete,read};
+}
+test('saved sets include empty generations, reuse a stalled period and regenerate a new period',async t=>{
+ const {db,begin,complete,read}=await persistentSetup(t);
+ const first=await begin('automatic');const saved=await complete(first.token);
+ assert.equal(saved.recommendations.length,1);assert.equal((await complete(first.token)).generation_id,saved.generation_id);
+ assert.equal((await begin('automatic')).cached,true);
+ const refresh=await begin();await complete(refresh.token,[]);
+ assert.equal((await read()).generated,true);assert.deepEqual((await read()).recommendations,[]);
+ assert.equal((await begin('automatic')).cached,true);
+ await db.exec('update kanban_tasks set is_stalled=false,stalled_at=null');
+ assert.equal((await read()).generated,true);
+ await db.exec("update kanban_tasks set is_stalled=true,stalled_at=clock_timestamp()+interval '1 second'");
+ assert.equal((await begin('automatic')).cached,false);
+});
+test('replacement is atomic on a late insert failure and does not change bookmarks',async t=>{
+ const {db,begin,complete,read,version}=await persistentSetup(t);
+ await complete((await begin()).token);const original=await read();
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);
+ await db.exec(`insert into task_resource_bookmarks(task_id,resource_id) values('${task}','${relevant}')`);
+ const next=await begin();const item={resource_id:relevant,source_version:version};
+ await assert.rejects(complete(next.token,[item,item]),/duplicate key/);
+ assert.equal((await read()).generation_id,original.generation_id);assert.equal((await read()).recommendations.length,1);
+ await complete(next.token,[]);
+ assert.equal((await db.query('select count(*)::int n from task_resource_bookmarks')).rows[0].n,1);
+});
+test('duplicate claims, stale workers, task edits/resume and cross-user writes are rejected',async t=>{
+ const {db,begin,complete}=await persistentSetup(t);
+ await assert.rejects(begin('manual',stranger),/ineligible/);
+ const results=await Promise.allSettled([begin(),begin()]);assert.equal(results.filter(x=>x.status==='fulfilled').length,1);
+ const old=results.find(x=>x.status==='fulfilled').value;
+ await db.exec("update task_recommendation_sets set lease_expires_at=now()-interval '1 second'");
+ const next=await begin();await assert.rejects(complete(old.token),/Stale/);
+ await db.exec("update kanban_tasks set title='Changed title'");await assert.rejects(complete(next.token),/Stale/);
+ await db.query('select fail_task_recommendations($1,$2,$3)',[task,owner,next.token]);
+ const auto=await begin('automatic');await db.exec('update kanban_tasks set is_stalled=false,stalled_at=null');
+ await assert.rejects(complete(auto.token),/Stale/);await assert.rejects(complete(auto.token,[],stranger),/ineligible/);
+});
+test('saved reads enforce current visibility and ownership, and backend writes are not client callable',async t=>{
+ const {db,begin,complete,read}=await persistentSetup(t);await complete((await begin()).token);
+ await db.exec(`update learning_resources set title='Current title'`);assert.equal((await read()).recommendations[0].title,'Current title');
+ await db.exec('update learning_resources set moderation_hidden=true');assert.deepEqual((await read()).recommendations,[]);
+ await assert.rejects(read(stranger),/access denied/);
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[owner]);await db.exec('set role authenticated');
+ assert.deepEqual((await db.query('select task_recommendations($1) r',[task])).rows[0].r.recommendations,[]);
+ await assert.rejects(begin(),/permission denied/);await db.exec('reset role');
+ await db.query("select set_config('request.jwt.claim.sub',$1,false)",[stranger]);await db.exec('set role authenticated');
+ await assert.rejects(db.query('select task_recommendations($1)',[task]),/access denied/);
+});

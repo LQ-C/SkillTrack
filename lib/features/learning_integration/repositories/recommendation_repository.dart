@@ -5,6 +5,7 @@ enum RecommendationRequestMode { automatic, manual }
 abstract class RecommendationRepository {
   String? get currentUserId;
   Stream<String?> get userChanges;
+  Future<SavedTaskRecommendations> loadRecommendations(String taskId);
   Future<List<ResourceRecommendation>> recommendationsForTask(
     String taskId, {
     RecommendationRequestMode mode = RecommendationRequestMode.automatic,

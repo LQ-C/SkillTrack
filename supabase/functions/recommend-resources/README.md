@@ -12,8 +12,8 @@ upstream only.
 One new table, `resource_embeddings`, holds vector(384), the original UUID
 foreign key, source/indexed versions, model/text versions and indexing work
 state. No new local worker or indexing queue table is added. Resource deletion
-cascades to its vector. No task, notification, bookmark or recommendation-alert
-writes occur.
+cascades to its vector. Indexing does not write task recommendations. Migration 015 adds current
+recommendation sets; matching writes these only on demand or a stalled event.
 
 The prototype's `gte-small` embedding, text construction, chunk pooling and
 hybrid ranking were reused in `_shared/recommendations`. Native sessions are
@@ -190,8 +190,8 @@ manual request for any eligible incomplete task, and stays available after a
 success or empty response. Both modes share one pending-request guard and result
 list; Retry repeats the failed mode. Task edits, completion, archive, project
 ineligibility, sign-out/account change and disposal invalidate late responses.
-Resume clears automatic results while retaining the manual action. Results stay
-in memory only. The route uses the existing project repository to check active
+Resume preserves the saved set. Migration 015 persists one current set (including
+empty results); reopening reads it without matching. Refresh explicitly replaces it. The route uses the existing project repository to check active
 project status; failure to verify this hides recommendations without blocking
 other task actions. The backend independently rechecks ownership and eligibility
 before and after inference. The widget displays only presentation state and uses
@@ -237,7 +237,7 @@ Test-project acceptance checks still required:
   transcription, analysis and indexing complete. Do not rerun Whisper merely to
   backfill vectors.
 - App/device smoke test: loading, empty, error retry, no repeat calls on
-  rebuild, resume clears the section; no URLs or Open button and other task
+  rebuild, resume preserves saved cards; no URLs or Open button and other task
   actions unchanged.
 - Confirm existing analysis/notification cron jobs continue operating after
   deployment.
@@ -330,10 +330,10 @@ Manual feature files changed:
 Device smoke test after deployment: open a non-stalled To-Do/In Progress task,
 tap Get Recommendations, verify loading and disabled repeat taps, then inspect
 cards/empty state. Tap again to refresh. Verify Retry after a connection
-failure. Open a stalled task to confirm automatic loading, Resume Task to clear
-automatic results, then manually request again. Complete or archive a task and
-confirm the action disappears. No history, bookmark or task progress changes
-should occur.
+failure. Open a stalled task to confirm automatic generation, Resume Task to
+preserve saved results, then explicitly refresh. Complete or archive a task and
+confirm refresh is disabled while saved cards remain readable. No history,
+bookmark or task progress changes should occur.
 
 Manual feature validation (executed locally on CLQ):
 
@@ -349,3 +349,80 @@ Manual feature validation (executed locally on CLQ):
   tests were performed for this incremental feature. Marketplace read policies
   and ready current-version embeddings remain prerequisites for nonempty
   results.
+
+
+## Persistent task recommendations — migration 015
+
+Two small tables keep one current generation per task: `task_recommendation_sets`
+records success (including empty results), stalled period, model/text provenance
+and a short claim lease; `task_recommendation_items` records up to three ordered
+resource IDs and matched source versions. No resource content is duplicated.
+Bookmarks remain in their independent table.
+
+- Flutter first calls authenticated `task_recommendations`. Current marketplace
+  RLS, published state and moderation are checked on every read. Metadata is
+  current; hiding/deleting resources yields fewer cards, not another search.
+  There is no catalog realtime subscription: an already-open screen reloads on
+  reopening or task-state changes, not instantly upon a remote catalog change.
+- First stalled generation and a new `stalled_at` episode generate automatically.
+  A manual generation during that period also satisfies its automatic generation.
+  An existing successful empty generation is reusable. Resume keeps saved items.
+- Refresh uses a backend-only claim, then one transaction replaces all items.
+  A 90-second lease excludes concurrent matching. Final task/version, resource
+  freshness and recipient access checks reject stale completion. Failure retains
+  the last successful set. An abandoned lease can be reclaimed after expiry.
+- Repeating completion with the same claim token returns the saved result. If
+  the entire HTTP response is lost, reopening recovers it. A later explicit
+  manual Refresh is a new operation (and can perform another embedding call).
+- Cron uses the same persistence path before notification enqueue, independent
+  of notification preferences. Existing notification deduplication and fallback
+  remain intact. A failed generation can retry on a later cron run even if a
+  generic stalled alert was already sent; it will not send a second alert for
+  that episode. Embedding calls retain the existing timeout and invocation budget.
+- Persisted provenance records the version originally matched. Saved reads do
+  not claim it was matched against later content. Explicit refresh uses current
+  embeddings; notification enqueue still rejects stale resource provenance.
+
+### Deployment order (not executed by this change)
+
+1. Verify the canonical base schema and existing migrations through 014,
+   especially 011 recipient RLS helpers, 012 ownership helper/bookmarks, and
+   013/014 extraction/current-source views. Do not recreate existing tables.
+2. Run `supabase/migrations/015_persistent_task_recommendations.sql` once in
+   Supabase SQL Editor (or the project's migration process).
+3. From the project root:
+   ```powershell
+   npx supabase functions deploy recommend-resources
+   npx supabase functions deploy project-notification-generator
+   ```
+4. Rebuild/run Flutter. No new secret, scheduler, Storage bucket, embedding
+   backfill, or resource-analysis deployment is required. Existing cron and
+   marketplace read policies must already work.
+
+Rollback: redeploy the previous Edge Functions/client; leave the additive
+storage in place. Do not drop saved data. Existing unmodified matching RPCs
+remain available to the older functions.
+
+### Acceptance test in an authorized test project
+
+1. On an incomplete task, Get Recommendations; check the ordered cards and
+   generation row. Close/reopen Task Details (and restart the app): same set,
+   no new embedding request. Repeat with an intentionally empty eligible catalog.
+2. Publish/analyse/index a new relevant resource. Reopening alone keeps the set;
+   Refresh can include it. Simulate a request failure: previous cards stay.
+3. Bookmark one card, then refresh to empty. The bookmark remains. Resume the
+   task: saved cards remain. A later genuine stalled period can replace them.
+4. Hide a saved resource or revoke its read policy, then reopen: it is absent.
+   Another account cannot read or generate for this task.
+5. Run existing notification cron with a dedicated test task. Confirm the set
+   is saved before a resource alert, tapping loads it, and rerunning sends no
+   duplicate. Check fallback and both category preferences separately.
+
+### Local verification limits
+
+SQL tests use PGlite with the actual applicable migrations and a minimal base
+schema/RLS fixture. They test rollback, serialized duplicate claims, stale
+completion, lost-response completion, empty sets, access checks and bookmark
+preservation. PGlite is not evidence of multi-connection hosted concurrency,
+production marketplace policies, native gte-small quality, cron or Android push.
+Those still need the acceptance test above against the target deployment.

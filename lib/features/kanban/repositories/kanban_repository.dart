@@ -98,3 +98,13 @@ abstract class KanbanRepository {
     Map<String, dynamic> newValues = const {},
   });
 }
+
+abstract interface class TaskListReplacementRepository {
+  Future<Map<String, dynamic>> replacementContext(String boardId);
+  Future<void> replaceGeneratedTasks(
+    String boardId,
+    List<GeneratedTaskDraft> tasks, {
+    required String requestId,
+    required String expectedVersion,
+  });
+}

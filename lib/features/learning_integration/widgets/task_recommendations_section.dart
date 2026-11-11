@@ -16,7 +16,7 @@ class TaskRecommendationsSection extends StatelessWidget {
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: viewModel,
     builder: (context, _) {
-      if (!viewModel.eligible) return const SizedBox.shrink();
+      if (!viewModel.visible) return const SizedBox.shrink();
       final theme = Theme.of(context);
       return Padding(
         padding: const EdgeInsets.only(bottom: 12),
@@ -30,18 +30,22 @@ class TaskRecommendationsSection extends StatelessWidget {
                 Text('Learning resources', style: theme.textTheme.titleMedium),
                 const SizedBox(height: 8),
                 OutlinedButton.icon(
-                  onPressed: viewModel.isLoading
+                  onPressed: viewModel.isLoading || !viewModel.eligible
                       ? null
                       : viewModel.getRecommendations,
                   icon: const Icon(Icons.school_outlined),
-                  label: const Text('Get Recommendations'),
+                  label: Text(
+                    viewModel.hasRequested
+                        ? 'Refresh Recommendations'
+                        : 'Get Recommendations',
+                  ),
                 ),
                 if (viewModel.isLoading)
                   Semantics(
                     label: 'Loading learning resources',
                     child: const LinearProgressIndicator(),
-                  )
-                else if (viewModel.errorMessage != null) ...[
+                  ),
+                if (viewModel.errorMessage != null) ...[
                   Text(
                     viewModel.errorMessage!,
                     style: theme.textTheme.bodyMedium,
@@ -51,46 +55,46 @@ class TaskRecommendationsSection extends StatelessWidget {
                     icon: const Icon(Icons.refresh),
                     label: const Text('Retry'),
                   ),
-                ] else if (viewModel.hasRequested && viewModel.items.isEmpty)
-                  const Text('No relevant learning resources found yet.')
-                else
-                  for (final resource in viewModel.items)
-                    Padding(
-                      padding: const EdgeInsets.only(top: 8, bottom: 8),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (bookmarks != null)
-                            Align(
-                              alignment: Alignment.centerRight,
-                              child: BookmarkButton(
-                                model: bookmarks!,
-                                resource: resource,
-                              ),
-                            ),
-                          Text(
-                            resource.type,
-                            style: theme.textTheme.labelMedium?.copyWith(
-                              color: theme.colorScheme.primary,
+                ],
+                if (!viewModel.isLoading &&
+                    viewModel.errorMessage == null &&
+                    viewModel.hasRequested &&
+                    viewModel.items.isEmpty)
+                  const Text('No relevant learning resources found yet.'),
+                for (final resource in viewModel.items)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 8, bottom: 8),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        if (bookmarks != null)
+                          Align(
+                            alignment: Alignment.centerRight,
+                            child: BookmarkButton(
+                              model: bookmarks!,
+                              resource: resource,
                             ),
                           ),
+                        Text(
+                          resource.type,
+                          style: theme.textTheme.labelMedium?.copyWith(
+                            color: theme.colorScheme.primary,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        Text(resource.title, style: theme.textTheme.titleSmall),
+                        if (resource.summary.isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(
-                            resource.title,
-                            style: theme.textTheme.titleSmall,
+                            resource.summary,
+                            maxLines: 3,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyMedium,
                           ),
-                          if (resource.summary.isNotEmpty) ...[
-                            const SizedBox(height: 4),
-                            Text(
-                              resource.summary,
-                              maxLines: 3,
-                              overflow: TextOverflow.ellipsis,
-                              style: theme.textTheme.bodyMedium,
-                            ),
-                          ],
                         ],
-                      ),
+                      ],
                     ),
+                  ),
               ],
             ),
           ),

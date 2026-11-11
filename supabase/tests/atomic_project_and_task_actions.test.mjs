@@ -278,6 +278,38 @@ test('atomic project and task actions against local PostgreSQL', async t => {
       assert.deepEqual(await save(id,'Earlier'),result);
       assert.deepEqual(await snapshot(),before);
     });
+
+    await t.test('replacement archives active tasks atomically and rejects stale or foreign confirmation', async () => {
+      await db.exec('reset role');
+      await db.exec(await readFile(new URL('../migrations/016_replace_generated_task_list.sql',import.meta.url),'utf8'));
+      await asUser(owner);
+      const fresh=await save('replacement-project-001','Replace me',plan);
+      const target=fresh.board_id;
+      const manual=await act(target,'create_task','replacement-manual-001',fields);
+      const old=(await query('select * from kanban_tasks where board_id=$1',[target]));
+      await act(target,'archive','replacement-archive-001',version(old[0]));
+      await act(target,'move','replacement-complete-001',{...version(old[1]),expected_sort_order:old[1].sort_order,status:'completed'});
+      const ctx=async()=> (await query('select task_list_replacement_context($1) result',[target]))[0].result;
+      const baseline=await ctx();assert.equal(baseline.count,2);
+      const submit=(id='replacement-confirm-001',v=baseline.version)=>query('select replace_generated_task_list($1,$2,$3,$4::jsonb) n',[target,id,v,JSON.stringify(plan)]);
+      await checkRollback('archived',submit);
+      await checkRollback('task_checklist_items',submit);
+      await asUser(other);await assert.rejects(submit(),/access denied/);await asUser(owner);
+      await query("update task_checklist_items set title=title||' changed' where task_id=$1",[manual.id]);
+      await assert.rejects(submit(),/Board changed/);
+      const current=await ctx();
+      const [first,second]=await Promise.all([submit('replacement-confirm-002',current.version),submit('replacement-confirm-002',current.version)]);
+      assert.equal(first[0].n,2);assert.deepEqual(first,second);
+      const tasks=await query('select * from kanban_tasks where board_id=$1',[target]);
+      assert.equal(tasks.filter(x=>!x.is_archived).length,2);
+      assert.equal(tasks.filter(x=>x.is_archived).length,3);
+      const archivedManual=tasks.find(x=>x.id===manual.id);assert.equal(archivedManual.tracking_started_at,null);
+      assert.ok(archivedManual.elapsed_seconds>=manual.elapsed_seconds);
+      assert.ok((await query('select * from task_checklist_items where task_id=$1',[manual.id])).length);
+      assert.equal((await query("select * from task_activity_logs where task_id=$1 and action='archived'",[manual.id])).length,1);
+      assert.equal((await query('select * from project_milestones where project_id=$1',[fresh.project.id])).length,1);
+      await assert.rejects(submit('replacement-confirm-002','different-version'),/already used/);
+    });
   } finally {
     await db.close();
   }

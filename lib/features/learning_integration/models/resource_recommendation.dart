@@ -31,3 +31,30 @@ class ResourceRecommendation {
     );
   }
 }
+
+class SavedTaskRecommendations {
+  const SavedTaskRecommendations({
+    required this.generated,
+    required this.items,
+    this.stalledAt,
+  });
+  final bool generated;
+  final List<ResourceRecommendation> items;
+  final DateTime? stalledAt;
+  factory SavedTaskRecommendations.fromMap(Map<String, dynamic> map) {
+    if (map['generated'] is! bool || map['recommendations'] is! List) {
+      throw const FormatException('Invalid saved recommendations');
+    }
+    return SavedTaskRecommendations(
+      generated: map['generated'] as bool,
+      stalledAt: DateTime.tryParse(map['stalled_at']?.toString() ?? ''),
+      items: List.unmodifiable(
+        (map['recommendations'] as List).map(
+          (row) => ResourceRecommendation.fromMap(
+            Map<String, dynamic>.from(row as Map),
+          ),
+        ),
+      ),
+    );
+  }
+}

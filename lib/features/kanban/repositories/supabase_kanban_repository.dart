@@ -16,7 +16,8 @@ import 'kanban_repository.dart';
 import '../../ai_task_generation/models/generated_task_draft.dart';
 import '../../ai_task_generation/models/task_generation_request.dart';
 
-class SupabaseKanbanRepository implements KanbanRepository {
+class SupabaseKanbanRepository
+    implements KanbanRepository, TaskListReplacementRepository {
   SupabaseKanbanRepository(this._client);
   final SupabaseClient _client;
   static const _bucket = 'task-attachments';
@@ -239,6 +240,35 @@ class SupabaseKanbanRepository implements KanbanRepository {
     'milestone_id': task.milestoneId,
     'tag_ids': tagIds,
     'checklist': checklist,
+  });
+
+  @override
+  Future<Map<String, dynamic>> replacementContext(String boardId) => _guard(
+    () async => Map<String, dynamic>.from(
+      await _client.rpc(
+            'task_list_replacement_context',
+            params: {'p_board_id': boardId},
+          )
+          as Map,
+    ),
+  );
+
+  @override
+  Future<void> replaceGeneratedTasks(
+    String boardId,
+    List<GeneratedTaskDraft> tasks, {
+    required String requestId,
+    required String expectedVersion,
+  }) => _guard(() async {
+    await _client.rpc(
+      'replace_generated_task_list',
+      params: {
+        'p_board_id': boardId,
+        'p_request_id': requestId,
+        'p_expected_version': expectedVersion,
+        'p_tasks': tasks.map((task) => task.toRevisionJson()).toList(),
+      },
+    );
   });
 
   @override

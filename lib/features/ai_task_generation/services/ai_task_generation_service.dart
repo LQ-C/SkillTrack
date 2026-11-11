@@ -20,9 +20,12 @@ class AiTaskGenerationService {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String feedback = '',
     String? projectId,
     List<ProjectMilestone> existingMilestones = const [],
   }) => _invoke({
+    if (mode == TaskGenerationMode.replace)
+      'replacementFeedback': feedback.trim(),
     'projectName': title,
     'description': description,
     if (constraints.trim().isNotEmpty) 'constraints': constraints.trim(),
@@ -32,8 +35,9 @@ class AiTaskGenerationService {
         for (final group in existingMilestones) group.toGenerationJson(),
       ],
     'deadline': endDate.toIso8601String().split('T').first,
-    if (mode == TaskGenerationMode.append) ...{
-      'generationMode': 'append',
+    if (mode == TaskGenerationMode.append ||
+        mode == TaskGenerationMode.replace) ...{
+      'generationMode': mode.name,
       'existingTasks': [for (final task in existingTasks) task.toRequestJson()],
     },
   });
@@ -67,7 +71,7 @@ class AiTaskGenerationService {
       'sourceMode': sourceMode.name,
       'revisionFeedback': feedback.trim(),
       'existingTasks': [
-        if (sourceMode == TaskGenerationMode.append)
+        if (sourceMode != TaskGenerationMode.initial)
           for (final task in existingTasks.take(100)) task.toRequestJson(),
       ],
       'currentDraft': [for (final task in currentDraft) task.toRevisionJson()],

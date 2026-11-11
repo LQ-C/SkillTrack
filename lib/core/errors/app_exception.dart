@@ -78,6 +78,8 @@ class AppErrorMessages {
       'Update the project end date before generating more tasks.';
   static const projectDescriptionRequired =
       'Add a project description before generating more tasks.';
+  static const replaceTaskListFailed =
+      'Unable to replace tasks. Retry this save; if the board changed, cancel the preview and regenerate.';
   static const addGeneratedTasksFailed =
       'Unable to add tasks. Please try again.';
   static const saveGeneratedTasksFailed =

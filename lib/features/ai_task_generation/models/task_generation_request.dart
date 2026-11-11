@@ -1,6 +1,6 @@
 import '../../../core/utils/date_formatter.dart';
 
-enum TaskGenerationMode { initial, append, revise }
+enum TaskGenerationMode { initial, append, replace, revise }
 
 class ExistingTaskSummary {
   const ExistingTaskSummary({
