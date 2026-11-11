@@ -1,9 +1,11 @@
+import 'bookmark_repository.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../core/errors/app_exception.dart';
 import '../models/resource_recommendation.dart';
 import 'recommendation_repository.dart';
 
-class SupabaseRecommendationRepository implements RecommendationRepository {
+class SupabaseRecommendationRepository
+    implements RecommendationRepository, BookmarkRepository {
   SupabaseRecommendationRepository(this._client);
   final SupabaseClient _client;
 
@@ -52,6 +54,46 @@ class SupabaseRecommendationRepository implements RecommendationRepository {
       );
     } catch (_) {
       throw const AppException(AppErrorMessages.loadRecommendationsFailed);
+    }
+  }
+
+  @override
+  Future<List<ResourceRecommendation>> savedResources(String taskId) async {
+    final owner = currentUserId;
+    try {
+      if (owner == null) throw StateError('Signed out');
+      final rows = await _client.rpc(
+        'task_saved_resources',
+        params: {'p_task_id': taskId},
+      );
+      if (currentUserId != owner) throw StateError('Session changed');
+      return List.unmodifiable(
+        (rows as List).map(
+          (row) =>
+              ResourceRecommendation.fromMap(Map<String, dynamic>.from(row)),
+        ),
+      );
+    } catch (_) {
+      throw const AppException(AppErrorMessages.loadBookmarksFailed);
+    }
+  }
+
+  @override
+  Future<void> setBookmark(String taskId, String resourceId, bool saved) async {
+    final owner = currentUserId;
+    try {
+      if (owner == null) throw StateError('Signed out');
+      await _client.rpc(
+        'set_task_resource_bookmark',
+        params: {
+          'p_task_id': taskId,
+          'p_resource_id': resourceId,
+          'p_saved': saved,
+        },
+      );
+      if (currentUserId != owner) throw StateError('Session changed');
+    } catch (_) {
+      throw const AppException(AppErrorMessages.saveBookmarkFailed);
     }
   }
 }

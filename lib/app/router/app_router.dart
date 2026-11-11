@@ -1,3 +1,5 @@
+import '../../features/learning_integration/repositories/bookmark_repository.dart';
+import '../../features/learning_integration/view_models/task_bookmarks_view_model.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 
@@ -565,6 +567,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
   );
   late final Future<void> _ready = _initialize();
   TaskRecommendationsViewModel? _recommendations;
+  TaskBookmarksViewModel? _bookmarks;
 
   Future<void> _initialize() async {
     final (_, project) = await (
@@ -578,6 +581,12 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     ).wait;
     if (!mounted) return;
     final repository = widget.recommendationRepository;
+    if (repository is BookmarkRepository) {
+      _bookmarks = TaskBookmarksViewModel(
+        repository as BookmarkRepository,
+        widget.args.taskId,
+      );
+    }
     if (repository != null) {
       _recommendations = TaskRecommendationsViewModel(
         repository,
@@ -595,6 +604,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
 
   @override
   void dispose() {
+    _bookmarks?.dispose();
     _recommendations?.dispose();
     _model.dispose();
     super.dispose();
@@ -639,6 +649,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           taskId: widget.args.taskId,
           viewModel: _model,
           recommendations: _recommendations,
+          bookmarks: _bookmarks,
           showLearningResources: widget.args.showLearningResources,
           onEdit: _isOpeningEdit ? null : _edit,
           fullScreen: true,

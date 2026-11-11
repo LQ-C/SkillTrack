@@ -10,6 +10,10 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const loadBookmarksFailed =
+      'Unable to load saved resources. Please retry.';
+  static const saveBookmarkFailed = 'Unable to update bookmark. Please retry.';
+
   static const loadRecommendationsFailed =
       'Unable to load learning resources. Please try again.';
   static const deadlineDatePassed = 'Choose today or a future date.';

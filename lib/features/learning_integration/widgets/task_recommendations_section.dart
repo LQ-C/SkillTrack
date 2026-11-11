@@ -1,9 +1,16 @@
+import '../view_models/task_bookmarks_view_model.dart';
+import 'saved_resources_section.dart';
 import 'package:flutter/material.dart';
 import '../view_models/task_recommendations_view_model.dart';
 
 class TaskRecommendationsSection extends StatelessWidget {
-  const TaskRecommendationsSection({super.key, required this.viewModel});
+  const TaskRecommendationsSection({
+    super.key,
+    required this.viewModel,
+    this.bookmarks,
+  });
   final TaskRecommendationsViewModel viewModel;
+  final TaskBookmarksViewModel? bookmarks;
 
   @override
   Widget build(BuildContext context) => ListenableBuilder(
@@ -53,6 +60,14 @@ class TaskRecommendationsSection extends StatelessWidget {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
+                          if (bookmarks != null)
+                            Align(
+                              alignment: Alignment.centerRight,
+                              child: BookmarkButton(
+                                model: bookmarks!,
+                                resource: resource,
+                              ),
+                            ),
                           Text(
                             resource.type,
                             style: theme.textTheme.labelMedium?.copyWith(

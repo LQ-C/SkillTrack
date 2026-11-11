@@ -1,3 +1,5 @@
+import '../../learning_integration/view_models/task_bookmarks_view_model.dart';
+import '../../learning_integration/widgets/saved_resources_section.dart';
 import 'package:flutter/material.dart';
 
 import '../../learning_integration/view_models/task_recommendations_view_model.dart';
@@ -25,6 +27,7 @@ class TaskDetailsSheet extends StatefulWidget {
     required this.onEdit,
     this.fullScreen = false,
     this.recommendations,
+    this.bookmarks,
     this.showLearningResources = false,
   });
   final String taskId;
@@ -33,6 +36,7 @@ class TaskDetailsSheet extends StatefulWidget {
   final bool fullScreen;
   final bool showLearningResources;
   final TaskRecommendationsViewModel? recommendations;
+  final TaskBookmarksViewModel? bookmarks;
   @override
   State<TaskDetailsSheet> createState() => _TaskDetailsSheetState();
 }
@@ -322,8 +326,11 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                     TaskRecommendationsSection(
                       key: _resourcesKey,
                       viewModel: widget.recommendations!,
+                      bookmarks: widget.bookmarks,
                     ),
                   ],
+                  if (widget.bookmarks != null)
+                    SavedResourcesSection(model: widget.bookmarks!),
                   const Divider(height: 28),
                   FutureBuilder<List<TaskActivity>>(
                     future: _activity,
