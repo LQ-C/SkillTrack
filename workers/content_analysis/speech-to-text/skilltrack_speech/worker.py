@@ -1,4 +1,4 @@
-"""Claim and complete one video_transcripts work row at a time."""
+"""Claim and complete one resource_extractions work row at a time."""
 
 from __future__ import annotations
 
@@ -11,6 +11,7 @@ from uuid import UUID
 from typing import Any, Protocol
 
 from .config import Config
+from .pdf_adapter import extract_bounded as extract_pdf, PDFWorkError
 from .supabase_gateway import SupabaseGateway
 from .transcriber import WhisperCppTranscriber
 
@@ -68,21 +69,27 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
     try:
         with tempfile.TemporaryDirectory(prefix="skilltrack-transcribe-") as temp:
             suffix = Path(storage_path).suffix.lower()
-            if suffix not in {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi"}:
+            if suffix not in {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".pdf"}:
                 suffix = ".video"
             video = Path(temp) / f"source{suffix}"
             gateway.download(bucket, storage_path, video)
             if lost_claim.is_set():
                 return "lease_lost"
             phase = "transcription_failed"
-            text, language, segments = transcriber.transcribe(video)
+            if payload.get("extraction_type", "video_transcript") == "pdf_text":
+                phase = "pdf_extraction_failed"
+                text, language, segments = extract_pdf(video)
+            else:
+                text, language, segments = transcriber.transcribe(video)
             if lost_claim.is_set():
                 return "lease_lost"
             phase = "save_failed"
             if not gateway.complete(transcript_id, token, text, language, segments):
                 return "lease_lost"
             return "ready"
-    except Exception:
+    except Exception as error:
+        if isinstance(error, PDFWorkError):
+            phase = error.code
         # Do not persist or print raw exception text: it may contain a signed URL or path.
         if lost_claim.is_set():
             return "lease_lost"
@@ -93,12 +100,24 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
         heartbeat.join(timeout=5)
 
 
+class LazyWhisper:
+    def __init__(self, config: Config):
+        self.config = config
+        self.engine = None
+
+    def transcribe(self, path: Path):
+        if self.engine is None:
+            config = self.config
+            self.engine = WhisperCppTranscriber(config.whisper_cpp_exe, config.model_file,
+                config.ffmpeg_exe, config.transcribe_timeout_seconds,
+                config.whisper_cpp_language, config.whisper_cpp_use_gpu)
+        return self.engine.transcribe(path)
+
+
 def run_forever(config: Config, draft_resource_id: str | None = None) -> None:
     gateway = SupabaseGateway(config)
-    transcriber = WhisperCppTranscriber(config.whisper_cpp_exe, config.model_file,
-                                       config.ffmpeg_exe, config.transcribe_timeout_seconds,
-                                       config.whisper_cpp_language, config.whisper_cpp_use_gpu)
-    print("Worker running with local whisper.cpp; Ctrl+C to stop")
+    transcriber = LazyWhisper(config)
+    print("Extraction worker running locally; Ctrl+C to stop")
     while True:
         try:
             gateway.discover(draft_resource_id)
@@ -123,7 +142,7 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--once", action="store_true", help="Check for one job then exit")
     parser.add_argument("--draft-resource-id", type=UUID,
-                        help="Discover only this non-hidden draft video UUID (test option)")
+                        help="Discover only this non-hidden draft Video/Reading UUID (test option)")
     args = parser.parse_args()
     draft_resource_id = str(args.draft_resource_id) if args.draft_resource_id else None
     try:
@@ -138,9 +157,7 @@ def main() -> int:
             gateway.discover(draft_resource_id)
             outcome = process_one(
                 gateway,
-                WhisperCppTranscriber(config.whisper_cpp_exe, config.model_file,
-                                      config.ffmpeg_exe, config.transcribe_timeout_seconds,
-                                      config.whisper_cpp_language, config.whisper_cpp_use_gpu),
+                LazyWhisper(config),
                 lease_seconds=config.lease_seconds, renew_seconds=config.renew_seconds,
             )
             print(outcome or "no pending jobs")

@@ -42,6 +42,7 @@ export async function loadResourceSource(
   bucket: string,
   userId: string,
   resourceId: string,
+  pdfBucket = "marketplace-documents",
 ): Promise<Source> {
   const rows = await backend(
     `learning_resources?id=eq.${encodeURIComponent(resourceId)}&select=*`,
@@ -55,19 +56,43 @@ export async function loadResourceSource(
     throw new AnalysisError(403, "resource_analysis_forbidden");
   }
   let transcript: Record<string, unknown> | null = null;
-  if (resource.kind === "Video") {
+  // Reading links remain authored-body resources unless they reference a PDF
+  // in the verified documents bucket. A matching file must never fall back to body.
+  let pdf = false;
+  if (
+    resource.kind === "Reading" && typeof resource.external_url === "string"
+  ) {
+    try {
+      const url = new URL(resource.external_url);
+      pdf =
+        /^\/storage\/v1\/object\/(?:public|authenticated)\/marketplace-documents\/.+\.pdf$/i
+          .test(decodeURIComponent(url.pathname));
+    } catch { /* Ordinary external Reading links keep saved-body analysis. */ }
+  }
+  if (resource.kind === "Video" || pdf) {
     const location = videoLocation(
       resource.external_url,
       projectUrl,
-      bucket,
+      pdf ? pdfBucket : bucket,
     );
-    const ready = await backend("rpc/read_ready_video_transcript", {
-      p_resource_id: resource.id,
-      p_external_url: resource.external_url,
-      p_storage_bucket: location.bucket,
-      p_storage_path: location.path,
-    }) as Record<string, unknown>[];
+    const ready = await backend(
+      pdf
+        ? "rpc/read_ready_resource_extraction"
+        : "rpc/read_ready_video_transcript",
+      {
+        p_resource_id: resource.id,
+        p_external_url: resource.external_url,
+        p_storage_bucket: location.bucket,
+        p_storage_path: location.path,
+      },
+    ) as Record<string, unknown>[];
     transcript = ready[0] ?? null;
+    if (transcript && typeof transcript.extracted_text === "string") {
+      transcript = {
+        ...transcript,
+        transcript_text: transcript.extracted_text,
+      };
+    }
     if (
       !transcript || transcript.status !== "ready" ||
       typeof transcript.transcript_text !== "string" ||

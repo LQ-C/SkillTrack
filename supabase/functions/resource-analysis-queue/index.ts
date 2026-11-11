@@ -23,6 +23,8 @@ Deno.serve(createQueueHandler(
         url,
         Deno.env.get("RESOURCE_VIDEO_BUCKET") ?? "marketplace-videos",
         draftResourceId,
+        undefined,
+        Deno.env.get("RESOURCE_PDF_BUCKET") ?? "marketplace-documents",
       ),
       drainEmbedding(backend, nativeEmbedder),
     ]);

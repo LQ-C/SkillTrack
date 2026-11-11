@@ -21,6 +21,7 @@ class Config:
     renew_seconds: int = 60
     max_video_mb: int = 1024
     video_bucket: str = ""
+    pdf_bucket: str = "marketplace-documents"
     discovery_batch_size: int = 25
 
     @classmethod
@@ -43,6 +44,7 @@ class Config:
             renew_seconds=int(os.getenv("RENEW_SECONDS", "60")),
             max_video_mb=int(os.getenv("MAX_VIDEO_MB", "1024")),
             video_bucket=os.getenv("VIDEO_BUCKET", "").strip(),
+            pdf_bucket=os.getenv("PDF_BUCKET", "marketplace-documents").strip(),
             discovery_batch_size=int(os.getenv("DISCOVERY_BATCH_SIZE", "25")),
         )
         if (not config.whisper_cpp_exe or not config.model_file or not config.ffmpeg_exe
@@ -53,6 +55,8 @@ class Config:
             raise ValueError("Renew interval must be shorter than lease; max video size must be positive")
         if not config.video_bucket or "/" in config.video_bucket:
             raise ValueError("Set VIDEO_BUCKET to the existing video bucket")
+        if config.pdf_bucket != "marketplace-documents":
+            raise ValueError("PDF_BUCKET must match the verified marketplace-documents contract")
         if not 1 <= config.discovery_batch_size <= 100:
             raise ValueError("DISCOVERY_BATCH_SIZE must be between 1 and 100")
         return config

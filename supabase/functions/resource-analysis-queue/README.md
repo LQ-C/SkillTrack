@@ -1,3 +1,7 @@
+> Updated extraction flow: see `workers/content_analysis/EXTRACTION_ROLLOUT.md`
+> from the repository root. Migration 013 unifies video and private Reading PDFs.
+> Older video-only descriptions below document the compatibility baseline.
+
 # Automatic resource analysis
 
 `resource-analysis-queue` is the single deployable resource-analysis function.

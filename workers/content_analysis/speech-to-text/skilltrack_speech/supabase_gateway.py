@@ -7,7 +7,17 @@ from pathlib import Path
 from typing import Any
 from urllib.error import HTTPError, URLError
 from urllib.parse import quote, unquote, urlparse
-from urllib.request import Request, urlopen
+from urllib.request import Request, build_opener, HTTPRedirectHandler
+
+
+class NoRedirect(HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        return None
+
+
+def urlopen(request, timeout):
+    # Never forward backend credentials to a redirect target.
+    return build_opener(NoRedirect).open(request, timeout=timeout)
 
 from .config import Config
 
@@ -43,7 +53,7 @@ class SupabaseGateway:
             raise GatewayError(f"Backend RPC {name} failed ({status})") from None
 
     def discover(self, draft_resource_id: str | None = None) -> None:
-        rows = self._rpc("video_transcription_candidates", {
+        rows = self._rpc("resource_extraction_candidates", {
             "p_limit": self.config.discovery_batch_size,
             "p_after_id": self.discovery_cursor if draft_resource_id is None else None,
             "p_draft_resource_id": draft_resource_id,
@@ -51,12 +61,16 @@ class SupabaseGateway:
         if not isinstance(rows, list):
             raise GatewayError("Backend returned invalid discovery candidates")
         for row in rows:
-            path = self._video_path(row.get("external_url"))
+            kind = row.get("kind", "Video")
+            bucket = self.config.video_bucket if kind == "Video" else self.config.pdf_bucket
+            path = self._storage_path(row.get("external_url"), bucket)
+            if kind not in {"Video", "Reading"} or (kind == "Reading" and (not path or not path.lower().endswith(".pdf"))):
+                continue
             if path is not None:
-                self._rpc("enqueue_discovered_video", {
+                self._rpc("enqueue_discovered_extraction", {
                     "p_resource_id": row["id"],
                     "p_external_url": row["external_url"],
-                    "p_storage_bucket": self.config.video_bucket,
+                    "p_storage_bucket": bucket,
                     "p_storage_path": path,
                     "p_allow_draft": draft_resource_id is not None,
                 })
@@ -67,6 +81,9 @@ class SupabaseGateway:
             )
 
     def _video_path(self, value: Any) -> str | None:
+        return self._storage_path(value, self.config.video_bucket)
+
+    def _storage_path(self, value: Any, bucket: str) -> str | None:
         if not isinstance(value, str):
             return None
         try:
@@ -77,7 +94,7 @@ class SupabaseGateway:
                     or "?" in value or "#" in value):
                 return None
             for mode in ("public", "authenticated"):
-                prefix = f"/storage/v1/object/{mode}/{quote(self.config.video_bucket, safe='')}/"
+                prefix = f"/storage/v1/object/{mode}/{quote(bucket, safe='')}/"
                 if url.path.startswith(prefix):
                     path = unquote(url.path[len(prefix):], errors="strict")
                     if (path and len(path) <= 1024 and "\\" not in path
@@ -88,9 +105,9 @@ class SupabaseGateway:
             pass
         return None
 
-    # Atomic RPCs claim and update video_transcripts by its primary key.
+    # Atomic RPCs claim and update resource_extractions by its primary key.
     def claim(self, lease_seconds: int) -> dict[str, Any] | None:
-        result = self._rpc("claim_video_transcript", {"p_lease_seconds": lease_seconds})
+        result = self._rpc("claim_resource_extraction", {"p_lease_seconds": lease_seconds})
         if result is None:
             return None
         if not isinstance(result, dict):
@@ -98,8 +115,8 @@ class SupabaseGateway:
         return result
 
     def renew(self, transcript_id: str, token: str, lease_seconds: int) -> bool:
-        return self._rpc("renew_video_transcript", {
-            "p_transcript_id": transcript_id,
+        return self._rpc("renew_resource_extraction", {
+            "p_extraction_id": transcript_id,
             "p_claim_token": token,
             "p_lease_seconds": lease_seconds,
         }) is True
@@ -108,17 +125,17 @@ class SupabaseGateway:
         self, transcript_id: str, token: str, transcript: str,
         language: str | None, segments: list[dict[str, Any]],
     ) -> bool:
-        return self._rpc("complete_video_transcript", {
-            "p_transcript_id": transcript_id,
+        return self._rpc("complete_resource_extraction", {
+            "p_extraction_id": transcript_id,
             "p_claim_token": token,
-            "p_transcript_text": transcript,
+            "p_extracted_text": transcript,
             "p_language": language,
             "p_segments": segments,
         }) is True
 
     def fail(self, transcript_id: str, token: str, error_code: str) -> bool:
-        return self._rpc("fail_video_transcript", {
-            "p_transcript_id": transcript_id,
+        return self._rpc("fail_resource_extraction", {
+            "p_extraction_id": transcript_id,
             "p_claim_token": token,
             "p_error_code": error_code,
         }) is True

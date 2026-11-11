@@ -86,9 +86,9 @@ class DiscoveryTests(unittest.TestCase):
             self.assertTrue(self.gateway.complete(row["id"], "token", "text", "en", []))
             self.assertTrue(self.gateway.fail(row["id"], "token", "save_failed"))
             self.assertEqual([call.args[0] for call in rpc.call_args_list], [
-                "claim_video_transcript", "renew_video_transcript",
-                "complete_video_transcript", "fail_video_transcript",
+                "claim_resource_extraction", "renew_resource_extraction",
+                "complete_resource_extraction", "fail_resource_extraction",
             ])
             for call in rpc.call_args_list[1:]:
-                self.assertEqual(call.args[1]["p_transcript_id"], row["id"])
+                self.assertEqual(call.args[1]["p_extraction_id"], row["id"])
                 self.assertNotIn("p_job_id", call.args[1])

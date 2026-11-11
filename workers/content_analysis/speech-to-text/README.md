@@ -1,3 +1,7 @@
+> Updated extraction flow: see `workers/content_analysis/EXTRACTION_ROLLOUT.md`
+> from the repository root. Migration 013 unifies video and private Reading PDFs.
+> Older video-only descriptions below document the compatibility baseline.
+
 # SkillTrack local video transcription worker
 
 This Windows worker downloads an authorized marketplace video from Supabase Storage, converts its audio with standalone FFmpeg, runs the standalone whisper.cpp `whisper-cli.exe`, and saves full text, detected language, and timestamped segments under the original resource ID. It does **not** call Buzz or the Python `openai-whisper` package. The temporary download, WAV, and JSON export are deleted after each job; the original Storage video is not deleted.

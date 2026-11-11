@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { AnalysisError, createAnalyzer, validateLabels } from "./generator.ts";
 import { GeminiTagProvider } from "./gemini.ts";
-import { videoLocation } from "./store.ts";
+import { loadResourceSource, videoLocation } from "./store.ts";
 import {
   ExampleDatabase,
   exampleLabels,
@@ -206,4 +206,51 @@ Deno.test("provider keeps bounded transient retry and structured JSON", async ()
     exampleLabels,
   );
   assert.equal(calls, 2);
+});
+
+Deno.test("Reading PDF requires a current extraction; other Reading links keep authored body", async () => {
+  const resource: Record<string, unknown> = {
+    id: resourceId,
+    author_id: ownerId,
+    kind: "Reading",
+    status: "published",
+    moderation_hidden: false,
+    title: "PDF",
+    body: "Authored body",
+    external_url:
+      "https://example.supabase.co/storage/v1/object/authenticated/marketplace-documents/lesson.pdf",
+  };
+  let ready = true;
+  const calls: string[] = [];
+  const backend = (path: string) => {
+    calls.push(path);
+    return Promise.resolve(
+      path.startsWith("learning_resources") ? [resource] : ready
+        ? [{
+          id: "extraction",
+          status: "ready",
+          extracted_text: "PDF Flutter layouts",
+        }]
+        : [],
+    );
+  };
+  const load = () =>
+    loadResourceSource(
+      backend,
+      "https://example.supabase.co",
+      "marketplace-videos",
+      ownerId,
+      resourceId,
+    );
+  const source = await load();
+  assert.ok(source.text.includes("PDF Flutter layouts"));
+  assert.ok(source.text.includes("Authored body"));
+  assert.ok(calls.includes("rpc/read_ready_resource_extraction"));
+  ready = false;
+  await assert.rejects(load, code("video_transcript_not_ready"));
+  resource.external_url =
+    "https://other.invalid/storage/v1/object/authenticated/marketplace-documents/lesson.pdf";
+  await assert.rejects(load, code("video_storage_reference_unsupported"));
+  resource.external_url = "https://example.org/article";
+  assert.equal((await load()).transcript, null);
 });

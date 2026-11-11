@@ -35,6 +35,7 @@ export async function drainOne(
   bucket: string,
   draftResourceId: string | null = null,
   signal = AbortSignal.timeout(60_000),
+  pdfBucket = "marketplace-documents",
 ) {
   await backend("rpc/enqueue_ready_resource_analysis", {
     p_resource_id: draftResourceId,
@@ -69,6 +70,7 @@ export async function drainOne(
           bucket,
           userId,
           resourceId,
+          pdfBucket,
         );
         if (
           (source.transcript?.id ?? null) !== job.transcript_id ||
