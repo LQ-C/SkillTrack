@@ -27,7 +27,7 @@ async function setup(t){
  return db;
 }
 
-const upgrade=await readFile(new URL('../migrations/013_resource_extractions.sql',import.meta.url),'utf8');
+const upgrade=(await Promise.all(['013_resource_extractions','014_resource_image_analysis'].map(name=>readFile(new URL(`../migrations/${name}.sql`,import.meta.url),'utf8')))).join('\n');
 const file='60000000-0000-0000-0000-000000000001';
 const url='https://example.supabase.co/storage/v1/object/authenticated/videos/a.mp4';
 async function video(db){

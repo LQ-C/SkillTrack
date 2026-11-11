@@ -35,7 +35,13 @@ export class ExampleDatabase {
       if (path.startsWith("learning_resources?")) {
         return [structuredClone(this.resource)];
       }
-      if (path === "rpc/read_ready_video_transcript") {
+      if (
+        path === "rpc/is_image_resource"
+      ) return this.transcript?.extraction_type === "image_description";
+      if (
+        path === "rpc/read_ready_video_transcript" ||
+        path === "rpc/read_ready_resource_extraction"
+      ) {
         return this.transcript?.status === "ready" &&
             this.transcript.source_version === this.currentVersion
           ? [structuredClone(this.transcript)]

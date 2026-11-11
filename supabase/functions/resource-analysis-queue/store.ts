@@ -43,6 +43,7 @@ export async function loadResourceSource(
   userId: string,
   resourceId: string,
   pdfBucket = "marketplace-documents",
+  imageBucket = "marketplace-documents",
 ): Promise<Source> {
   const rows = await backend(
     `learning_resources?id=eq.${encodeURIComponent(resourceId)}&select=*`,
@@ -56,8 +57,8 @@ export async function loadResourceSource(
     throw new AnalysisError(403, "resource_analysis_forbidden");
   }
   let transcript: Record<string, unknown> | null = null;
-  // Reading links remain authored-body resources unless they reference a PDF
-  // in the verified documents bucket. A matching file must never fall back to body.
+  // File-backed Reading resources require current extraction text. Ordinary
+  // external Reading links retain authored-body analysis.
   let pdf = false;
   if (
     resource.kind === "Reading" && typeof resource.external_url === "string"
@@ -69,14 +70,16 @@ export async function loadResourceSource(
           .test(decodeURIComponent(url.pathname));
     } catch { /* Ordinary external Reading links keep saved-body analysis. */ }
   }
-  if (resource.kind === "Video" || pdf) {
+  const image = resource.kind === "Reading" &&
+    await backend("rpc/is_image_resource", { p_resource: resource }) === true;
+  if (resource.kind === "Video" || pdf || image) {
     const location = videoLocation(
       resource.external_url,
       projectUrl,
-      pdf ? pdfBucket : bucket,
+      image ? imageBucket : pdf ? pdfBucket : bucket,
     );
     const ready = await backend(
-      pdf
+      pdf || image
         ? "rpc/read_ready_resource_extraction"
         : "rpc/read_ready_video_transcript",
       {
@@ -113,7 +116,12 @@ export async function loadResourceSource(
     );
     if (tags.length) parts.push(`existing tags: ${tags.join(", ")}`);
   }
-  if (transcript) parts.push(`transcript: ${transcript.transcript_text}`);
+  if (transcript) {
+    const label = transcript.extraction_type === "image_description"
+      ? "image description"
+      : "transcript";
+    parts.push(`${label}: ${transcript.transcript_text}`);
+  }
   return {
     resource,
     transcript,

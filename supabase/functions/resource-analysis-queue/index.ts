@@ -1,3 +1,4 @@
+import { drainImage } from "./images.ts";
 import { drainEmbedding } from "../_shared/recommendations/indexer.ts";
 import { nativeEmbedder } from "../_shared/recommendations/runtime.ts";
 import { GeminiTagProvider } from "./gemini.ts";
@@ -16,7 +17,7 @@ Deno.serve(createQueueHandler(
       apiKey: () => Deno.env.get("GEMINI_API_KEY"),
       model: Deno.env.get("GEMINI_RESOURCE_TAG_MODEL"),
     });
-    const [analysis, indexing] = await Promise.allSettled([
+    const [analysis, indexing, images] = await Promise.allSettled([
       drainOne(
         backend,
         provider,
@@ -25,12 +26,30 @@ Deno.serve(createQueueHandler(
         draftResourceId,
         undefined,
         Deno.env.get("RESOURCE_PDF_BUCKET") ?? "marketplace-documents",
+        Deno.env.get("RESOURCE_IMAGE_BUCKET") ?? "marketplace-documents",
       ),
       drainEmbedding(backend, nativeEmbedder),
+      Promise.resolve().then(() =>
+        drainImage(
+          backend,
+          new GeminiTagProvider({
+            apiKey: () => Deno.env.get("GEMINI_API_KEY"),
+            model: Deno.env.get("GEMINI_RESOURCE_IMAGE_MODEL") ??
+              Deno.env.get("GEMINI_RESOURCE_TAG_MODEL"),
+          }),
+          url,
+          key,
+          Deno.env.get("RESOURCE_IMAGE_BUCKET") ?? "marketplace-documents",
+          draftResourceId,
+        )
+      ),
     ]);
     if (analysis.status === "rejected") throw analysis.reason;
     return {
       ...analysis.value,
+      images: images.status === "fulfilled"
+        ? images.value
+        : { outcome: "unavailable" },
       indexing: indexing.status === "fulfilled"
         ? indexing.value
         : { outcome: "unavailable" },
