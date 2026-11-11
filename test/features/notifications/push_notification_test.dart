@@ -53,6 +53,7 @@ class FakeDevices implements PushDeviceRepository {
   final registrations = <String>[];
   final removals = <String>[];
   bool fail = false;
+  bool failRemoval = false;
 
   @override
   String? get currentUserId => preferences.currentUserId;
@@ -64,6 +65,7 @@ class FakeDevices implements PushDeviceRepository {
 
   @override
   Future<void> unregister(String token) async {
+    if (failRemoval) throw StateError('cleanup offline');
     if (fail) throw StateError('offline');
     removals.add(token);
   }
@@ -273,6 +275,29 @@ void main() {
       await flush();
       expect(devices.registrations, ['user:token-one', 'user:token-two']);
       expect(devices.removals, ['token-one']);
+    },
+  );
+
+  test(
+    'failed old-token cleanup is retried on session reconciliation',
+    () async {
+      preferences.savedPreferences = const NotificationPreferences(
+        userId: 'user',
+        pushEnabled: true,
+      );
+      await controller.syncSession();
+      devices.failRemoval = true;
+      service.token = 'token-two';
+      service.tokens.add('token-two');
+      await flush();
+      expect(controller.errorMessage, isNotNull);
+      devices.failRemoval = false;
+      await controller.syncSession(resumed: true);
+      expect(devices.removals, contains('token-one'));
+      expect(
+        devices.registrations.where((value) => value == 'user:token-two'),
+        hasLength(1),
+      );
     },
   );
 
