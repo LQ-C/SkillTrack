@@ -18,6 +18,9 @@ const hooks = registerHooks({
     if (specifier === "npm:@supabase/supabase-js@2") {
       source =
         "export const createClient = () => globalThis.__notificationTestAdmin;";
+    } else if (specifier.endsWith("/recommendations/runtime.ts")) {
+      source =
+        "export const nativeEmbedder = () => {throw new Error('No native model in adapter tests');};";
     } else if (
       specifier === "./generator.ts" &&
       context.parentURL === new URL("./index.ts", import.meta.url).href
@@ -74,39 +77,52 @@ function createFixture() {
     }] as unknown,
     stagnationError: null as unknown,
     admin: {
-      async rpc(name: string, args: Record<string, unknown>) {
-        calls.push({ name, args });
-        if (name === "notification_project_candidates") {
-          return { data: [], error: null };
-        }
-        if (name === "notification_task_candidates") {
-          return {
-            data: [{
-              task_id: "task-1",
-              board_id: "board-1",
-              project_id: "project-1",
-              user_id: "user-1",
-              task_title: "Study",
-              task_status: "in_progress",
-              task_archived: false,
-              board_archived: false,
-              project_status: "active",
-              profile_exists: true,
-              task_created_at: "2026-10-01T12:00:00Z",
-              last_activity_at: "2026-10-04T12:00:00Z",
-              deadline: null,
-            }],
-            error: null,
-          };
-        }
-        if (name === "update_task_stagnation") {
-          return { data: value.stagnation, error: value.stagnationError };
-        }
-        if (name === "enqueue_app_notification") {
-          saved.push(args.p_notification as Record<string, unknown>);
-          return { data: true, error: null };
-        }
-        throw new Error(`Unexpected RPC ${name}`);
+      rpc(name: string, args: Record<string, unknown>) {
+        const result = Promise.resolve().then(() => {
+          calls.push({ name, args });
+          if (name === "notification_project_candidates") {
+            return { data: [], error: null };
+          }
+          if (name === "notification_task_candidates") {
+            return {
+              data: [{
+                task_id: "task-1",
+                board_id: "board-1",
+                project_id: "project-1",
+                user_id: "user-1",
+                task_title: "Study",
+                task_status: "in_progress",
+                task_archived: false,
+                board_archived: false,
+                project_status: "active",
+                profile_exists: true,
+                task_created_at: "2026-10-01T12:00:00Z",
+                last_activity_at: "2026-10-04T12:00:00Z",
+                deadline: null,
+              }],
+              error: null,
+            };
+          }
+          if (name === "update_task_stagnation") {
+            return { data: value.stagnation, error: value.stagnationError };
+          }
+          if (name === "enqueue_app_notification") {
+            saved.push(args.p_notification as Record<string, unknown>);
+            return { data: true, error: null };
+          }
+          if (name === "stalled_period_alert_state") {
+            return { data: "eligible", error: null };
+          }
+          if (name === "recommendation_load_owned_task") {
+            return { data: [{ is_stalled: false }], error: null };
+          }
+          if (name === "enqueue_stalled_period_alert") {
+            saved.push(args);
+            return { data: true, error: null };
+          }
+          throw new Error(`Unexpected RPC ${name}`);
+        });
+        return Object.assign(result, { abortSignal: () => result });
       },
       from(table: string) {
         assert.equal(table, "notification_preferences");
@@ -154,10 +170,12 @@ test("adapter preserves candidate creation time and exact RPC argument/return co
   );
   assert.equal(fixture.saved.length, 1);
   assert.equal(
-    fixture.saved[0].unique_key,
-    "stalled:task-1:2026-10-10 12:00:00+00",
+    fixture.saved[0].p_stalled_at,
+    "2026-10-10 12:00:00+00",
   );
-  assert.equal(fixture.saved[0].type, "STALLED_TASK");
+  assert.equal(fixture.saved[0].p_resource_id, null);
+  assert.equal(fixture.saved[0].p_task_id, "task-1");
+  assert.equal(fixture.saved[0].p_user_id, "user-1");
   assert.equal((await response.json()).failed, 0);
   assert.deepEqual(fixture.queries, [
     "stalled_task_enabled,deadline_reminder_enabled,recommendation_enabled",

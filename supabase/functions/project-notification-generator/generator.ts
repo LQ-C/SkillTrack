@@ -50,6 +50,12 @@ export type NotificationInsert = {
 };
 
 export type NotificationStore = {
+  deliverStalledAlert?(
+    task: TaskCandidate,
+    episode: string,
+    preferences: Preferences,
+  ): Promise<boolean>;
+
   listProjects(
     offset: number,
     limit: number,
@@ -168,11 +174,9 @@ function deadlineWindow(
   key: string;
   phrase: string;
 } | null {
-  const deadlineDay =
-    dateInApplicationTimeZone(deadline);
+  const deadlineDay = dateInApplicationTimeZone(deadline);
 
-  const currentDay =
-    dateInApplicationTimeZone(now);
+  const currentDay = dateInApplicationTimeZone(now);
 
   const days = Math.round(
     (deadlineDay - currentDay) / dayMs,
@@ -229,8 +233,7 @@ function calculateStagnationScore(input: {
       input.lastActivityAt.getTime(),
   );
 
-  const inactiveDays =
-    inactiveMilliseconds / dayMs;
+  const inactiveDays = inactiveMilliseconds / dayMs;
 
   let allowedInactivityDays = 7;
 
@@ -265,29 +268,22 @@ function calculateStagnationScore(input: {
     ),
   );
 
-  const isOverdue =
-    input.deadline != null &&
+  const isOverdue = input.deadline != null &&
     input.deadline.getTime() <
       input.now.getTime();
 
-  const isDueWithinOneDay =
-    input.deadline != null &&
+  const isDueWithinOneDay = input.deadline != null &&
     !isOverdue &&
     input.deadline.getTime() -
           input.now.getTime() <=
       dayMs;
 
-  const deadlinePoints = isOverdue
-    ? 20
-    : isDueWithinOneDay
+  const deadlinePoints = isOverdue ? 20 : isDueWithinOneDay ? 10 : 0;
+
+  const statusPoints = input.status === "in_progress" &&
+      inactiveDays >= 1
     ? 10
     : 0;
-
-  const statusPoints =
-    input.status === "in_progress" &&
-      inactiveDays >= 1
-      ? 10
-      : 0;
 
   return Math.min(
     100,
@@ -304,9 +300,7 @@ function logGenerationFailure(
   category: string,
   error: unknown,
 ): void {
-  const message = error instanceof Error
-    ? error.message
-    : "Unknown error";
+  const message = error instanceof Error ? error.message : "Unknown error";
 
   console.error(`${category} failed: ${message}`);
 }
@@ -360,7 +354,7 @@ export async function generateNotifications(
   // PROJECT DEADLINE NOTIFICATIONS
   // =========================================================
 
-  for (let offset = 0; ; offset += pageSize) {
+  for (let offset = 0;; offset += pageSize) {
     const projects = await store.listProjects(
       offset,
       pageSize,
@@ -411,11 +405,9 @@ export async function generateNotifications(
           board_id: null,
           task_id: null,
           title: "Project deadline approaching",
-          message:
-            `“${project.project_name}” is due ` +
+          message: `“${project.project_name}” is due ` +
             `${window.phrase}.`,
-          unique_key:
-            `project-deadline:${project.project_id}:` +
+          unique_key: `project-deadline:${project.project_id}:` +
             `${project.end_date}:${window.key}`,
           action_data: emptyActionData,
         });
@@ -438,7 +430,7 @@ export async function generateNotifications(
   // TASK PROCESSING
   // =========================================================
 
-  for (let offset = 0; ; offset += pageSize) {
+  for (let offset = 0;; offset += pageSize) {
     const tasks = await store.listTasks(
       offset,
       pageSize,
@@ -509,21 +501,19 @@ export async function generateNotifications(
             task.last_activity_at,
           );
 
-          const stagnationScore =
-            calculateStagnationScore({
-              createdAt,
-              lastActivityAt,
-              deadline: parsedDeadline,
-              status: task.task_status,
-              now,
-            });
+          const stagnationScore = calculateStagnationScore({
+            createdAt,
+            lastActivityAt,
+            deadline: parsedDeadline,
+            status: task.task_status,
+            now,
+          });
 
-          const stagnation =
-            await store.updateTaskStagnation(
-              task.task_id,
-              stagnationScore,
-              now,
-            );
+          const stagnation = await store.updateTaskStagnation(
+            task.task_id,
+            stagnationScore,
+            now,
+          );
 
           /*
            * Retry the notification on later runs while the task
@@ -531,26 +521,35 @@ export async function generateNotifications(
            */
           if (
             stagnation.currently_stalled &&
-            settings.stalled_task_enabled &&
+            (store.deliverStalledAlert || settings.stalled_task_enabled ||
+              settings.recommendation_enabled) &&
             stagnation.current_stalled_at
           ) {
-            await insert({
-              user_id: task.user_id,
-              type: "STALLED_TASK",
-              context_type: "TASK",
-              project_id: task.project_id,
-              board_id: task.board_id,
-              task_id: task.task_id,
-              title: "Task may be stalled",
-              message:
-                `“${task.task_title}” has a ` +
-                `stagnation score of ` +
-                `${stagnationScore}/100.`,
-              unique_key:
-                `stalled:${task.task_id}:` +
+            if (store.deliverStalledAlert) {
+              const created = await store.deliverStalledAlert(
+                task,
                 stagnation.current_stalled_at,
-              action_data: emptyActionData,
-            });
+                settings,
+              );
+              if (created) summary.created++;
+              else summary.duplicates++;
+            } else if (settings.stalled_task_enabled) {
+              await insert({
+                user_id: task.user_id,
+                type: "STALLED_TASK",
+                context_type: "TASK",
+                project_id: task.project_id,
+                board_id: task.board_id,
+                task_id: task.task_id,
+                title: "Task may be stalled",
+                message: `“${task.task_title}” has a ` +
+                  `stagnation score of ` +
+                  `${stagnationScore}/100.`,
+                unique_key: `stalled:${task.task_id}:` +
+                  stagnation.current_stalled_at,
+                action_data: emptyActionData,
+              });
+            }
           }
         } catch (error) {
           summary.failed++;
@@ -580,7 +579,8 @@ export async function generateNotifications(
             const hasTime = task.deadline_has_time !== false &&
               !/^\d{4}-\d{2}-\d{2}$/.test(task.deadline!);
             const timeSuffix = hasTime
-              ? ` at ${formatDeadlineTime(parsedDeadline)}` : "";
+              ? ` at ${formatDeadlineTime(parsedDeadline)}`
+              : "";
 
             await insert({
               user_id: task.user_id,
@@ -590,11 +590,9 @@ export async function generateNotifications(
               board_id: task.board_id,
               task_id: task.task_id,
               title: "Task deadline approaching",
-              message:
-                `“${task.task_title}” is due ` +
+              message: `“${task.task_title}” is due ` +
                 `${window.phrase}${timeSuffix}.`,
-              unique_key:
-                `task-deadline:${task.task_id}:` +
+              unique_key: `task-deadline:${task.task_id}:` +
                 `${parsedDeadline.toISOString()}:` +
                 window.key,
               action_data: emptyActionData,

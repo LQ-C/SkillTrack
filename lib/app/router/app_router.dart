@@ -1,4 +1,10 @@
+import '../../features/learning_integration/repositories/bookmark_repository.dart';
+import '../../features/learning_integration/view_models/task_bookmarks_view_model.dart';
+import 'dart:async';
 import 'package:flutter/material.dart';
+
+import '../../features/learning_integration/repositories/recommendation_repository.dart';
+import '../../features/learning_integration/view_models/task_recommendations_view_model.dart';
 
 import '../../features/kanban/models/kanban_task.dart';
 import '../../features/kanban/repositories/kanban_repository.dart';
@@ -78,24 +84,24 @@ class CreateTaskRouteArgs extends BoardRouteArgs {
   final String? taskId;
 }
 
+class NotificationRouteArgs {
+  const NotificationRouteArgs(this.notificationId);
+  final String notificationId;
+}
+
 class TaskDetailsRouteArgs {
   const TaskDetailsRouteArgs({
     required this.projectId,
     required this.boardId,
     required this.projectName,
     required this.taskId,
-    this.showStalledWarning = false,
-    this.openRecommendations = false,
-    this.resourceTitles = const [],
-    this.resourceCount = 0,
+    this.showLearningResources = false,
   });
   final String projectId;
   final String boardId;
   final String projectName;
   final String taskId;
-  final bool showStalledWarning, openRecommendations;
-  final List<String> resourceTitles;
-  final int resourceCount;
+  final bool showLearningResources;
   bool get isValid =>
       projectId.trim().isNotEmpty &&
       boardId.trim().isNotEmpty &&
@@ -107,6 +113,7 @@ class AppRouter {
     required this.projectRepository,
     required this.kanbanRepository,
     this.taskGenerationRepository,
+    this.recommendationRepository,
     this.notificationRepository,
     this.badgeController,
     this.realtime,
@@ -115,6 +122,7 @@ class AppRouter {
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
   final TaskGenerationRepository? taskGenerationRepository;
+  final RecommendationRepository? recommendationRepository;
   final NotificationRepository? notificationRepository;
   final NotificationBadgeController? badgeController;
   final NotificationChangeSource? realtime;
@@ -135,6 +143,9 @@ class AppRouter {
                     )
                   : const _RouteUnavailable()
             : MainModuleShell(
+                initialNotificationId: arguments is NotificationRouteArgs
+                    ? arguments.notificationId
+                    : null,
                 initialPage: settings.name == AppRoutes.notifications
                     ? MainModulePage.notifications
                     : MainModulePage.projects,
@@ -155,7 +166,6 @@ class AppRouter {
         page = CreateProjectScreen(
           repository: projectRepository,
           generationRepository: taskGenerationRepository,
-          taskRepository: kanbanRepository,
         );
       case AppRoutes.generatedTaskPreview:
         page = arguments is GeneratedTaskPreviewRouteArgs && arguments.isValid
@@ -188,6 +198,7 @@ class AppRouter {
       case AppRoutes.taskDetails:
         page = arguments is TaskDetailsRouteArgs && arguments.isValid
             ? _TaskDetailsRoute(
+                recommendationRepository: recommendationRepository,
                 args: arguments,
                 repository: kanbanRepository,
                 projectRepository: projectRepository,
@@ -282,13 +293,17 @@ class AppRouter {
   }
 
   static bool openNotificationsFromPush(
-    GlobalKey<NavigatorState> navigatorKey,
-  ) {
+    GlobalKey<NavigatorState> navigatorKey, {
+    String? notificationId,
+  }) {
     final navigator = navigatorKey.currentState;
     if (navigator == null) return false;
     navigator.pushNamedAndRemoveUntil<void>(
       AppRoutes.notifications,
       (_) => false,
+      arguments: notificationId == null
+          ? null
+          : NotificationRouteArgs(notificationId),
     );
     return true;
   }
@@ -495,7 +510,10 @@ class _TaskRouteState extends State<_TaskRoute> {
     projectRepository: widget.projectRepository,
     projectId: widget.args.projectId,
   );
-  late final Future<void> _ready = _model.initialize(widget.args.boardId);
+  late final Future<void> _ready = _model.initialize(
+    widget.args.boardId,
+    widget.args.taskId,
+  );
 
   @override
   void dispose() {
@@ -529,8 +547,10 @@ class _TaskDetailsRoute extends StatefulWidget {
     required this.args,
     required this.repository,
     required this.projectRepository,
+    this.recommendationRepository,
   });
   final ProjectRepository projectRepository;
+  final RecommendationRepository? recommendationRepository;
   final TaskDetailsRouteArgs args;
   final KanbanRepository repository;
 
@@ -545,10 +565,47 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
     projectRepository: widget.projectRepository,
     projectId: widget.args.projectId,
   );
-  late final Future<void> _ready = _model.initialize(widget.args.boardId);
+  late final Future<void> _ready = _initialize();
+  TaskRecommendationsViewModel? _recommendations;
+  TaskBookmarksViewModel? _bookmarks;
+
+  Future<void> _initialize() async {
+    final (_, project) = await (
+      _model.initialize(widget.args.boardId, widget.args.taskId),
+      widget.recommendationRepository == null
+          ? Future<LearningProject?>.value()
+          : widget.projectRepository
+                .getProject(widget.args.projectId)
+                // A recommendation-context failure must not block other task actions.
+                .onError((_, _) => null),
+    ).wait;
+    if (!mounted) return;
+    final repository = widget.recommendationRepository;
+    if (repository is BookmarkRepository) {
+      _bookmarks = TaskBookmarksViewModel(
+        repository as BookmarkRepository,
+        widget.args.taskId,
+      );
+    }
+    if (repository != null) {
+      _recommendations = TaskRecommendationsViewModel(
+        repository,
+        taskId: widget.args.taskId,
+        tasks: _model,
+        projectActive: project?.status == 'active',
+      );
+      if (widget.args.showLearningResources &&
+          _recommendations!.eligible &&
+          !_recommendations!.hasRequested) {
+        unawaited(_recommendations!.getRecommendations());
+      }
+    }
+  }
 
   @override
   void dispose() {
+    _bookmarks?.dispose();
+    _recommendations?.dispose();
     _model.dispose();
     super.dispose();
   }
@@ -583,7 +640,7 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
       final task = _model.allTasks
           .where((item) => item.id == widget.args.taskId)
           .firstOrNull;
-      if (_model.errorMessage != null || task == null) {
+      if (snapshot.hasError || _model.errorMessage != null || task == null) {
         return const _RouteUnavailable();
       }
       return Scaffold(
@@ -591,12 +648,11 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
         body: TaskDetailsSheet(
           taskId: widget.args.taskId,
           viewModel: _model,
+          recommendations: _recommendations,
+          bookmarks: _bookmarks,
+          showLearningResources: widget.args.showLearningResources,
           onEdit: _isOpeningEdit ? null : _edit,
           fullScreen: true,
-          showStalledWarning: widget.args.showStalledWarning,
-          showRecommendations: widget.args.openRecommendations,
-          resourceTitles: widget.args.resourceTitles,
-          resourceCount: widget.args.resourceCount,
         ),
       );
     },

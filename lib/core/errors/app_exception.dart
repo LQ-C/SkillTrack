@@ -10,6 +10,12 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const loadBookmarksFailed =
+      'Unable to load saved resources. Please retry.';
+  static const saveBookmarkFailed = 'Unable to update bookmark. Please retry.';
+
+  static const loadRecommendationsFailed =
+      'Unable to load learning resources. Please try again.';
   static const deadlineDatePassed = 'Choose today or a future date.';
   static const deadlineTimePassed = 'Choose a time later than now.';
   static const progressUpdateRequired = 'Enter a progress update.';
@@ -72,6 +78,8 @@ class AppErrorMessages {
       'Update the project end date before generating more tasks.';
   static const projectDescriptionRequired =
       'Add a project description before generating more tasks.';
+  static const replaceTaskListFailed =
+      'Unable to replace tasks. Retry this save; if the board changed, cancel the preview and regenerate.';
   static const addGeneratedTasksFailed =
       'Unable to add tasks. Please try again.';
   static const saveGeneratedTasksFailed =

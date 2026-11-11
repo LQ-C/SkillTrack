@@ -1,4 +1,4 @@
-import { withSupabase } from "npm:@supabase/server@1";
+import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1";
 
 import { GoogleGenAI } from "npm:@google/genai@2";
 
@@ -40,7 +40,7 @@ export default {
     {
       auth: "user",
     },
-    async (req: Request, ctx) => {
+    async (req: Request, ctx: SupabaseContext) => {
       if (req.method !== "POST") {
         return jsonResponse(
           {
@@ -101,6 +101,7 @@ export default {
         );
       }
 
+      const replacementFeedback = text(body.replacementFeedback);
       const mode = parseGenerationMode(
         body.generationMode,
       );
@@ -152,6 +153,14 @@ export default {
         );
       }
 
+      if (
+        mode === "replace" &&
+        (!replacementFeedback || replacementFeedback.length > 1000)
+      ) {
+        return jsonResponse({
+          error: "Replacement feedback is required (1–1000 characters).",
+        }, 400);
+      }
       const sourceMode = mode === "revise"
         ? parseSourceMode(
           body.sourceMode,
@@ -203,10 +212,10 @@ export default {
         }
       }
 
-      const shouldReadExistingTasks = mode === "append" ||
+      const shouldReadExistingTasks = mode === "append" || mode === "replace" ||
         (
           mode === "revise" &&
-          sourceMode === "append"
+          sourceMode !== "initial"
         );
 
       const existingTasks = shouldReadExistingTasks
@@ -217,6 +226,11 @@ export default {
 
       // Caller-scoped Supabase access: ownership and RLS both apply.
       const projectId = text(body.projectId);
+      if ((mode === "replace" || sourceMode === "replace") && !projectId) {
+        return jsonResponse({
+          error: "An owned project is required for replacement.",
+        }, 400);
+      }
       let existingMilestones: ExistingMilestone[] = [];
       try {
         const requested = requestedMilestoneIds(body);
@@ -312,7 +326,7 @@ export default {
             deadline,
             existingTasks,
             sourceMode,
-            revisionFeedback,
+            mode === "replace" ? replacementFeedback : revisionFeedback,
             currentDraft,
             constraints,
             existingMilestones,

@@ -21,6 +21,12 @@ class _ProjectRepository extends SupabaseProjectRepository {
   String get currentUserId => 'user';
 }
 
+class _KanbanRepository extends SupabaseKanbanRepository {
+  _KanbanRepository(super.client);
+  @override
+  String get currentUserId => 'user';
+}
+
 class _ApiFixture {
   _ApiFixture(this.server);
   final HttpServer server;
@@ -34,6 +40,7 @@ class _ApiFixture {
   String failMessage = 'internal database column details';
   String? failInsertTable;
   bool failTaskRollback = false;
+  bool failStorageDelete = false;
 
   static Future<_ApiFixture> start() async {
     final fixture = _ApiFixture(
@@ -55,12 +62,33 @@ class _ApiFixture {
     final table = request.uri.pathSegments.last;
     if (fail ||
         (request.method == 'POST' && table == failInsertTable) ||
+        (request.uri.path.startsWith('/storage/') && failStorageDelete) ||
         (request.method == 'DELETE' &&
             table == 'kanban_tasks' &&
             failTaskRollback)) {
       request.response.statusCode = 400;
       request.response.write(
         jsonEncode({'message': failMessage, 'code': failCode}),
+      );
+    } else if (table == 'save_new_skilltrack_project') {
+      final payload = jsonDecode(body) as Map;
+      final row = {
+        'id': 'project-1',
+        'owner_id': 'user',
+        'name': payload['p_name'],
+        'description': payload['p_description'],
+        'constraints_text': payload['p_constraints'],
+        'start_date': payload['p_start_date'],
+        'end_date': payload['p_end_date'],
+        'status': 'active',
+      };
+      tables['projects'] = [row];
+      request.response.write(
+        jsonEncode({
+          'project': row,
+          'board_id': 'board-1',
+          'total_task_count': (payload['p_tasks'] as List?)?.length ?? 0,
+        }),
       );
     } else if (table == 'projects' &&
         (request.method == 'POST' || request.method == 'PATCH')) {
@@ -77,8 +105,13 @@ class _ApiFixture {
       request.response.write(jsonEncode(tables[table]!.single));
     } else if (table == 'update_task_checklist_item') {
       request.response.write(jsonEncode(tables[table]!.single));
-    } else if (table == 'update_kanban_task_tracking') {
+    } else if (table == 'update_kanban_task_tracking' ||
+        table == 'save_kanban_task_edit') {
       request.response.write(jsonEncode(tables[table]!.single));
+    } else if (table == 'task_attachment_cleanup' &&
+        request.method == 'DELETE') {
+      request.response.write(jsonEncode(tables[table] ?? []));
+      tables[table] = [];
     } else {
       var rows = List<Map<String, dynamic>>.of(tables[table] ?? []);
       if (table == 'kanban_tasks') {
@@ -95,6 +128,7 @@ class _ApiFixture {
         }
         final board = request.uri.queryParameters['board_id'];
         final archived = request.uri.queryParameters['is_archived'];
+        final id = request.uri.queryParameters['id'];
         rows = rows
             .where(
               (row) =>
@@ -102,7 +136,8 @@ class _ApiFixture {
                       !board.startsWith('eq.') ||
                       row['board_id'] == board.substring(3)) &&
                   (archived == null ||
-                      row['is_archived'] == (archived == 'eq.true')),
+                      row['is_archived'] == (archived == 'eq.true')) &&
+                  (id == null || id == "eq.${row['id']}"),
             )
             .toList();
         final order = request.uri.queryParameters['order'] ?? '';
@@ -155,6 +190,94 @@ Map<String, dynamic> _task(String id, String board, {bool archived = false}) =>
     };
 
 void main() {
+  test(
+    'scoped task loading passes only its task ID to dependent queries',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      api.tables['kanban_tasks'] = [
+        _task('1', 'board'),
+        _task('2', 'board'),
+        _task('3', 'other'),
+      ];
+      final repo = SupabaseKanbanRepository(client);
+      expect((await repo.getTask('board', '2'))!.id, '2');
+      final taskRequest = api.requests.first;
+      expect(taskRequest.queryParameters, containsPair('id', 'eq.2'));
+      expect(taskRequest.queryParameters, containsPair('board_id', 'eq.board'));
+      for (final uri in api.requests.skip(1)) {
+        expect(uri.queryParameters, containsPair('task_id', 'in.("2")'));
+      }
+    },
+  );
+
+  test('edit sends one RPC with the task version and selected tags', () async {
+    final api = await _ApiFixture.start();
+    final client = api.client();
+    addTearDown(() async {
+      await client.dispose();
+      await api.close();
+    });
+    final task = KanbanTask.fromMap(_task('1', 'board'));
+    api.tables['save_kanban_task_edit'] = [
+      {
+        'task': {..._task('1', 'board'), 'title': 'Renamed'},
+        'tags': [],
+        'checklist': [],
+        'attachments': [],
+      },
+    ];
+    final repo = SupabaseKanbanRepository(client);
+
+    final saved = await repo.saveTaskEdit(
+      task.copyWith(title: 'Renamed'),
+      requestId: 'edit-1',
+      tagIds: [],
+    );
+
+    expect(saved.title, 'Renamed');
+    expect(api.requests.single.path, endsWith('/rpc/save_kanban_task_edit'));
+    final payload = jsonDecode(api.requestBodies.single) as Map;
+    expect(
+      payload['p_expected_updated_at'],
+      task.updatedAt.toUtc().toIso8601String(),
+    );
+    expect(payload['p_request_id'], 'edit-1');
+    expect(payload['p_add_tag_ids'], isEmpty);
+    expect(payload['p_remove_tag_ids'], isEmpty);
+    expect(payload['p_changes'], containsPair('title', 'Renamed'));
+  });
+
+  test(
+    'failed storage cleanup keeps the queue until a later success',
+    () async {
+      final api = await _ApiFixture.start();
+      final client = api.client();
+      addTearDown(() async {
+        await client.dispose();
+        await api.close();
+      });
+      final repo = _KanbanRepository(client);
+      api.tables['task_attachment_cleanup'] = [
+        {'storage_path': 'user/task/file'},
+      ];
+      api.failStorageDelete = true;
+      await repo.retryAttachmentCleanup();
+      expect(api.tables['task_attachment_cleanup'], hasLength(1));
+      expect(api.methods, ['GET', 'DELETE']);
+      expect(api.requests.last.path, '/storage/v1/object/task-attachments');
+
+      api.failStorageDelete = false;
+      await repo.retryAttachmentCleanup();
+      expect(api.methods, ['GET', 'DELETE', 'GET', 'DELETE', 'DELETE', 'GET']);
+      expect(api.tables['task_attachment_cleanup'], isEmpty);
+    },
+  );
+
   test(
     'checklist updates use an atomic RPC and do not insert a second generic log',
     () async {
@@ -389,9 +512,13 @@ void main() {
             ? 'Flutter only'
             : null;
         expect(created.project.constraints, expected);
-        final sent =
-            jsonDecode(api.requestBodies[api.requestBodies.length - 2]) as Map;
-        expect(sent['constraints_text'], expected);
+        final sent = jsonDecode(api.requestBodies.last) as Map;
+        expect(sent['p_constraints'], expected);
+        expect(
+          api.requests.last.path,
+          endsWith('/rpc/save_new_skilltrack_project'),
+        );
+        expect(sent['p_request_id'], isNotEmpty);
       }
       final loaded = await repo.getProject('project-1');
       expect(loaded!.constraints, 'Flutter only');

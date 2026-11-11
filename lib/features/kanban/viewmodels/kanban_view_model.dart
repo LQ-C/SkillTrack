@@ -1,9 +1,11 @@
 import 'dart:collection';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 
 import '../../../core/utils/date_formatter.dart';
 import '../../../core/utils/operation_id.dart';
+import '../../../core/utils/retryable_write.dart';
 import '../../../core/errors/app_exception.dart';
 import '../../../core/constants/app_constants.dart';
 import '../../projects/models/project_milestone.dart';
@@ -167,8 +169,6 @@ class KanbanViewModel extends ChangeNotifier {
   List<TaskTag> get availableTags => UnmodifiableListView(_tags);
   bool get hasActiveFilters => _filter.isActive;
   bool get isBoardEmpty => _tasks.where((task) => !task.isArchived).isEmpty;
-  bool get isResultEmpty =>
-      KanbanStatus.values.every((status) => visibleTasks(status).isEmpty);
   int get totalTaskCount => _tasks.where((task) => !task.isArchived).length;
   int get completedTaskCount =>
       _tasks.where((task) => !task.isArchived && task.isCompleted).length;
@@ -262,7 +262,11 @@ class KanbanViewModel extends ChangeNotifier {
     return UnmodifiableListView(list);
   }
 
-  Future<void> initialize([String? boardId]) async {
+  final _taskWrites = RetryableWrite<KanbanTask>();
+  String? _focusedTaskId;
+  ({KanbanTask task, List<String>? tags, String id})? _pendingEdit;
+
+  Future<void> initialize([String? boardId, String? taskId]) async {
     if (_disposed || _isLoading) return;
     _isLoading = true;
     _errorMessage = null;
@@ -271,6 +275,7 @@ class KanbanViewModel extends ChangeNotifier {
       final id = boardId ?? await _repository.getFirstBoardId();
       if (_disposed) return;
       _boardId = id;
+      _focusedTaskId = taskId;
       _archivedBoardId = null;
       if (_boardId == null) {
         _tasks = [];
@@ -292,12 +297,13 @@ class KanbanViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _reload() async {
+  Future<void> _reload({String? taskId, bool catalogsOnly = false}) async {
     final board = _boardId;
     if (_disposed || board == null) return;
     final user = _repository.currentUserId;
+    final focus = taskId ?? _focusedTaskId;
     final (loaded, tags, milestones, writable) = await (
-      _repository.getTasks(board),
+      catalogsOnly ? Future.value(_tasks) : _loadTasks(board, focus),
       user == null ? Future.value(<TaskTag>[]) : _repository.getUserTags(user),
       _projectRepository != null && _projectId != null
           ? _projectRepository.getProjectMilestones(_projectId)
@@ -309,8 +315,18 @@ class KanbanViewModel extends ChangeNotifier {
             )
           : Future.value(false),
     ).wait;
-    if (_disposed || board != _boardId) return;
-    _tasks = loaded;
+    if (_disposed || board != _boardId || user != _repository.currentUserId) {
+      return;
+    }
+    if (!catalogsOnly) {
+      _tasks = taskId != null && _focusedTaskId == null
+          ? [
+              for (final task in _tasks)
+                if (task.id != taskId) task,
+              ...loaded,
+            ]
+          : loaded;
+    }
     _milestones = milestones;
     _milestoneBoardWritable = writable;
     if (_filter.milestoneId != null &&
@@ -323,7 +339,17 @@ class KanbanViewModel extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> refresh({bool showLoading = true}) async {
+  Future<List<KanbanTask>> _loadTasks(String board, String? taskId) async {
+    if (taskId == null) return _repository.getTasks(board);
+    final task = await _repository.getTask(board, taskId);
+    return [?task];
+  }
+
+  Future<void> refresh({
+    bool showLoading = true,
+    String? taskId,
+    bool catalogsOnly = false,
+  }) async {
     if (_disposed || _isLoading || _isRefreshing) return;
     if (_boardId == null) {
       await initialize();
@@ -335,7 +361,7 @@ class KanbanViewModel extends ChangeNotifier {
       notifyListeners();
     }
     try {
-      await _reload();
+      await _reload(taskId: taskId, catalogsOnly: catalogsOnly);
     } catch (error) {
       if (!_disposed) _errorMessage = AppException.messageFor(error);
       notifyListeners();
@@ -348,7 +374,7 @@ class KanbanViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> retry() => initialize(_boardId);
+  Future<void> retry() => initialize(_boardId, _focusedTaskId);
 
   Future<bool> archiveBoard() async {
     final id = _boardId;
@@ -462,6 +488,7 @@ class KanbanViewModel extends ChangeNotifier {
     List<KanbanTask>? optimistic,
     String? failureMessage,
     bool reconcileOnFailure = false,
+    bool reloadAfterSave = true,
   }) async {
     if (_disposed || _isSaving) return false;
     final previous = _tasks;
@@ -475,7 +502,7 @@ class KanbanViewModel extends ChangeNotifier {
       committed = true;
       if (_disposed) return false;
       _activityVersion++;
-      await _reload();
+      if (reloadAfterSave) await _reload();
       if (_disposed) return false;
       _feedbackMessage = feedback;
       return true;
@@ -483,7 +510,9 @@ class KanbanViewModel extends ChangeNotifier {
       if (_disposed) return false;
       if (!committed) {
         _tasks = previous;
-        if (reconcileOnFailure) {
+        if (reconcileOnFailure ||
+            (error is AppException &&
+                error.message == AppErrorMessages.taskChanged)) {
           try {
             await _reload();
           } catch (_) {
@@ -541,26 +570,37 @@ class KanbanViewModel extends ChangeNotifier {
       createdAt: now,
       updatedAt: now,
     );
+    final selectedTags = List<String>.unmodifiable(
+      tagIds.toSet().toList()..sort(),
+    );
+    final items = List<String>.unmodifiable(
+      checklist.map((item) => item.trim()),
+    );
+    final intent = (
+      user: _repository.currentUserId,
+      board: task.boardId,
+      title: task.title,
+      description: task.description,
+      status: status,
+      priority: priority,
+      deadline: deadline?.toUtc(),
+      deadlineHasTime: deadlineHasTime,
+      milestone: milestoneId,
+      tags: jsonEncode(selectedTags),
+      checklist: jsonEncode(items),
+    );
     return _save(() async {
-      final created = await _repository.createTask(task);
-      try {
-        for (final tagId in tagIds) {
-          await _repository.attachTagToTask(created.id, tagId);
-        }
-        for (var index = 0; index < checklist.length; index++) {
-          if (checklist[index].trim().isNotEmpty) {
-            await _repository.createChecklistItem(
-              created.id,
-              checklist[index].trim(),
-              index,
-            );
-          }
-        }
-      } catch (_) {
-        await _repository.deleteTask(created.id);
-        rethrow;
-      }
-      _tasks = [..._tasks, created];
+      final created = await _taskWrites.run(
+        intent,
+        (id) => _repository.saveTaskCreation(
+          task,
+          requestId: id,
+          tagIds: selectedTags,
+          checklist: items,
+        ),
+      );
+      if (_disposed) return;
+      _tasks = [..._tasks.where((item) => item.id != created.id), created];
     }, 'Task created successfully');
   }
 
@@ -576,54 +616,49 @@ class KanbanViewModel extends ChangeNotifier {
     String? milestoneId,
     bool clearMilestone = false,
   }) async {
+    if (_disposed || _isSaving) return false;
     if (title.trim().isEmpty) {
       _titleError = 'Task title is required';
       notifyListeners();
       return false;
     }
     _titleError = null;
+    final edit = task.copyWith(
+      title: title.trim(),
+      milestoneId: milestoneId,
+      clearMilestone: clearMilestone,
+      description: description.trim(),
+      status: status,
+      priority: priority,
+      deadline: deadline,
+      deadlineHasTime: deadlineHasTime,
+      clearDeadline: deadline == null,
+    );
+    final tags = tagIds?.toSet().toList();
+    tags?.sort();
+    final pending = _pendingEdit;
+    final requestId =
+        pending != null &&
+            pending.task == edit &&
+            listEquals(pending.tags, tags)
+        ? pending.id
+        : createOperationId();
+    _pendingEdit = (task: edit, tags: tags, id: requestId);
     return _save(
       () async {
-        final current = status == task.status
-            ? task
-            : await _repository.moveTask(task, status, _nextSortOrder(status));
-        await _repository.updateTask(
-          current.copyWith(
-            title: title.trim(),
-            milestoneId: milestoneId,
-            clearMilestone: clearMilestone,
-            description: description.trim(),
-            priority: priority,
-            deadline: deadline,
-            deadlineHasTime: deadlineHasTime,
-            clearDeadline: deadline == null,
-          ),
+        final saved = await _repository.saveTaskEdit(
+          edit,
+          requestId: requestId,
+          tagIds: tags,
         );
-        if (status != task.status) {
-          await _repository.addActivity(
-            task.id,
-            status == KanbanStatus.completed
-                ? 'completed'
-                : task.status == KanbanStatus.completed
-                ? 'reopened'
-                : 'moved',
-            oldValues: {'status': task.status.value},
-            newValues: {'status': status.value},
-          );
-        }
-        if (tagIds != null) {
-          final oldIds = task.tags.map((tag) => tag.id).toSet();
-          final newIds = tagIds.toSet();
-          for (final id in oldIds.difference(newIds)) {
-            await _repository.removeTagFromTask(task.id, id);
-          }
-          for (final id in newIds.difference(oldIds)) {
-            await _repository.attachTagToTask(task.id, id);
-          }
-        }
+        _pendingEdit = null;
+        if (_disposed) return;
+        _tasks = [
+          for (final item in _tasks) item.id == saved.id ? saved : item,
+        ];
       },
       'Task updated successfully',
-      reconcileOnFailure: true,
+      reloadAfterSave: false,
     );
   }
 
@@ -635,13 +670,23 @@ class KanbanViewModel extends ChangeNotifier {
     final task = _tasks.where((item) => item.id == taskId).firstOrNull;
     if (task == null) return false;
     final original = task.status;
-    if (original == destination && newIndex == null) return true;
+    final intent = (
+      user: _repository.currentUserId,
+      board: task.boardId,
+      task: task.id,
+      status: destination,
+      index: newIndex,
+    );
+    final retrying = _taskWrites.contains(intent);
+    if (!retrying && original == destination && newIndex == null) return true;
     final originalTasks = tasks(original);
     final originalIndex = originalTasks.indexWhere((item) => item.id == taskId);
     final previousTarget = tasks(destination);
     final target = previousTarget.where((item) => item.id != taskId).toList();
     final index = (newIndex ?? target.length).clamp(0, target.length);
-    if (original == destination && index == originalIndex) return true;
+    if (!retrying && original == destination && index == originalIndex) {
+      return true;
+    }
     final candidateOrder = _insertionOrder(target, index);
     final moved = task.copyWith(
       status: destination,
@@ -659,63 +704,23 @@ class KanbanViewModel extends ChangeNotifier {
               target[i].copyWith(sortOrder: (i + 1) * _sortOrderStep),
           ]
         : target;
-    final updated = targetOrdered[index];
     final byId = {for (final item in targetOrdered) item.id: item};
     final optimistic = _tasks.map((item) => byId[item.id] ?? item).toList();
     final ok = await _save(
       () async {
-        KanbanTask? persisted;
-        try {
-          if (original != destination) {
-            persisted = await _repository.moveTask(
-              task,
-              destination,
-              updated.sortOrder,
-              completedAt: updated.completedAt,
-            );
-          }
-          if (normalized) {
-            await _repository.reorderTasks(targetOrdered);
-          } else if (original == destination) {
-            await _repository.reorderTasks([updated]);
-          }
-          if (original != destination) {
-            await _repository.addActivity(
-              task.id,
-              destination == KanbanStatus.completed
-                  ? 'completed'
-                  : original == KanbanStatus.completed
-                  ? 'reopened'
-                  : 'moved',
-              oldValues: {'status': original.value, 'position': originalIndex},
-              newValues: {'status': destination.value, 'position': index},
-            );
-          }
-        } catch (_) {
-          try {
-            if (persisted != null) {
-              // Reordering may have changed updated_at after the status RPC.
-              final latest = (await _repository.getTasks(
-                task.boardId,
-              )).where((item) => item.id == task.id).first;
-              final restored = await _repository.moveTask(
-                latest,
-                original,
-                task.sortOrder,
-                completedAt: task.completedAt,
-              );
-              if (original == KanbanStatus.inProgress && !task.isTracking) {
-                await _repository.setTaskTimerPaused(restored, true);
-              }
-            }
-            if (normalized || original == destination) {
-              await _repository.reorderTasks(previousTarget);
-            }
-          } catch (_) {
-            // Keep the original failure; the in-memory state is rolled back by _save.
-          }
-          rethrow;
-        }
+        final saved = await _taskWrites.run(
+          intent,
+          (id) => _repository.saveTaskMove(
+            task,
+            destination,
+            requestId: id,
+            newIndex: newIndex,
+          ),
+        );
+        if (_disposed) return;
+        _tasks = [
+          for (final item in _tasks) item.id == saved.id ? saved : item,
+        ];
       },
       original == destination
           ? 'Task reordered'
@@ -726,10 +731,9 @@ class KanbanViewModel extends ChangeNotifier {
           : 'Task moved',
       optimistic: optimistic,
       failureMessage: 'Unable to move the task. Please try again.',
-      reconcileOnFailure: true,
     );
     if (ok && original != destination) {
-      _undo = _UndoAction(task.id, original, originalIndex, false);
+      _undo = _UndoAction(task.id, original, originalIndex);
     }
     return ok;
   }
@@ -782,10 +786,12 @@ class KanbanViewModel extends ChangeNotifier {
   Future<bool> archiveTask(String taskId) async {
     final task = _tasks.where((item) => item.id == taskId).firstOrNull;
     if (task == null) return false;
+    KanbanTask? archived;
     final ok = await _save(
-      () => _repository.archiveTask(taskId, true),
+      () async {
+        archived = await _saveTaskArchive(task, true);
+      },
       'Task archived',
-      reconcileOnFailure: true,
       optimistic: _tasks
           .map(
             (item) =>
@@ -793,21 +799,46 @@ class KanbanViewModel extends ChangeNotifier {
           )
           .toList(),
     );
-    if (ok) _undo = _UndoAction(taskId, task.status, task.sortOrder, true);
+    if (ok && archived != null) {
+      _undo = _UndoAction(
+        taskId,
+        task.status,
+        task.sortOrder,
+        archivedTask: archived,
+      );
+    }
     return ok;
   }
 
-  Future<bool> restoreTask(String taskId) =>
-      _save(() => _repository.archiveTask(taskId, false), 'Task restored');
+  Future<KanbanTask> _saveTaskArchive(KanbanTask task, bool archived) =>
+      _taskWrites.run((
+        user: _repository.currentUserId,
+        board: task.boardId,
+        task: task.id,
+        archived: archived,
+      ), (id) => _repository.saveTaskArchive(task, archived, requestId: id));
+
+  Future<bool> restoreTask(String taskId) async {
+    final task =
+        _tasks.where((item) => item.id == taskId).firstOrNull ??
+        (_undo?.taskId == taskId ? _undo?.archivedTask : null);
+    if (task == null) return false;
+    return _save(() async {
+      await _saveTaskArchive(task, false);
+    }, 'Task restored');
+  }
+
   Future<bool> deleteTask(String taskId) =>
       _save(() => _repository.deleteTask(taskId), 'Task deleted');
+
   Future<bool> undoLastAction() async {
     final action = _undo;
     if (action == null) return false;
-    _undo = null;
-    return action.wasArchive
-        ? restoreTask(action.taskId)
-        : moveTask(action.taskId, action.status, newIndex: action.index);
+    final ok = action.archivedTask != null
+        ? await restoreTask(action.taskId)
+        : await moveTask(action.taskId, action.status, newIndex: action.index);
+    if (ok && identical(_undo, action)) _undo = null;
+    return ok;
   }
 
   Future<bool> duplicateTask(KanbanTask task) => createTask(
@@ -817,6 +848,7 @@ class KanbanViewModel extends ChangeNotifier {
     status: task.status,
     priority: task.priority,
     deadline: task.deadline,
+    deadlineHasTime: task.deadlineHasTime,
     tagIds: task.tags.map((tag) => tag.id).toList(),
     checklist: task.checklistItems.map((item) => item.title).toList(),
   );
@@ -1008,24 +1040,28 @@ class KanbanViewModel extends ChangeNotifier {
       _repository.getTaskActivity(taskId);
   Future<bool> resumeTask(String taskId) async {
     if (_disposed || _isSaving) return false;
-    final index = _tasks.indexWhere((task) => task.id == taskId);
-    if (index < 0 || !_tasks[index].isStalled) return false;
-    _isSaving = true;
-    notifyListeners();
-    try {
-      final resumed = await _repository.resumeTask(_tasks[index]);
-      if (_disposed) return false;
-      _tasks = List.of(_tasks)..[index] = resumed;
-      _feedbackMessage = 'Task resumed';
-      _activityVersion++;
-      return true;
-    } catch (error) {
-      if (!_disposed) _errorMessage = AppException.messageFor(error);
-      return false;
-    } finally {
-      _isSaving = false;
-      notifyListeners();
-    }
+    final task = _tasks.where((item) => item.id == taskId).firstOrNull;
+    if (task == null) return false;
+    final intent = (
+      user: _repository.currentUserId,
+      board: task.boardId,
+      resume: task.id,
+    );
+    if (!task.isStalled && !_taskWrites.contains(intent)) return false;
+    return _save(
+      () async {
+        final resumed = await _taskWrites.run(
+          intent,
+          (id) => _repository.saveTaskResume(task, requestId: id),
+        );
+        if (_disposed) return;
+        _tasks = [
+          for (final item in _tasks) item.id == taskId ? resumed : item,
+        ];
+      },
+      'Task resumed',
+      reloadAfterSave: false,
+    );
   }
 
   @override
@@ -1041,9 +1077,9 @@ class KanbanViewModel extends ChangeNotifier {
 }
 
 class _UndoAction {
-  const _UndoAction(this.taskId, this.status, this.index, this.wasArchive);
+  const _UndoAction(this.taskId, this.status, this.index, {this.archivedTask});
   final String taskId;
   final KanbanStatus status;
   final int index;
-  final bool wasArchive;
+  final KanbanTask? archivedTask;
 }

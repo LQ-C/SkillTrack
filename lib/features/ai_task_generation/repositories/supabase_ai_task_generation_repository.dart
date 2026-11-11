@@ -17,6 +17,7 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String feedback = '',
     String? projectId,
     List<ProjectMilestone> existingMilestones = const [],
   }) async => GeneratedTaskDraft.parseTasks(
@@ -25,6 +26,7 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
       description: description,
       endDate: endDate,
       mode: mode,
+      feedback: feedback,
       existingTasks: existingTasks,
       constraints: constraints,
       projectId: projectId,
@@ -32,7 +34,11 @@ class SupabaseTaskGenerationRepository implements TaskGenerationRepository {
     ),
     startDate: startDate,
     endDate: endDate,
-    minimumTaskCount: mode == TaskGenerationMode.append ? 0 : 3,
+    minimumTaskCount: mode == TaskGenerationMode.append
+        ? 0
+        : mode == TaskGenerationMode.replace
+        ? 1
+        : 3,
     existingMilestones: existingMilestones,
   );
 

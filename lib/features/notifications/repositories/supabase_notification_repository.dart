@@ -55,6 +55,19 @@ class SupabaseNotificationRepository implements NotificationRepository {
   });
 
   @override
+  Future<AppNotification?> getNotification(String id) => _guard(() async {
+    final userId = _userId;
+    final row = await _client
+        .from('notifications')
+        .select()
+        .eq('id', id)
+        .eq('user_id', userId)
+        .maybeSingle();
+    if (currentUserId != userId || row == null) return null;
+    return AppNotification.fromMap(row);
+  });
+
+  @override
   Future<int> getUnreadCount() => _guard(() async {
     final result = await _client
         .from('notifications')

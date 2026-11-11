@@ -1,3 +1,5 @@
+import '../../../core/errors/app_exception.dart';
+import '../../ai_task_generation/models/generated_task_draft.dart';
 import '../models/learning_project.dart';
 import '../models/project_milestone.dart';
 import '../models/project_with_progress.dart';
@@ -24,9 +26,25 @@ abstract class ProjectRepository {
     DateTime? startDate,
     DateTime? endDate,
   });
+  Future<ProjectWithProgress> saveNewProject({
+    required String requestId,
+    required String name,
+    String? description,
+    String? constraints,
+    DateTime? startDate,
+    DateTime? endDate,
+    List<GeneratedTaskDraft>? generatedTasks,
+  });
   Future<LearningProject> updateProject(LearningProject project);
   Future<void> archiveProject(String projectId);
   Future<void> deleteProject(String projectId);
   Future<String?> getProjectBoard(String projectId);
   Future<List<ProjectWithProgress>> getProjectsWithProgress();
+}
+
+/// The project RPC returned a database rejection, so no writes committed.
+class ProjectWriteRejected extends AppException {
+  const ProjectWriteRejected([
+    super.message = AppErrorMessages.saveGeneratedTasksFailed,
+  ]);
 }

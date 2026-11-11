@@ -1,3 +1,4 @@
+import '../../ai_task_generation/models/task_generation_request.dart';
 import 'dart:async';
 
 import 'package:flutter/material.dart';
@@ -420,7 +421,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     );
   }
 
-  Widget _boardTrack(double columnWidth) => SizedBox(
+  Widget _boardTrack(
+    double columnWidth,
+    Map<KanbanStatus, List<KanbanTask>> columns,
+  ) => SizedBox(
     key: const Key('kanban-board-track'),
     width:
         columnWidth * KanbanStatus.values.length +
@@ -441,7 +445,7 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                     !widget.viewModel.isSaving,
                 key: ValueKey(KanbanStatus.values[index]),
                 status: KanbanStatus.values[index],
-                tasks: _columnTasks(KanbanStatus.values[index]),
+                tasks: columns[KanbanStatus.values[index]]!,
                 scrollController: _listControllers[index],
                 viewportKey: _listKeys[index],
                 boardViewportKey: _overviewKey,
@@ -672,11 +676,16 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
         ),
       );
       if (mounted) {
-        if (changed == true) {
+        if (task != null) {
+          await widget.viewModel.refresh(showLoading: false, taskId: task.id);
+        } else if (changed == true) {
           await _refreshWithEntrance();
         } else {
-          // A milestone is saved immediately, even when the task form is cancelled.
-          await widget.viewModel.refresh(showLoading: false);
+          // Milestones and tags can be saved independently of the task.
+          await widget.viewModel.refresh(
+            showLoading: false,
+            catalogsOnly: true,
+          );
         }
       }
     } finally {
@@ -697,7 +706,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
           taskId: task.id,
         ),
       );
-      if (mounted) await widget.viewModel.refresh(showLoading: false);
+      if (mounted) {
+        await widget.viewModel.refresh(showLoading: false, taskId: task.id);
+      }
     } finally {
       if (mounted) setState(() => _openingRouteId = null);
     }
@@ -721,12 +732,17 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     }
   }
 
-  Future<void> _generateMoreTasks() async {
+  Future<void> _generateMoreTasks({bool replacement = false}) async {
     if (_navigationBusy) return;
     setState(() => _openingRouteId = 'generate');
     try {
       final append = widget.appendViewModel;
       if (append == null || append.isGeneratingTasks) return;
+      if (append.pendingGeneratedTasks.isNotEmpty &&
+          (append.generationMode == TaskGenerationMode.replace) !=
+              replacement) {
+        append.cancelGeneratedTaskPreview();
+      }
       if (append.pendingGeneratedTasks.isEmpty) {
         final savedConstraints = await append.loadGenerationConstraints();
         if (!mounted) return;
@@ -740,14 +756,58 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
           return;
         }
         FocusScope.of(context).unfocus();
-        final constraints = await showDialog<String>(
-          context: context,
-          builder: (_) => TaskGenerationConstraintsDialog(
-            initialConstraints: savedConstraints,
-          ),
-        );
+        String? replacementFeedback;
+        if (replacement) {
+          final input = TextEditingController();
+          replacementFeedback = await showDialog<String>(
+            context: context,
+            builder: (dialogContext) => StatefulBuilder(
+              builder: (context, setDialogState) => AlertDialog(
+                title: const Text('Regenerate Task List'),
+                content: TextField(
+                  controller: input,
+                  maxLength: 1000,
+                  maxLines: 4,
+                  decoration: const InputDecoration(
+                    labelText: 'Required follow-up feedback',
+                  ),
+                  onChanged: (_) => setDialogState(() {}),
+                ),
+                actions: [
+                  TextButton(
+                    onPressed: () => AppRouter.back(dialogContext),
+                    child: const Text('Cancel'),
+                  ),
+                  TextButton(
+                    onPressed: input.text.trim().isEmpty
+                        ? null
+                        : () =>
+                              AppRouter.back(dialogContext, input.text.trim()),
+                    child: const Text('Generate'),
+                  ),
+                ],
+              ),
+            ),
+          );
+          Future<void>.delayed(
+            const Duration(milliseconds: 400),
+            input.dispose,
+          );
+          if (!mounted || replacementFeedback == null) return;
+        }
+        final constraints = replacement
+            ? savedConstraints
+            : await showDialog<String>(
+                context: context,
+                builder: (_) => TaskGenerationConstraintsDialog(
+                  initialConstraints: savedConstraints,
+                ),
+              );
         if (!mounted || constraints == null) return;
-        final request = append.generateMoreTasks(constraints: constraints);
+        final request = append.generateMoreTasks(
+          constraints: constraints,
+          replacementFeedback: replacementFeedback,
+        );
         showDialog<void>(
           context: context,
           barrierDismissible: false,
@@ -764,7 +824,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                       const CircularProgressIndicator(),
                       const SizedBox(height: 20),
                       Text(
-                        'Generating additional tasks…',
+                        replacement
+                            ? 'Generating replacement tasks…'
+                            : 'Generating additional tasks…',
                         style: Theme.of(dialogContext).textTheme.titleMedium,
                       ),
                     ],
@@ -1081,6 +1143,9 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
       case 'archived':
         _openArchivedTasks();
         return;
+      case 'regenerate':
+        _generateMoreTasks(replacement: true);
+        return;
       case 'generate-more':
         _generateMoreTasks();
         return;
@@ -1212,7 +1277,11 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
     builder: (context, child) {
       final model = widget.viewModel;
       final empty = model.isBoardEmpty;
-      final noResults = !empty && model.isResultEmpty && _departingTask == null;
+      final columns = {
+        for (final status in KanbanStatus.values) status: _columnTasks(status),
+      };
+      final noResults =
+          !empty && columns.values.every((tasks) => tasks.isEmpty);
       final append = widget.appendViewModel;
       return Scaffold(
         appBar: AppBar(
@@ -1298,6 +1367,14 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                   const PopupMenuItem(
                     value: 'generate-more',
                     child: Text('Generate More Tasks'),
+                  ),
+                if (append != null &&
+                    widget.projectStatus != 'archived' &&
+                    model.boardId != null &&
+                    !model.isBoardArchived)
+                  const PopupMenuItem(
+                    value: 'regenerate',
+                    child: Text('Regenerate Task List'),
                   ),
                 const PopupMenuItem(
                   value: 'archive',
@@ -1395,7 +1472,10 @@ class _KanbanBoardScreenState extends State<KanbanBoardScreen>
                                             : null,
                                         child: AnimatedBuilder(
                                           animation: _boardController,
-                                          child: _boardTrack(columnWidth),
+                                          child: _boardTrack(
+                                            columnWidth,
+                                            columns,
+                                          ),
                                           builder: (context, child) {
                                             final scale = _boardScale.value;
                                             final selectedCenter =

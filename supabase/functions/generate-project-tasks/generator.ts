@@ -1,11 +1,13 @@
 export type GenerationMode =
   | "initial"
   | "append"
+  | "replace"
   | "revise";
 
 export type SourceMode =
   | "initial"
-  | "append";
+  | "append"
+  | "replace";
 
 export type ExistingMilestone = { id: string; title: string; position: number };
 export type DraftMilestone = {
@@ -149,6 +151,8 @@ export function parseGenerationMode(
     return "initial";
   }
 
+  if (value === "replace") return "replace";
+
   if (value === "append") {
     return "append";
   }
@@ -166,6 +170,8 @@ export function parseSourceMode(
   if (value === "initial") {
     return "initial";
   }
+
+  if (value === "replace") return "replace";
 
   if (value === "append") {
     return "append";
@@ -517,6 +523,12 @@ export function buildPrompt(
       "Return 2 to 5 logical milestones in implementation order.",
       "Give each milestone 2 to 6 specific tasks.",
     ];
+  } else if (mode === "replace") {
+    modeInstructions = [
+      "Replace the entire active task list according to the learner's replacementFeedback.",
+      "Use existingTasks as context, including completed and manual work. Existing titles may be reused.",
+      "Return a complete replacement plan with checklists and milestones; nothing is saved until confirmed.",
+    ];
   } else if (mode === "append") {
     modeInstructions = [
       "This is an existing project.",
@@ -560,12 +572,13 @@ export function buildPrompt(
     constraints: constraints || null,
     deadline: deadline || null,
     sourceMode: mode === "revise" ? sourceMode : null,
+    replacementFeedback: mode === "replace" ? revisionFeedback : null,
     revisionFeedback: mode === "revise" ? revisionFeedback : null,
     existingMilestones,
-    existingTasks: mode === "append" ||
+    existingTasks: mode === "append" || mode === "replace" ||
         (
           mode === "revise" &&
-          sourceMode === "append"
+          sourceMode !== "initial"
         )
       ? existingTasks
       : [],

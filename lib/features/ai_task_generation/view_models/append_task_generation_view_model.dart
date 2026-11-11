@@ -50,7 +50,11 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
   String? _feedbackMessage;
 
   @override
-  TaskGenerationMode get generationMode => TaskGenerationMode.append;
+  TaskGenerationMode get generationMode =>
+      _replacement ? TaskGenerationMode.replace : TaskGenerationMode.append;
+  bool _replacement = false;
+  String? _replacementVersion;
+  int replacementCount = 0;
   @override
   bool get canCustomizeGeneratedTasks =>
       !_disposed && !_isGenerating && _saveDraft == null;
@@ -91,9 +95,18 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
 
   Future<List<GeneratedTaskDraft>?> generateMoreTasks({
     String? constraints,
+    String? replacementFeedback,
   }) async {
     if (_disposed || _isGenerating || _isConfirming || _isRevising) return null;
     if (_pending != null) return pendingGeneratedTasks;
+    _replacement = replacementFeedback != null;
+    if (_replacement &&
+        (replacementFeedback!.trim().isEmpty ||
+            replacementFeedback.trim().length > 1000)) {
+      _errorMessage = AppErrorMessages.invalidRevisionFeedback;
+      notifyListeners();
+      return null;
+    }
     final trimmedConstraints = constraints?.trim();
     if ((trimmedConstraints?.length ?? 0) >
         AppLimits.maxTaskGenerationConstraintsLength) {
@@ -137,21 +150,30 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.expiredProjectDeadline;
         return null;
       }
+      if (_replacement) {
+        final context = await (_tasks as TaskListReplacementRepository)
+            .replacementContext(boardId);
+        _replacementVersion = context['version'] as String;
+        replacementCount = context['count'] as int;
+      }
       final existing = await _tasks.getTaskSummaries(boardId);
       final milestones = await _projects.getProjectMilestones(projectId);
       final generated = await _generator.generate(
         title: project.name,
         description: description,
+        feedback: replacementFeedback ?? '',
         constraints: requestConstraints,
         projectId: projectId,
         existingMilestones: milestones,
         startDate: start,
         endDate: end,
-        mode: TaskGenerationMode.append,
+        mode: generationMode,
         existingTasks: existing.take(100).toList(),
       );
       if (_disposed) return null;
-      final fresh = _withoutDuplicates(generated, existing);
+      final fresh = _replacement
+          ? generated
+          : _withoutDuplicates(generated, existing);
       if (fresh.isEmpty) {
         _errorMessage = AppErrorMessages.noAdditionalTasks;
         return null;
@@ -207,25 +229,48 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         _errorMessage = AppErrorMessages.requestFailed;
         return null;
       }
-      final current = await _tasks.getTaskSummaries(boardId);
-      if (_disposed) return null;
-      final fresh = _saveDraft ?? _withoutDuplicates(_pending!, current);
+      var fresh = _saveDraft;
+      if (fresh == null) {
+        final current = await _tasks.getTaskSummaries(boardId);
+        if (_disposed) return null;
+        fresh = _replacement
+            ? _pending!
+            : _withoutDuplicates(_pending!, current);
+      }
       if (fresh.isEmpty) {
         _pendingConstraints = '';
         _feedbackMessage = AppErrorMessages.additionalTasksAlreadyExist;
         return true;
       }
-      _saveDraft = List.unmodifiable(GeneratedTaskDraft.grouped(fresh));
-      _saveRequestId ??= createOperationId();
-      await _tasks.createGeneratedTasks(
-        boardId,
-        fresh,
-        requestId: _saveRequestId,
+      final payload = _saveDraft ??= List.unmodifiable(
+        GeneratedTaskDraft.grouped(fresh),
       );
+      _saveRequestId ??= createOperationId();
+      if (_replacement) {
+        await (_tasks as TaskListReplacementRepository).replaceGeneratedTasks(
+          boardId,
+          payload,
+          requestId: _saveRequestId!,
+          expectedVersion: _replacementVersion!,
+        );
+      } else {
+        await _tasks.createGeneratedTasks(
+          boardId,
+          payload,
+          requestId: _saveRequestId,
+        );
+      }
       _pendingConstraints = '';
+      _pending = null;
+      _saveDraft = null;
+      _saveRequestId = null;
       return _disposed ? null : true;
     } catch (_) {
-      if (!_disposed) _errorMessage = AppErrorMessages.addGeneratedTasksFailed;
+      if (!_disposed) {
+        _errorMessage = _replacement
+            ? AppErrorMessages.replaceTaskListFailed
+            : AppErrorMessages.addGeneratedTasksFailed;
+      }
       return null;
     } finally {
       if (!_disposed) {
@@ -237,7 +282,7 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
 
   @override
   Iterable<String> get savedTaskTitles =>
-      _existingSummaries.map((task) => task.title);
+      _replacement ? const [] : _existingSummaries.map((task) => task.title);
 
   @override
   void setGeneratedTaskPreview(
@@ -296,13 +341,15 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         existingMilestones: milestones,
         startDate: generationStartDate,
         endDate: generationEndDate,
-        sourceMode: TaskGenerationMode.append,
+        sourceMode: generationMode,
         feedback: text,
         currentDraft: _pending!,
         existingTasks: existing.take(100).toList(),
       );
       if (_disposed) return false;
-      final fresh = _withoutDuplicates(revised, existing);
+      final fresh = _replacement
+          ? revised
+          : _withoutDuplicates(revised, existing);
       if (fresh.isEmpty) {
         throw const AppException(AppErrorMessages.noAdditionalTasks);
       }
@@ -311,7 +358,9 @@ class AppendTaskGenerationViewModel extends ChangeNotifier
         checked,
         startDate: generationStartDate,
         endDate: generationEndDate,
-        existingTitles: existing.map((task) => task.title),
+        existingTitles: _replacement
+            ? const []
+            : existing.map((task) => task.title),
       );
       if (invalid != null) throw AppException(invalid);
       _pending = List.unmodifiable(checked);

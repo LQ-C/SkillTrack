@@ -73,9 +73,8 @@ Future<CreateProjectViewModel> initial(
   FakeTaskGenerationRepository ai,
 ) async {
   final model = CreateProjectViewModel(
-    projects,
+    (projects)..generatedTaskRepository = tasks,
     generationRepository: ai,
-    taskRepository: tasks,
   );
   model.setStartDate(today);
   model.setEndDate(end);

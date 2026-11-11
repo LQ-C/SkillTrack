@@ -15,15 +15,42 @@ abstract class KanbanRepository {
   Future<String?> getFirstBoardId({bool archived = false});
   Future<void> setBoardArchived(String boardId, bool archived);
   Future<List<KanbanTask>> getTasks(String boardId);
+  Future<KanbanTask?> getTask(String boardId, String taskId);
+  Future<bool> hasActiveTask(String boardId, String taskId);
   Future<List<KanbanTask>> getArchivedTasks(String boardId);
   Future<List<ExistingTaskSummary>> getTaskSummaries(String boardId);
   Future<KanbanTask> createTask(KanbanTask task);
+  Future<KanbanTask> saveTaskCreation(
+    KanbanTask task, {
+    required String requestId,
+    required List<String> tagIds,
+    required List<String> checklist,
+  });
+  Future<KanbanTask> saveTaskMove(
+    KanbanTask task,
+    KanbanStatus status, {
+    required String requestId,
+    int? newIndex,
+  });
+  Future<KanbanTask> saveTaskArchive(
+    KanbanTask task,
+    bool archived, {
+    required String requestId,
+  });
+  Future<KanbanTask> saveTaskResume(
+    KanbanTask task, {
+    required String requestId,
+  });
   Future<void> createGeneratedTasks(
     String boardId,
     List<GeneratedTaskDraft> tasks, {
     String? requestId,
   });
-  Future<KanbanTask> updateTask(KanbanTask task);
+  Future<KanbanTask> saveTaskEdit(
+    KanbanTask task, {
+    required String requestId,
+    List<String>? tagIds,
+  });
   Future<KanbanTask> resumeTask(KanbanTask task);
   Future<KanbanTask> setTaskTimerPaused(KanbanTask task, bool paused);
   Future<void> archiveTask(String taskId, bool archived);
@@ -56,6 +83,7 @@ abstract class KanbanRepository {
     String? mimeType,
   );
   Future<void> deleteAttachment(TaskAttachment attachment);
+  Future<void> retryAttachmentCleanup();
   Future<String> getAttachmentUrl(TaskAttachment attachment);
   Future<List<TaskActivity>> getTaskActivity(String taskId);
   Future<void> addProgressUpdate(
@@ -68,5 +96,15 @@ abstract class KanbanRepository {
     String action, {
     Map<String, dynamic> oldValues = const {},
     Map<String, dynamic> newValues = const {},
+  });
+}
+
+abstract interface class TaskListReplacementRepository {
+  Future<Map<String, dynamic>> replacementContext(String boardId);
+  Future<void> replaceGeneratedTasks(
+    String boardId,
+    List<GeneratedTaskDraft> tasks, {
+    required String requestId,
+    required String expectedVersion,
   });
 }

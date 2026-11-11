@@ -325,6 +325,9 @@ void main() {
     expect(find.text('Task Details'), findsOneWidget);
     expect(find.text('Study'), findsOneWidget);
     expect(await repo.getUnreadCount(), 0);
+    expect(kanban.existenceReads, 1);
+    expect(kanban.taskReads, 1);
+    expect(kanban.boardReads, 0);
   });
 
   testWidgets('stalled alert opens details and persists Resume', (

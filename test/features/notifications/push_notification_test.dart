@@ -1,4 +1,11 @@
 import 'dart:async';
+import 'package:skilltrack/features/notifications/models/app_notification.dart';
+import 'package:skilltrack/features/notifications/models/notification_context_type.dart';
+import 'package:skilltrack/features/notifications/models/notification_type.dart';
+import 'package:skilltrack/features/kanban/models/kanban_status.dart';
+import 'package:skilltrack/features/kanban/widgets/task_details_sheet.dart';
+import 'package:skilltrack/features/learning_integration/models/resource_recommendation.dart';
+import 'package:skilltrack/features/learning_integration/repositories/recommendation_repository.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -46,6 +53,7 @@ class FakeDevices implements PushDeviceRepository {
   final registrations = <String>[];
   final removals = <String>[];
   bool fail = false;
+  bool failRemoval = false;
 
   @override
   String? get currentUserId => preferences.currentUserId;
@@ -57,6 +65,7 @@ class FakeDevices implements PushDeviceRepository {
 
   @override
   Future<void> unregister(String token) async {
+    if (failRemoval) throw StateError('cleanup offline');
     if (fail) throw StateError('offline');
     removals.add(token);
   }
@@ -270,6 +279,29 @@ void main() {
   );
 
   test(
+    'failed old-token cleanup is retried on session reconciliation',
+    () async {
+      preferences.savedPreferences = const NotificationPreferences(
+        userId: 'user',
+        pushEnabled: true,
+      );
+      await controller.syncSession();
+      devices.failRemoval = true;
+      service.token = 'token-two';
+      service.tokens.add('token-two');
+      await flush();
+      expect(controller.errorMessage, isNotNull);
+      devices.failRemoval = false;
+      await controller.syncSession(resumed: true);
+      expect(devices.removals, contains('token-one'));
+      expect(
+        devices.registrations.where((value) => value == 'user:token-two'),
+        hasLength(1),
+      );
+    },
+  );
+
+  test(
     'logout cancels subscriptions and invalidates delivery to the old account',
     () async {
       preferences.savedPreferences = const NotificationPreferences(
@@ -366,7 +398,7 @@ void main() {
   test(
     'local identifiers are deterministic and malformed payloads are ignored',
     () {
-    expect(pushNotificationId('hello'), 0x4f9f2cab);
+      expect(pushNotificationId('hello'), 0x4f9f2cab);
       expect(
         pushNotificationId('notification-one'),
         isNot(pushNotificationId('notification-two')),
@@ -513,4 +545,155 @@ void main() {
     await tester.pumpWidget(const SizedBox.shrink());
     await tester.pumpAndSettle();
   });
+  for (final initial in [false, true]) {
+    testWidgets(
+      'recommendation ${initial ? "cold-start" : "background"} push opens the correct task and resources once',
+      (tester) async {
+        // Construct the serial queue inside the widget test's async zone.
+        controller = PushNotificationController(preferences, devices, service);
+        final notifications = preferences;
+        notifications.items.add(
+          AppNotification(
+            id: 'resource-alert',
+            userId: 'user',
+            type: NotificationType.learningResourceRecommendation,
+            contextType: NotificationContextType.recommendation,
+            projectId: 'project',
+            boardId: 'board-1',
+            taskId: 'task',
+            title: 'Resources to help you get unstuck',
+            message: 'A lesson may help',
+            createdAt: DateTime.now().toUtc(),
+          ),
+        );
+        final recommendations = _Recommendations();
+        final projects = FakeProjectRepository(
+          items: [sampleProject('project', 'Learning', boardId: 'board-1')],
+        );
+        final kanban = FakeKanbanRepository(
+          tasks: [
+            sampleTask(
+              'task',
+              'Build a layout',
+              KanbanStatus.inProgress,
+            ).copyWith(isStalled: true),
+          ],
+        );
+        const tap = PushNotificationTap(
+          notificationId: 'resource-alert',
+          userId: 'user',
+        );
+        if (initial) service.initialTap = tap;
+        await tester.pumpWidget(
+          SkillTrackApp(
+            projectRepository: projects,
+            kanbanRepository: kanban,
+            notificationRepository: notifications,
+            recommendationRepository: recommendations,
+            pushController: controller,
+          ),
+        );
+        await tester.pumpAndSettle();
+        if (!initial) {
+          service.opened.add(tap);
+          await tester.pumpAndSettle();
+        }
+        expect(find.text('Task Details'), findsOneWidget);
+        expect(
+          tester.widget<TaskDetailsSheet>(find.byType(TaskDetailsSheet)).taskId,
+          'task',
+        );
+        expect(
+          tester
+              .widget<TaskDetailsSheet>(find.byType(TaskDetailsSheet))
+              .showLearningResources,
+          true,
+        );
+        expect(find.text('Learning resources'), findsOneWidget);
+        expect(find.text('Flutter layout lesson'), findsOneWidget);
+        expect(recommendations.calls, 1);
+        expect(notifications.items.single.isRead, true);
+        service.opened.add(tap);
+        await tester.pumpAndSettle();
+        expect(find.byType(TaskDetailsSheet), findsOneWidget);
+        expect(recommendations.calls, 1);
+        expect(tester.takeException(), isNull);
+        await tester.pumpWidget(const SizedBox.shrink());
+        await tester.pumpAndSettle();
+      },
+    );
+  }
+  testWidgets(
+    'in-app recommendation opens the same task resources destination',
+    (tester) async {
+      preferences.items.add(
+        AppNotification(
+          id: 'resource-alert',
+          userId: 'user',
+          type: NotificationType.learningResourceRecommendation,
+          contextType: NotificationContextType.recommendation,
+          projectId: 'project',
+          boardId: 'board-1',
+          taskId: 'task',
+          title: 'Resources to help you get unstuck',
+          message: 'A lesson may help',
+          createdAt: DateTime.now().toUtc(),
+        ),
+      );
+      final recommendations = _Recommendations();
+      await tester.pumpWidget(
+        SkillTrackApp(
+          projectRepository: FakeProjectRepository(
+            items: [sampleProject('project', 'Learning', boardId: 'board-1')],
+          ),
+          kanbanRepository: FakeKanbanRepository(
+            tasks: [sampleTask('task', 'Build a layout', KanbanStatus.todo)],
+          ),
+          notificationRepository: preferences,
+          recommendationRepository: recommendations,
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Notifications'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Resources to help you get unstuck'));
+      await tester.pumpAndSettle();
+      expect(find.text('Task Details'), findsOneWidget);
+      expect(find.text('Flutter layout lesson'), findsOneWidget);
+      expect(recommendations.calls, 1);
+      expect(recommendations.lastMode, RecommendationRequestMode.manual);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      await tester.pumpAndSettle();
+    },
+  );
+}
+
+class _Recommendations implements RecommendationRepository {
+  @override
+  Future<SavedTaskRecommendations> loadRecommendations(String taskId) async =>
+      const SavedTaskRecommendations(generated: false, items: []);
+
+  int calls = 0;
+  RecommendationRequestMode? lastMode;
+  @override
+  String? get currentUserId => 'user-1';
+  @override
+  Stream<String?> get userChanges => const Stream.empty();
+  @override
+  Future<List<ResourceRecommendation>> recommendationsForTask(
+    String id, {
+    RecommendationRequestMode mode = RecommendationRequestMode.automatic,
+  }) async {
+    calls++;
+    lastMode = mode;
+    return [
+      const ResourceRecommendation(
+        resourceId: 'resource',
+        title: 'Flutter layout lesson',
+        summary: 'Rows and columns',
+        type: 'Video',
+      ),
+    ];
+  }
 }

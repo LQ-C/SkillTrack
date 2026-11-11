@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:convert';
+
+import '../kanban/fake_repository.dart';
 import 'package:skilltrack/core/errors/app_exception.dart';
 
 import 'package:skilltrack/features/ai_task_generation/models/generated_task_draft.dart';
@@ -39,6 +42,7 @@ class FakeTaskGenerationRepository implements TaskGenerationRepository {
     TaskGenerationMode mode = TaskGenerationMode.initial,
     List<ExistingTaskSummary> existingTasks = const [],
     String constraints = '',
+    String feedback = '',
     String? projectId,
     List<ProjectMilestone> existingMilestones = const [],
   }) async {
@@ -211,7 +215,9 @@ class FakeProjectRepository implements ProjectRepository {
       startDate: startDate,
       endDate: endDate,
     );
-    if (failBoardCreation) throw StateError('board insert failed');
+    if (failBoardCreation) {
+      throw const ProjectWriteRejected(AppErrorMessages.createProjectFailed);
+    }
     final item = ProjectWithProgress(
       project: project,
       boardId: 'board-$id',
@@ -220,6 +226,70 @@ class FakeProjectRepository implements ProjectRepository {
     );
     stored.add(item);
     return item;
+  }
+
+  FakeKanbanRepository? generatedTaskRepository;
+  bool loseProjectResponseOnce = false;
+  final projectRequests = <({String id, String payload})>[];
+  final _projectReceipts = <String, ProjectWithProgress>{};
+
+  @override
+  Future<ProjectWithProgress> saveNewProject({
+    required String requestId,
+    required String name,
+    String? description,
+    String? constraints,
+    DateTime? startDate,
+    DateTime? endDate,
+    List<GeneratedTaskDraft>? generatedTasks,
+  }) async {
+    projectRequests.add((
+      id: requestId,
+      payload: jsonEncode([
+        name,
+        description,
+        constraints,
+        startDate?.toIso8601String(),
+        endDate?.toIso8601String(),
+        generatedTasks?.map((task) => task.toRevisionJson()).toList(),
+      ]),
+    ));
+    final key = '$userId:${generatedTasks != null}:$requestId';
+    final receipt = _projectReceipts[key];
+    if (receipt != null) return receipt;
+    final created = await createProject(
+      name: name,
+      description: description,
+      constraints: constraints,
+      startDate: startDate,
+      endDate: endDate,
+    );
+    if (generatedTasks != null) {
+      final tasks = generatedTaskRepository ??= FakeKanbanRepository();
+      try {
+        await tasks.createGeneratedTasks(
+          created.boardId!,
+          generatedTasks,
+          requestId: requestId,
+        );
+      } catch (_) {
+        if (tasks.generatedRequests.containsKey(requestId)) {
+          _projectReceipts[key] = created.copyWith(
+            totalTaskCount: generatedTasks.length,
+          );
+        } else {
+          stored.removeWhere((item) => item.project.id == created.project.id);
+        }
+        rethrow;
+      }
+    }
+    final saved = created.copyWith(totalTaskCount: generatedTasks?.length ?? 0);
+    _projectReceipts[key] = saved;
+    if (loseProjectResponseOnce) {
+      loseProjectResponseOnce = false;
+      throw StateError('response lost');
+    }
+    return saved;
   }
 
   @override

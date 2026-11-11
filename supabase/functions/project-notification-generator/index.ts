@@ -1,6 +1,6 @@
-import {
-  createClient,
-} from "npm:@supabase/supabase-js@2";
+import { scheduledStalledAlerts } from "./recommendations.ts";
+import { nativeEmbedder } from "../_shared/recommendations/runtime.ts";
+import { createClient } from "npm:@supabase/supabase-js@2";
 
 import {
   generateNotifications,
@@ -111,6 +111,7 @@ Deno.serve(async (request) => {
     );
 
     const store: NotificationStore = {
+      deliverStalledAlert: scheduledStalledAlerts(admin, nativeEmbedder),
       async listProjects(
         offset,
         limit,
@@ -224,8 +225,7 @@ Deno.serve(async (request) => {
           throw error;
         }
 
-        const result =
-          (data as StagnationUpdate[] | null)?.[0];
+        const result = (data as StagnationUpdate[] | null)?.[0];
 
         if (
           !result || data?.length !== 1 ||

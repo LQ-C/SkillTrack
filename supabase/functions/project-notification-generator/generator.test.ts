@@ -568,3 +568,28 @@ test("Malaysia midnight selects today independently of UTC date", async () => {
   await generateNotifications(store, new Date("2026-10-12T16:00:00Z"));
   assert.match(store.saved[1].message, /today at 12:00 AM\.$/);
 });
+
+test("scheduled recommendation delivery failure leaves deadline reminders and later tasks running", async () => {
+  const store = new FakeStore();
+  store.tasks = [
+    task({
+      last_activity_at: "2026-10-01T12:00:00Z",
+      deadline: "2026-10-11T12:00:00Z",
+    }),
+    task({ task_id: "task-2", last_activity_at: "2026-10-01T12:00:00Z" }),
+  ];
+  const visited: string[] = [];
+  (store as NotificationStore).deliverStalledAlert = (t) => {
+    visited.push(t.task_id);
+    if (t.task_id === "task-1") throw Error("insert unavailable");
+    return Promise.resolve(true);
+  };
+  const result = await generateNotifications(store, now);
+  assert.deepEqual(visited, ["task-1", "task-2"]);
+  assert.equal(result.failed, 1);
+  assert.ok(
+    store.saved.some((n) =>
+      n.task_id === "task-1" && n.type === "DEADLINE_REMINDER"
+    ),
+  );
+});

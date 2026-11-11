@@ -1,9 +1,13 @@
+import '../../learning_integration/view_models/task_bookmarks_view_model.dart';
+import '../../learning_integration/widgets/saved_resources_section.dart';
 import 'package:flutter/material.dart';
+
+import '../../learning_integration/view_models/task_recommendations_view_model.dart';
+import '../../learning_integration/widgets/task_recommendations_section.dart';
 
 import '../../../app/widgets/app_content.dart';
 
 import '../../../core/errors/app_exception.dart';
-import '../../../app/router/app_router.dart';
 import '../../../core/utils/date_formatter.dart';
 import '../models/kanban_task.dart';
 import '../models/task_activity.dart';
@@ -22,19 +26,17 @@ class TaskDetailsSheet extends StatefulWidget {
     required this.viewModel,
     required this.onEdit,
     this.fullScreen = false,
-    this.showStalledWarning = false,
-    this.showRecommendations = false,
-    this.resourceTitles = const [],
-    this.resourceCount = 0,
+    this.recommendations,
+    this.bookmarks,
+    this.showLearningResources = false,
   });
   final String taskId;
   final KanbanViewModel viewModel;
   final ValueChanged<KanbanTask>? onEdit;
   final bool fullScreen;
-  final bool showStalledWarning;
-  final bool showRecommendations;
-  final List<String> resourceTitles;
-  final int resourceCount;
+  final bool showLearningResources;
+  final TaskRecommendationsViewModel? recommendations;
+  final TaskBookmarksViewModel? bookmarks;
   @override
   State<TaskDetailsSheet> createState() => _TaskDetailsSheetState();
 }
@@ -42,13 +44,24 @@ class TaskDetailsSheet extends StatefulWidget {
 class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   late Future<List<TaskActivity>> _activity;
   late int _activityVersion;
-  bool _resuming = false, _addingProgress = false;
+  bool _resuming = false;
+  final _resourcesKey = GlobalKey();
   @override
   void initState() {
     super.initState();
     _activity = widget.viewModel.getTaskActivity(widget.taskId);
     _activityVersion = widget.viewModel.activityVersion;
     widget.viewModel.addListener(_onChanged);
+    if (widget.showLearningResources) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _resourcesKey.currentContext;
+        if (mounted &&
+            target != null &&
+            widget.recommendations?.eligible == true) {
+          Scrollable.ensureVisible(target, alignment: 0);
+        }
+      });
+    }
   }
 
   void _onChanged() {
@@ -77,23 +90,6 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   void dispose() {
     widget.viewModel.removeListener(_onChanged);
     super.dispose();
-  }
-
-  Future<void> _addProgress() async {
-    if (_addingProgress || widget.viewModel.isSaving) return;
-    setState(() => _addingProgress = true);
-    try {
-      await showDialog<void>(
-        context: context,
-        barrierDismissible: false,
-        builder: (_) => _ProgressUpdateDialog(
-          viewModel: widget.viewModel,
-          taskId: widget.taskId,
-        ),
-      );
-    } finally {
-      if (mounted) setState(() => _addingProgress = false);
-    }
   }
 
   Future<void> _resume(KanbanTask task) async {
@@ -315,22 +311,26 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  AttachmentSection(task: task, viewModel: widget.viewModel),
-                  Align(
-                    alignment: Alignment.centerLeft,
-                    child: TextButton.icon(
-                      key: const Key('add-progress-update'),
-                      onPressed:
-                          _addingProgress ||
-                              widget.viewModel.isSaving ||
-                              task.isArchived ||
-                              widget.viewModel.isBoardArchived
-                          ? null
-                          : _addProgress,
-                      icon: const Icon(Icons.edit_note_outlined),
-                      label: const Text('Add progress update'),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: AttachmentSection(
+                        task: task,
+                        viewModel: widget.viewModel,
+                      ),
                     ),
                   ),
+                  if (widget.recommendations != null) ...[
+                    const SizedBox(height: 12),
+                    TaskRecommendationsSection(
+                      key: _resourcesKey,
+                      viewModel: widget.recommendations!,
+                      bookmarks: widget.bookmarks,
+                    ),
+                  ],
+                  if (widget.bookmarks != null)
+                    SavedResourcesSection(model: widget.bookmarks!),
                   const Divider(height: 28),
                   FutureBuilder<List<TaskActivity>>(
                     future: _activity,
@@ -360,103 +360,5 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
         ),
       );
     },
-  );
-}
-
-class _ProgressUpdateDialog extends StatefulWidget {
-  const _ProgressUpdateDialog({required this.viewModel, required this.taskId});
-  final KanbanViewModel viewModel;
-  final String taskId;
-  @override
-  State<_ProgressUpdateDialog> createState() => _ProgressUpdateDialogState();
-}
-
-class _ProgressUpdateDialogState extends State<_ProgressUpdateDialog> {
-  final _form = GlobalKey<FormState>();
-  final _text = TextEditingController();
-  String? _error;
-  @override
-  void dispose() {
-    _text.dispose();
-    super.dispose();
-  }
-
-  Future<void> _save() async {
-    if (widget.viewModel.isSaving || !_form.currentState!.validate()) return;
-    setState(() => _error = null);
-    final saved = await widget.viewModel.addProgressUpdate(
-      widget.taskId,
-      _text.text,
-    );
-    if (!mounted) return;
-    if (saved) {
-      AppRouter.back(context);
-    } else {
-      setState(
-        () => _error =
-            widget.viewModel.errorMessage ??
-            AppErrorMessages.saveProgressUpdateFailed,
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) => ListenableBuilder(
-    listenable: widget.viewModel,
-    builder: (context, child) => PopScope(
-      canPop: !widget.viewModel.isSaving,
-      child: AlertDialog(
-        title: const Text('Add progress update'),
-        content: SingleChildScrollView(
-          child: Form(
-            key: _form,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                TextFormField(
-                  key: const Key('progress-update-text'),
-                  controller: _text,
-                  autofocus: true,
-                  minLines: 3,
-                  maxLines: 5,
-                  enabled: !widget.viewModel.isSaving,
-                  decoration: const InputDecoration(
-                    labelText: 'What progress did you make?',
-                  ),
-                  validator: (value) =>
-                      TaskActivity.validateProgressText(value ?? ''),
-                ),
-                if (_error != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Semantics(
-                      liveRegion: true,
-                      child: Text(
-                        _error!,
-                        style: TextStyle(
-                          color: Theme.of(context).colorScheme.error,
-                        ),
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: widget.viewModel.isSaving
-                ? null
-                : () => AppRouter.back(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            key: const Key('save-progress-update'),
-            onPressed: widget.viewModel.isSaving ? null : _save,
-            child: Text(widget.viewModel.isSaving ? 'Saving...' : 'Save'),
-          ),
-        ],
-      ),
-    ),
   );
 }

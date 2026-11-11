@@ -1,14 +1,12 @@
-import 'dart:typed_data';
-
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/router/app_router.dart';
-import '../../../core/constants/app_constants.dart';
 import '../../../core/errors/app_exception.dart';
 import '../models/kanban_task.dart';
 import '../models/task_attachment.dart';
+import '../services/attachment_reader.dart';
 import '../viewmodels/kanban_view_model.dart';
 
 class AttachmentSection extends StatefulWidget {
@@ -42,23 +40,15 @@ class _AttachmentSectionState extends State<AttachmentSection> {
         );
         final file = selection?.files.singleOrNull;
         if (file == null) return;
-        if (file.size > AppLimits.maxAttachmentBytes) {
-          throw const AppException(AppErrorMessages.attachmentTooLarge);
-        }
-        final stream = file.readStream;
-        if (stream == null) throw StateError('File data unavailable');
-        final buffer = BytesBuilder(copy: false);
-        await for (final chunk in stream) {
-          if (buffer.length + chunk.length > AppLimits.maxAttachmentBytes) {
-            throw const AppException(AppErrorMessages.attachmentTooLarge);
-          }
-          buffer.add(chunk);
-        }
+        final bytes = await readTaskAttachment(
+          file.readStream,
+          declaredSize: file.size,
+        );
         if (!context.mounted) return;
         await viewModel.uploadAttachment(
           task.id,
           file.name,
-          buffer.takeBytes(),
+          bytes,
           'application/octet-stream',
         );
       } catch (error) {

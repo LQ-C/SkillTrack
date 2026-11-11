@@ -22,6 +22,7 @@ class PushNotificationController implements PushPreferenceActions {
   Future<void> _queue = Future.value();
   String? _userId, _desiredUser, _registeredToken;
   DateTime? _registeredAt;
+  final _pendingRetirements = <String>{};
   bool _enabled = false, _disposed = false, _preferencesLoaded = false;
   int _version = 0;
   bool _serviceReady = false;
@@ -110,6 +111,8 @@ class PushNotificationController implements PushPreferenceActions {
 
   Future<void> _register(String user, int version, String token) async {
     if (!_isCurrent(user, version) || token.isEmpty) return;
+    await _retirePreviousTokens(user, version);
+    if (!_isCurrent(user, version)) return;
     if (_registeredToken == token &&
         _registeredAt != null &&
         DateTime.now().difference(_registeredAt!) < const Duration(hours: 24)) {
@@ -121,11 +124,22 @@ class PushNotificationController implements PushPreferenceActions {
     _registeredToken = token;
     _registeredAt = DateTime.now();
     if (previous != null && previous != token) {
-      await _devices.unregister(previous);
+      _pendingRetirements.add(previous);
+      await _retirePreviousTokens(user, version);
+    }
+  }
+
+  Future<void> _retirePreviousTokens(String user, int version) async {
+    for (final token in _pendingRetirements.toList()) {
+      if (!_isCurrent(user, version)) return;
+      await _devices.unregister(token);
+      if (!_isCurrent(user, version)) return;
+      _pendingRetirements.remove(token);
     }
   }
 
   Future<void> _reconcile(String user, int version) async {
+    await _retirePreviousTokens(user, version);
     final permitted = _enabled && await _service.hasPermission();
     if (!_isCurrent(user, version)) return;
     _service.setForegroundEnabled(permitted);
@@ -206,16 +220,20 @@ class PushNotificationController implements PushPreferenceActions {
     await _tapSubscription?.cancel();
     _tokenSubscription = null;
     _tapSubscription = null;
-    try {
-      if (_registeredToken != null && _devices.currentUserId == _userId) {
-        await _devices.unregister(_registeredToken!);
+    if (_devices.currentUserId == _userId) {
+      for (final token in {..._pendingRetirements, ?_registeredToken}) {
+        if (_devices.currentUserId != _userId) break;
+        try {
+          await _devices.unregister(token);
+        } catch (_) {
+          // Token invalidation remains the fallback when server cleanup fails.
+        }
       }
-    } catch (_) {
-      // Firebase invalidation also prevents delivery to the previous account.
     }
     await _service.stop(invalidateToken: invalidateToken);
     _registeredToken = null;
     _registeredAt = null;
+    _pendingRetirements.clear();
     _userId = null;
     _opened.clear();
   }

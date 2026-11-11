@@ -21,9 +21,9 @@ void main() {
     FakeKanbanRepository? tasks,
   }) {
     final model = CreateProjectViewModel(
-      projects ?? FakeProjectRepository(),
+      (projects ?? FakeProjectRepository())
+        ..generatedTaskRepository = tasks ?? FakeKanbanRepository(),
       generationRepository: generator,
-      taskRepository: tasks ?? FakeKanbanRepository(),
     );
     model.setStartDate(today);
     model.setEndDate(today.add(const Duration(days: 10)));
@@ -387,7 +387,7 @@ void main() {
       projects.failBoardCreation = false;
       tasks.failGeneratedInsert = true;
       expect(await model.confirmGeneratedTasks(), isNull);
-      expect(projects.stored.single.project.constraints, 'Original rules');
+      expect(projects.stored, isEmpty);
       tasks.failGeneratedInsert = false;
       expect(await model.confirmGeneratedTasks(), isNotNull);
       expect(projects.stored, hasLength(1));

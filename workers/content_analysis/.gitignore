@@ -1,0 +1,23 @@
+# Local Content Analysis environments and credentials
+/.venv/
+.env
+.env.*
+!.env.example
+__pycache__/
+.pytest_cache/
+
+# Local binaries, OCR data and generated output
+/Tesseract-OCR
+/speech-to-text/tools
+/PDF/
+/Video Transcript/
+output/
+transcripts/
+*.pdf
+*.mp4
+*.mov
+*.mkv
+*.webm
+*.wav
+*.mp3
+*.m4a
