@@ -6,3 +6,6 @@ verify_jwt = false
 
 [functions.resource-analysis-queue]
 verify_jwt = false
+
+[functions.recommend-resources]
+verify_jwt = false

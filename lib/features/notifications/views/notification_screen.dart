@@ -21,11 +21,13 @@ class NotificationScreen extends StatefulWidget {
     required this.badgeController,
     this.showBottomNavigation = true,
     this.onOpenProjectDashboard,
+    this.initialNotificationId,
   });
   final NotificationListViewModel viewModel;
   final NotificationBadgeController badgeController;
   final bool showBottomNavigation;
   final VoidCallback? onOpenProjectDashboard;
+  final String? initialNotificationId;
 
   @override
   State<NotificationScreen> createState() => _NotificationScreenState();
@@ -89,16 +91,22 @@ class _NotificationScreenState extends State<NotificationScreen> {
     super.initState();
     widget.viewModel.addListener(_trackArrivals);
     _trackArrivals();
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) widget.viewModel.initialize();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      if (!mounted) return;
+      await widget.viewModel.initialize();
+      if (mounted && widget.initialNotificationId != null) {
+        await _open(null, notificationId: widget.initialNotificationId);
+      }
     });
   }
 
-  Future<void> _open(AppNotification item) async {
+  Future<void> _open(AppNotification? item, {String? notificationId}) async {
     if (_openingNotificationId != null || _isOpeningPreferences) return;
-    setState(() => _openingNotificationId = item.id);
+    setState(() => _openingNotificationId = item?.id ?? notificationId);
     try {
-      final destination = await widget.viewModel.openNotification(item);
+      final destination = item != null
+          ? await widget.viewModel.openNotification(item)
+          : await widget.viewModel.openNotificationById(notificationId!);
       if (!mounted) return;
       _showFeedback();
       if (destination == null) return;
@@ -118,6 +126,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
             boardId: destination.boardId,
             projectName: destination.projectName,
             taskId: destination.taskId!,
+            showLearningResources: destination.showLearningResources,
           ),
         );
       }

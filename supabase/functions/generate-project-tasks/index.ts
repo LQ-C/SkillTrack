@@ -1,4 +1,4 @@
-import { withSupabase } from "npm:@supabase/server@1";
+import { type SupabaseContext, withSupabase } from "npm:@supabase/server@1";
 
 import { GoogleGenAI } from "npm:@google/genai@2";
 
@@ -40,7 +40,7 @@ export default {
     {
       auth: "user",
     },
-    async (req: Request, ctx) => {
+    async (req: Request, ctx: SupabaseContext) => {
       if (req.method !== "POST") {
         return jsonResponse(
           {

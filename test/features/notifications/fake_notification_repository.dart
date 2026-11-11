@@ -38,6 +38,14 @@ class FakeNotificationRepository implements NotificationRepository {
   }
 
   @override
+  Future<AppNotification?> getNotification(String id) async {
+    if (failLoad) throw StateError('load');
+    return items
+        .where((item) => item.id == id && item.userId == currentUserId)
+        .firstOrNull;
+  }
+
+  @override
   Future<int> getUnreadCount() async => items
       .where((item) => item.userId == currentUserId && item.isUnread)
       .length;

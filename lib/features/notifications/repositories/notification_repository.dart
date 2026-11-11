@@ -8,6 +8,7 @@ abstract class NotificationRepository {
     DateTime? before,
     String? beforeId,
   });
+  Future<AppNotification?> getNotification(String id);
   Future<int> getUnreadCount();
   Future<void> markAsRead(String notificationId);
   Future<void> markAllAsRead();

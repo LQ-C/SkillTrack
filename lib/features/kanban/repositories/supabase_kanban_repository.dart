@@ -489,8 +489,7 @@ class SupabaseKanbanRepository implements KanbanRepository {
 
   @override
   Future<void> deleteTag(String tagId) => _guard(() async {
-    await _client.from('task_tag_links').delete().eq('tag_id', tagId);
-    await _client.from('task_tags').delete().eq('id', tagId);
+    await _client.rpc('delete_owned_task_tag', params: {'p_tag_id': tagId});
   });
 
   @override

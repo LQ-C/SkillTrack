@@ -168,3 +168,14 @@ deployment check. Tests cover text insert/update/backfill, video completion,
 duplicates, content reversion/replacement, retries/leases, atomic rollback,
 previous-result preservation, legacy data migration, RLS, backend
 authentication, parsing and Gemini validation.
+
+## Semantic indexing extension (migration 009)
+
+After 009 is applied, this same backend endpoint also drains one resource
+embedding alongside its existing analysis operation. It uses the same secret and
+schedule; no local recommendation worker or additional cron job is needed.
+Embedding errors are reported separately in `indexing` and do not undo analysis.
+Deploy this function with `recommend-resources` after applying 009. See
+[recommendation setup](../recommend-resources/README.md) for migration order,
+backfill, verified access limitations and test-project checks. Existing analysis
+behavior, Gemini configuration and Whisper transcription remain unchanged.

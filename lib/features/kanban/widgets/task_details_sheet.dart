@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../learning_integration/view_models/task_recommendations_view_model.dart';
+import '../../learning_integration/widgets/task_recommendations_section.dart';
+
 import '../../../app/widgets/app_content.dart';
 
 import '../../../core/errors/app_exception.dart';
@@ -21,11 +24,15 @@ class TaskDetailsSheet extends StatefulWidget {
     required this.viewModel,
     required this.onEdit,
     this.fullScreen = false,
+    this.recommendations,
+    this.showLearningResources = false,
   });
   final String taskId;
   final KanbanViewModel viewModel;
   final ValueChanged<KanbanTask>? onEdit;
   final bool fullScreen;
+  final bool showLearningResources;
+  final TaskRecommendationsViewModel? recommendations;
   @override
   State<TaskDetailsSheet> createState() => _TaskDetailsSheetState();
 }
@@ -34,12 +41,23 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
   late Future<List<TaskActivity>> _activity;
   late int _activityVersion;
   bool _resuming = false;
+  final _resourcesKey = GlobalKey();
   @override
   void initState() {
     super.initState();
     _activity = widget.viewModel.getTaskActivity(widget.taskId);
     _activityVersion = widget.viewModel.activityVersion;
     widget.viewModel.addListener(_onChanged);
+    if (widget.showLearningResources) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        final target = _resourcesKey.currentContext;
+        if (mounted &&
+            target != null &&
+            widget.recommendations?.eligible == true) {
+          Scrollable.ensureVisible(target, alignment: 0);
+        }
+      });
+    }
   }
 
   void _onChanged() {
@@ -289,7 +307,23 @@ class _TaskDetailsSheetState extends State<TaskDetailsSheet> {
                     ),
                   ),
                   const SizedBox(height: 12),
-                  AttachmentSection(task: task, viewModel: widget.viewModel),
+                  Card(
+                    margin: EdgeInsets.zero,
+                    child: Padding(
+                      padding: const EdgeInsets.all(16),
+                      child: AttachmentSection(
+                        task: task,
+                        viewModel: widget.viewModel,
+                      ),
+                    ),
+                  ),
+                  if (widget.recommendations != null) ...[
+                    const SizedBox(height: 12),
+                    TaskRecommendationsSection(
+                      key: _resourcesKey,
+                      viewModel: widget.recommendations!,
+                    ),
+                  ],
                   const Divider(height: 28),
                   FutureBuilder<List<TaskActivity>>(
                     future: _activity,

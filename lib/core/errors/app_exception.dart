@@ -10,6 +10,8 @@ class AppException implements Exception {
 }
 
 class AppErrorMessages {
+  static const loadRecommendationsFailed =
+      'Unable to load learning resources. Please try again.';
   static const deadlineDatePassed = 'Choose today or a future date.';
   static const deadlineTimePassed = 'Choose a time later than now.';
   static const progressUpdateRequired = 'Enter a progress update.';

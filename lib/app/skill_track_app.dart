@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../features/kanban/repositories/kanban_repository.dart';
+import '../features/learning_integration/repositories/recommendation_repository.dart';
 import '../features/projects/repositories/project_repository.dart';
 import '../features/ai_task_generation/repositories/ai_task_generation_repository.dart';
 import '../features/notifications/repositories/notification_repository.dart';
@@ -19,12 +20,14 @@ class SkillTrackApp extends StatefulWidget {
     required this.projectRepository,
     required this.kanbanRepository,
     this.taskGenerationRepository,
+    this.recommendationRepository,
     this.notificationRepository,
     this.realtimeService,
     this.authEvents,
     this.pushController,
   });
   final ProjectRepository projectRepository;
+  final RecommendationRepository? recommendationRepository;
   final KanbanRepository kanbanRepository;
   final TaskGenerationRepository? taskGenerationRepository;
   final NotificationRepository? notificationRepository;
@@ -44,21 +47,25 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   StreamSubscription<Object?>? _authSubscription;
   StreamSubscription<PushNotificationTap>? _pushSubscription;
   final _navigatorKey = GlobalKey<NavigatorState>();
-  bool _pendingPushNavigation = false;
+  PushNotificationTap? _pendingPushNavigation;
   String? _attachmentCleanupUser;
 
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
-    _pushSubscription = widget.pushController?.taps.listen((_) {
-      _pendingPushNavigation = true;
+    _pushSubscription = widget.pushController?.taps.listen((tap) {
+      _pendingPushNavigation = tap;
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted &&
-            _pendingPushNavigation &&
-            widget.notificationRepository?.currentUserId != null &&
-            AppRouter.openNotificationsFromPush(_navigatorKey)) {
-          _pendingPushNavigation = false;
+            _pendingPushNavigation != null &&
+            widget.notificationRepository?.currentUserId ==
+                _pendingPushNavigation!.userId &&
+            AppRouter.openNotificationsFromPush(
+              _navigatorKey,
+              notificationId: _pendingPushNavigation!.notificationId,
+            )) {
+          _pendingPushNavigation = null;
         }
       });
       WidgetsBinding.instance.ensureVisualUpdate();
@@ -130,6 +137,7 @@ class _SkillTrackAppState extends State<SkillTrackApp>
       projectRepository: widget.projectRepository,
       kanbanRepository: widget.kanbanRepository,
       taskGenerationRepository: widget.taskGenerationRepository,
+      recommendationRepository: widget.recommendationRepository,
       notificationRepository: widget.notificationRepository,
       badgeController: _badge,
       realtime: widget.realtimeService,

@@ -403,7 +403,7 @@ test("index accepts missing, empty and boundary-length constraints", async () =>
     assert.equal(calls.length, 1);
     assert.equal(
       promptContext(calls[0].input).constraints,
-      "constraints" in input && input.constraints.trim()
+      typeof input.constraints === "string" && input.constraints.trim()
         ? input.constraints
         : null,
     );

@@ -21,6 +21,7 @@ class MainModuleShell extends StatefulWidget {
     required this.badgeController,
     this.realtime,
     this.initialPage = MainModulePage.projects,
+    this.initialNotificationId,
   });
 
   final ProjectRepository projectRepository;
@@ -29,6 +30,7 @@ class MainModuleShell extends StatefulWidget {
   final NotificationBadgeController badgeController;
   final NotificationChangeSource? realtime;
   final MainModulePage initialPage;
+  final String? initialNotificationId;
 
   @override
   State<MainModuleShell> createState() => _MainModuleShellState();
@@ -64,6 +66,7 @@ class _MainModuleShellState extends State<MainModuleShell> {
       _KeepAliveModule(
         child: NotificationScreen(
           viewModel: _notifications,
+          initialNotificationId: widget.initialNotificationId,
           badgeController: widget.badgeController,
           showBottomNavigation: false,
           onOpenProjectDashboard: () => _selectPage(MainModulePage.projects),

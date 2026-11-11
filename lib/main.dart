@@ -7,6 +7,7 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'app/skill_track_app.dart';
+import 'features/learning_integration/repositories/supabase_recommendation_repository.dart';
 import 'features/kanban/repositories/supabase_kanban_repository.dart';
 import 'features/projects/repositories/supabase_project_repository.dart';
 import 'features/ai_task_generation/repositories/supabase_ai_task_generation_repository.dart';
@@ -50,6 +51,7 @@ Future<void> main() async {
   runApp(
     SkillTrackApp(
       projectRepository: SupabaseProjectRepository(client),
+      recommendationRepository: SupabaseRecommendationRepository(client),
       kanbanRepository: SupabaseKanbanRepository(client),
       taskGenerationRepository: SupabaseTaskGenerationRepository(
         AiTaskGenerationService(client),

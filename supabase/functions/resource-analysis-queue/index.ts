@@ -1,3 +1,5 @@
+import { drainEmbedding } from "../_shared/recommendations/indexer.ts";
+import { nativeEmbedder } from "../_shared/recommendations/runtime.ts";
 import { GeminiTagProvider } from "./gemini.ts";
 import { createBackend } from "./store.ts";
 import { createQueueHandler, drainOne } from "./processor.ts";
@@ -14,12 +16,22 @@ Deno.serve(createQueueHandler(
       apiKey: () => Deno.env.get("GEMINI_API_KEY"),
       model: Deno.env.get("GEMINI_RESOURCE_TAG_MODEL"),
     });
-    return await drainOne(
-      backend,
-      provider,
-      url,
-      Deno.env.get("RESOURCE_VIDEO_BUCKET") ?? "marketplace-videos",
-      draftResourceId,
-    );
+    const [analysis, indexing] = await Promise.allSettled([
+      drainOne(
+        backend,
+        provider,
+        url,
+        Deno.env.get("RESOURCE_VIDEO_BUCKET") ?? "marketplace-videos",
+        draftResourceId,
+      ),
+      drainEmbedding(backend, nativeEmbedder),
+    ]);
+    if (analysis.status === "rejected") throw analysis.reason;
+    return {
+      ...analysis.value,
+      indexing: indexing.status === "fulfilled"
+        ? indexing.value
+        : { outcome: "unavailable" },
+    };
   },
 ));
