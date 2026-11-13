@@ -22,10 +22,11 @@ class NotificationOpenResult {
     required this.boardId,
     required this.projectName,
     this.taskId,
+    this.resourceId,
     this.showLearningResources = false,
   });
   final String projectId, boardId, projectName;
-  final String? taskId;
+  final String? taskId, resourceId;
   final bool showLearningResources;
 }
 
@@ -318,9 +319,9 @@ class NotificationListViewModel extends ChangeNotifier {
       if (project == null || project.status == 'archived') {
         return _unavailable();
       }
-      String? boardId;
+      final boardId =
+          item.boardId ?? await _projects.getProjectBoard(projectId);
       if (item.contextType != NotificationContextType.project) {
-        boardId = item.boardId ?? await _projects.getProjectBoard(projectId);
         if (boardId == null || boardId.isEmpty) return _unavailable();
         final taskId = item.taskId;
         if (taskId == null || taskId.isEmpty) return _unavailable();
@@ -333,6 +334,12 @@ class NotificationListViewModel extends ChangeNotifier {
         projectId: projectId,
         boardId: boardId ?? '',
         projectName: project.name,
+        resourceId:
+            item.type == NotificationType.learningResourceRecommendation &&
+                item.actionData['resource_id'] is String &&
+                (item.actionData['resource_id'] as String).trim().isNotEmpty
+            ? item.actionData['resource_id'] as String
+            : null,
         showLearningResources:
             item.type == NotificationType.learningResourceRecommendation,
         taskId: item.contextType == NotificationContextType.project

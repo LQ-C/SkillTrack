@@ -62,8 +62,16 @@ class SupabaseGateway:
             raise GatewayError("Backend returned invalid discovery candidates")
         for row in rows:
             kind = row.get("kind", "Video")
-            bucket = self.config.video_bucket if kind == "Video" else self.config.pdf_bucket
-            path = self._storage_path(row.get("external_url"), bucket)
+            candidates = (["mentor-video-files", "mentor-reading-files", self.config.video_bucket, "marketplace-videos"]
+                          if kind == "Video" else ["mentor-reading-files", self.config.pdf_bucket, "marketplace-documents"])
+            bucket, path = "", None
+            for candidate in dict.fromkeys(candidates):
+                resolved = self._storage_path(row.get("external_url"), candidate)
+                if resolved is not None:
+                    bucket, path = candidate, resolved
+                    break
+            if bucket == "mentor-video-files" and (kind != "Video" or not path.lower().endswith(".mp4")):
+                continue
             if kind not in {"Video", "Reading"} or (kind == "Reading" and (not path or not path.lower().endswith(".pdf"))):
                 continue
             if path is not None:

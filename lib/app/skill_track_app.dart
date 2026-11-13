@@ -12,6 +12,8 @@ import '../features/notifications/services/notification_realtime_service.dart';
 import '../features/notifications/viewmodels/push_notification_controller.dart';
 import '../features/notifications/services/push_notification_service.dart';
 import 'app_theme.dart';
+import 'marketplace_dependencies.dart';
+import 'router/navigation_observers.dart';
 import 'router/app_router.dart';
 
 class SkillTrackApp extends StatefulWidget {
@@ -25,7 +27,9 @@ class SkillTrackApp extends StatefulWidget {
     this.realtimeService,
     this.authEvents,
     this.pushController,
+    this.marketplace,
   });
+  final MarketplaceDependencies? marketplace;
   final ProjectRepository projectRepository;
   final RecommendationRepository? recommendationRepository;
   final KanbanRepository kanbanRepository;
@@ -49,6 +53,7 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   final _navigatorKey = GlobalKey<NavigatorState>();
   PushNotificationTap? _pendingPushNavigation;
   String? _attachmentCleanupUser;
+  String? _sessionUser;
 
   @override
   void initState() {
@@ -56,18 +61,7 @@ class _SkillTrackAppState extends State<SkillTrackApp>
     WidgetsBinding.instance.addObserver(this);
     _pushSubscription = widget.pushController?.taps.listen((tap) {
       _pendingPushNavigation = tap;
-      WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted &&
-            _pendingPushNavigation != null &&
-            widget.notificationRepository?.currentUserId ==
-                _pendingPushNavigation!.userId &&
-            AppRouter.openNotificationsFromPush(
-              _navigatorKey,
-              notificationId: _pendingPushNavigation!.notificationId,
-            )) {
-          _pendingPushNavigation = null;
-        }
-      });
+      WidgetsBinding.instance.addPostFrameCallback((_) => _drainPendingPush());
       WidgetsBinding.instance.ensureVisualUpdate();
     });
     _authSubscription = widget.authEvents?.listen((_) {
@@ -76,8 +70,30 @@ class _SkillTrackAppState extends State<SkillTrackApp>
     unawaited(_syncSession());
   }
 
+  void _drainPendingPush() {
+    final pending = _pendingPushNavigation;
+    if (!mounted ||
+        pending == null ||
+        widget.notificationRepository?.currentUserId != pending.userId) {
+      return;
+    }
+    if (AppRouter.openNotificationsFromPush(
+      _navigatorKey,
+      notificationId: pending.notificationId,
+    )) {
+      _pendingPushNavigation = null;
+    }
+  }
+
   Future<void> _syncSession({bool resumed = false}) async {
     final cleanupUser = widget.kanbanRepository.currentUserId;
+    if (_sessionUser != cleanupUser) {
+      _sessionUser = cleanupUser;
+      _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+      if (_pendingPushNavigation?.userId != cleanupUser) {
+        _pendingPushNavigation = null;
+      }
+    }
     if (cleanupUser != null &&
         (resumed || cleanupUser != _attachmentCleanupUser)) {
       unawaited(widget.kanbanRepository.retryAttachmentCleanup());
@@ -113,6 +129,9 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   void didChangeAppLifecycleState(AppLifecycleState state) {
     if (state == AppLifecycleState.resumed) {
       unawaited(_syncSession(resumed: true));
+      unawaited(
+        widget.pushController?.resumePermissionOnboarding() ?? Future.value(),
+      );
     }
   }
 
@@ -134,6 +153,7 @@ class _SkillTrackAppState extends State<SkillTrackApp>
   @override
   Widget build(BuildContext context) {
     final router = AppRouter(
+      marketplace: widget.marketplace,
       projectRepository: widget.projectRepository,
       kanbanRepository: widget.kanbanRepository,
       taskGenerationRepository: widget.taskGenerationRepository,
@@ -143,8 +163,10 @@ class _SkillTrackAppState extends State<SkillTrackApp>
       realtime: widget.realtimeService,
       pushPreferences: widget.pushController,
     );
+    WidgetsBinding.instance.addPostFrameCallback((_) => _drainPendingPush());
     return MaterialApp(
       navigatorKey: _navigatorKey,
+      navigatorObservers: [videoRouteObserver],
       title: 'SkillTrack',
       debugShowCheckedModeBanner: false,
       theme: AppTheme.light,

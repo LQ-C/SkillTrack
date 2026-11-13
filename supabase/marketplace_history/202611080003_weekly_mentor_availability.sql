@@ -1,0 +1,94 @@
+-- Weekly schedules create bookable sessions for a rolling 28-day window.
+begin;
+alter table public.tutor_profiles add column if not exists weekly_availability jsonb not null default '[]';
+alter table public.tutor_profiles add column if not exists session_minutes integer not null default 60;
+alter table public.tutor_profiles add column if not exists utc_offset_minutes integer not null default 480;
+alter table public.mentor_slots add column if not exists schedule_generated boolean not null default false;
+
+create or replace function public.generate_weekly_mentor_slots(p_mentor uuid) returns void
+language plpgsql security definer set search_path = '' as $$
+declare t public.tutor_profiles; d date; w jsonb; s timestamptz; e timestamptz; minute_start integer;
+begin
+  select * into t from public.tutor_profiles where user_id = p_mentor for update;
+  if not found or not public.is_approved_tutor(p_mentor) then return; end if;
+  for d in select generate_series((now() at time zone 'UTC' + make_interval(mins=>t.utc_offset_minutes))::date,
+    (now() at time zone 'UTC' + make_interval(mins=>t.utc_offset_minutes))::date + 27,interval '1 day')::date loop
+    for w in select value from jsonb_array_elements(t.weekly_availability) where (value->>'day')::integer = extract(isodow from d)::integer loop
+      minute_start := (w->>'start')::integer;
+      while minute_start + t.session_minutes <= (w->>'end')::integer loop
+        s := (d::timestamp + make_interval(mins=>minute_start - t.utc_offset_minutes)) at time zone 'UTC';
+        e := s + make_interval(mins=>t.session_minutes);
+        if s > now() and not exists(select 1 from public.mentor_slots where mentor_id=p_mentor and starts_at < e and ends_at > s) then
+          insert into public.mentor_slots(mentor_id,starts_at,ends_at,schedule_generated) values(p_mentor,s,e,true);
+        end if;
+        minute_start := minute_start + t.session_minutes;
+      end loop;
+    end loop;
+  end loop;
+end;
+$$;
+revoke all on function public.generate_weekly_mentor_slots(uuid) from public,anon,authenticated;
+
+-- Keep legacy saves from publishing a profile with no weekly availability.
+create or replace function public.save_tutor_profile(p_headline text, p_expertise text,
+  p_experience text, p_credential_url text, p_preferences text, p_submit boolean,
+  p_qualification_path text) returns void
+language plpgsql security definer set search_path = '' as $$
+begin
+  if not public.can_author_content() then raise exception 'Choose Mentor in your profile first.'; end if;
+  if char_length(trim(p_headline)) < 3 or char_length(trim(p_expertise)) < 3 then raise exception 'Add a headline and the skills you teach.'; end if;
+  if p_submit and not exists(select 1 from public.tutor_profiles where user_id=auth.uid() and jsonb_array_length(weekly_availability)>0) then
+    raise exception 'Choose your weekly availability before publishing.';
+  end if;
+  update public.tutor_profiles set headline=trim(p_headline),expertise=trim(p_expertise),experience=trim(p_experience),
+    credential_url=trim(p_credential_url),teaching_preferences=trim(p_preferences),verification_status='approved',
+    is_listed=case when p_submit then true else is_listed end,updated_at=now() where user_id=auth.uid();
+  if not found then raise exception 'Create your mentor profile first.'; end if;
+end;
+$$;
+
+create or replace function public.publish_mentor_schedule(p_headline text,p_expertise text,p_experience text,
+ p_credential_url text,p_preferences text,p_availability jsonb,p_session_minutes integer,p_utc_offset integer) returns void
+language plpgsql security definer set search_path = '' as $$
+declare w jsonb; days integer[] := '{}'; wd integer; a integer; b integer;
+begin
+ if not public.can_author_content() then raise exception 'Only mentors can publish a teaching schedule.'; end if;
+ if p_session_minutes is null or p_session_minutes not in (30,60,90,120) or p_utc_offset is null or p_utc_offset not between -720 and 840 then
+   raise exception 'Choose a valid session duration and time zone.'; end if;
+ if p_availability is null or jsonb_typeof(p_availability) <> 'array' then raise exception 'Select your weekly availability.'; end if;
+ if jsonb_array_length(p_availability) not between 1 and 7 then raise exception 'Select at least one free day.'; end if;
+ for w in select value from jsonb_array_elements(p_availability) loop
+   if jsonb_typeof(w->'day') is distinct from 'number' or jsonb_typeof(w->'start') is distinct from 'number' or jsonb_typeof(w->'end') is distinct from 'number'
+     or (w->>'day') !~ '^[0-9]+$' or (w->>'start') !~ '^[0-9]+$' or (w->>'end') !~ '^[0-9]+$' then raise exception 'Invalid weekly availability.'; end if;
+   wd := (w->>'day')::integer; a := (w->>'start')::integer; b := (w->>'end')::integer;
+   if wd not between 1 and 7 or wd=any(days) or a not between 0 and 1439 or b not between 1 and 1440 or b-a < p_session_minutes then
+      raise exception 'Choose different days with an end time after the start and enough time for a session.'; end if;
+   days := array_append(days,wd);
+ end loop;
+ perform 1 from public.tutor_profiles where user_id=auth.uid() for update;
+ if not found then raise exception 'Create your mentor profile first.'; end if;
+ update public.tutor_profiles set weekly_availability=p_availability,session_minutes=p_session_minutes,utc_offset_minutes=p_utc_offset where user_id=auth.uid();
+ perform public.save_tutor_profile(p_headline,p_expertise,p_experience,p_credential_url,p_preferences,true,'');
+ -- Keep every slot that already has a request, including cancelled/declined history.
+ delete from public.mentor_slots s where s.mentor_id=auth.uid() and s.schedule_generated and s.starts_at>now()
+   and not exists(select 1 from public.mentorship_requests r where r.slot_id=s.id);
+ perform public.generate_weekly_mentor_slots(auth.uid());
+end;
+$$;
+revoke all on function public.publish_mentor_schedule(text,text,text,text,text,jsonb,integer,integer) from public,anon;
+grant execute on function public.publish_mentor_schedule(text,text,text,text,text,jsonb,integer,integer) to authenticated;
+
+create or replace function public.available_mentor_slots(p_mentor uuid)
+returns table(id uuid, starts_at timestamptz, ends_at timestamptz)
+language plpgsql volatile security definer set search_path = '' as $$
+begin
+ if not public.is_student_account() or not public.is_approved_tutor(p_mentor) then return; end if;
+ perform public.generate_weekly_mentor_slots(p_mentor);
+ return query select s.id,s.starts_at,s.ends_at from public.mentor_slots s
+ where s.mentor_id=p_mentor and s.starts_at>now()
+ and not exists(select 1 from public.mentorship_requests r where r.slot_id=s.id and (r.status in ('accepted','completed') or r.learner_id=auth.uid()))
+ order by s.starts_at;
+end;
+$$;
+commit;
+notify pgrst, 'reload schema';

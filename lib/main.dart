@@ -7,6 +7,9 @@ import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_messaging/firebase_messaging.dart';
 
 import 'app/skill_track_app.dart';
+import 'app/marketplace_dependencies.dart';
+import 'app/views/setup_screen.dart';
+import 'app/app_theme.dart';
 import 'features/learning_integration/repositories/supabase_recommendation_repository.dart';
 import 'features/kanban/repositories/supabase_kanban_repository.dart';
 import 'features/projects/repositories/supabase_project_repository.dart';
@@ -16,6 +19,7 @@ import 'features/notifications/repositories/supabase_notification_repository.dar
 import 'features/notifications/services/notification_realtime_service.dart';
 import 'features/notifications/repositories/supabase_push_device_repository.dart';
 import 'features/notifications/services/push_notification_service.dart';
+import 'features/notifications/services/notification_installation_service.dart';
 import 'features/notifications/viewmodels/push_notification_controller.dart';
 import 'core/config/firebase_options.dart';
 
@@ -32,13 +36,38 @@ Future<void> main() async {
     );
     FirebaseMessaging.onBackgroundMessage(firebaseMessagingBackgroundHandler);
   }
-  final config =
-      jsonDecode(await rootBundle.loadString('config/supabase.json'))
-          as Map<String, dynamic>;
-  final url = config['SUPABASE_URL'] as String?;
-  final key = config['SUPABASE_PUBLISHABLE_KEY'] as String?;
+  const definedUrl = String.fromEnvironment('SUPABASE_URL');
+  const definedKey = String.fromEnvironment(
+    'SUPABASE_PUBLISHABLE_KEY',
+    defaultValue: String.fromEnvironment('SUPABASE_ANON_KEY'),
+  );
+  Map<String, dynamic> config = {};
+  if (definedUrl.isEmpty || definedKey.isEmpty) {
+    try {
+      config =
+          jsonDecode(await rootBundle.loadString('config/supabase.json'))
+              as Map<String, dynamic>;
+    } catch (_) {
+      /* Missing local configuration opens setup. */
+    }
+  }
+  final url = definedUrl.isNotEmpty
+      ? definedUrl
+      : config['SUPABASE_URL'] as String?;
+  final key = definedKey.isNotEmpty
+      ? definedKey
+      : config['SUPABASE_PUBLISHABLE_KEY'] as String?;
   if (url == null || url.isEmpty || key == null || key.isEmpty) {
-    throw StateError('Invalid Supabase configuration.');
+    runApp(
+      MaterialApp(
+        theme: AppTheme.light,
+        home: const SetupScreen(
+          message:
+              'Add config/supabase.json using config/supabase.example.json, or provide SUPABASE_URL and SUPABASE_PUBLISHABLE_KEY as Dart defines.',
+        ),
+      ),
+    );
+    return;
   }
   await Supabase.initialize(url: url, publishableKey: key);
   final client = Supabase.instance.client;
@@ -47,9 +76,11 @@ Future<void> main() async {
     notifications,
     SupabasePushDeviceRepository(client),
     FirebasePushNotificationService(),
+    installation: AndroidNotificationInstallationService(),
   );
   runApp(
     SkillTrackApp(
+      marketplace: MarketplaceDependencies(client),
       projectRepository: SupabaseProjectRepository(client),
       recommendationRepository: SupabaseRecommendationRepository(client),
       kanbanRepository: SupabaseKanbanRepository(client),

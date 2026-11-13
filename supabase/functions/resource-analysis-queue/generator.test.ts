@@ -254,3 +254,51 @@ Deno.test("Reading PDF requires a current extraction; other Reading links keep a
   resource.external_url = "https://example.org/article";
   assert.equal((await load()).transcript, null);
 });
+
+Deno.test("private mentor attachments use current extraction without changing legacy bucket defaults", async () => {
+  for (const kind of ["Reading", "Video"]) {
+    const extension = kind === "Reading" ? "pdf" : "mp4";
+    const resource = {id: resourceId, author_id: ownerId, kind,
+      status: "published", moderation_hidden: false, title: "Private lesson", body: "",
+      attachment_path: `owner/file.${extension}`,
+      external_url: `https://example.supabase.co/storage/v1/object/authenticated/mentor-reading-files/owner/file.${extension}`};
+    let extractionBucket = "";
+    const backend = async (path: string, body?: unknown) => {
+      if (path.startsWith("learning_resources")) return [resource];
+      if (path === "rpc/is_image_resource") return false;
+      if (path.startsWith("rpc/read_ready_")) {
+        extractionBucket = (body as {p_storage_bucket: string}).p_storage_bucket;
+        return [{id: "extraction", status: "ready", extracted_text: "Verified private content", transcript_text: "Verified private content"}];
+      }
+      throw new Error(path);
+    };
+    const source = await loadResourceSource(backend, "https://example.supabase.co", "marketplace-videos", ownerId, resourceId);
+    assert.equal(extractionBucket, "mentor-reading-files");
+    assert.ok(source.text.includes("Verified private content"));
+  }
+});
+
+Deno.test("split video bucket resolution preserves legacy locations and rejects wrong references", async () => {
+  for (const bucket of ["mentor-video-files", "mentor-reading-files", "marketplace-videos"]) {
+    const resource: Record<string,unknown> = {id:resourceId,author_id:ownerId,kind:"Video",status:"published",
+      moderation_hidden:false,title:"Video",body:"",attachment_path:"owner/file.mp4",
+      external_url:`https://example.supabase.co/storage/v1/object/authenticated/${bucket}/owner/file.mp4`};
+    let readBucket = "";
+    const backend = async (path:string, body?:unknown) => {
+      if (path.startsWith("learning_resources")) return [resource];
+      if (path.startsWith("rpc/read_ready_")) {
+        readBucket=(body as {p_storage_bucket:string}).p_storage_bucket;
+        return [{id:"extraction",status:"ready",extracted_text:"Current video extraction"}];
+      }
+      throw new Error(path);
+    };
+    const load=()=>loadResourceSource(backend,"https://example.supabase.co","marketplace-videos",ownerId,resourceId);
+    assert.ok((await load()).text.includes("Current video extraction"));
+    assert.equal(readBucket,bucket);
+    resource.attachment_path="owner/different.mp4";
+    await assert.rejects(load,code("video_storage_reference_unsupported"));
+    resource.attachment_path="owner/file.mp4";
+    resource.external_url=`https://foreign.invalid/storage/v1/object/authenticated/${bucket}/owner/file.mp4`;
+    await assert.rejects(load,code("video_storage_reference_unsupported"));
+  }
+});

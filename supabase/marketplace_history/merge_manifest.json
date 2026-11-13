@@ -1,0 +1,580 @@
+{
+  "built_date": "2026-11-12",
+  "revision": 2,
+  "schema_only": true,
+  "target": "Fresh Supabase database",
+  "authoritative_profiles": "Marketplace",
+  "authoritative_learning_resources": "Marketplace",
+  "source_exports": {
+    "Marketplace": {
+      "sha256": "889f6cb946231e1288c3f6240f25b81036bbae7e2a817993872e10ff536080a4"
+    },
+    "SkillTrack": {
+      "sha256": "3d634cbf7e4d8e510929a8d5f1496a4dbf97141a31aaa52a3ab6a039d060ddbb"
+    }
+  },
+  "tables": [
+    "content_bookmarks",
+    "content_publishers",
+    "content_reports",
+    "kanban_boards",
+    "kanban_tasks",
+    "kanban_write_requests",
+    "learning_resources",
+    "mentor_library_access",
+    "mentor_payment_offers",
+    "mentor_payments",
+    "mentor_reviews",
+    "mentor_slots",
+    "mentorship_requests",
+    "notification_preferences",
+    "notifications",
+    "profiles",
+    "project_milestones",
+    "project_push_devices",
+    "projects",
+    "resource_analysis_jobs",
+    "resource_embeddings",
+    "resource_extractions",
+    "resource_index",
+    "task_activity_logs",
+    "task_attachment_cleanup",
+    "task_attachments",
+    "task_checklist_items",
+    "task_recommendation_items",
+    "task_recommendation_sets",
+    "task_resource_bookmarks",
+    "task_tag_links",
+    "task_tags",
+    "tutor_profiles"
+  ],
+  "table_count": 33,
+  "function_count": 133,
+  "policy_count": 81,
+  "push_trigger": "Deferred when Database Webhooks are absent; otherwise disabled until target URL and secret are configured",
+  "skipped": [
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "Marketplace",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET statement_timeout =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET lock_timeout =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET idle_in_transaction_session_timeout =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET client_encoding =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET standard_conforming_strings =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SELECT pg_catalog.set_config('search_path', '',",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET check_function_bodies =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET xmloption =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET client_min_messages =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET row_security =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "COMMENT ON SCHEMA",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "extension:pg_stat_statements",
+      "statement_type": "CREATE EXTENSION IF",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "extension:pgcrypto",
+      "statement_type": "CREATE EXTENSION IF",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "extension:supabase_vault",
+      "statement_type": "CREATE EXTENSION IF",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "extension:uuid-ossp",
+      "statement_type": "CREATE EXTENSION IF",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET default_tablespace =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "SET default_table_access_method =",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "function:\"public\".\"stamp_resource\"()",
+      "statement_type": "CREATE OR REPLACE",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER FUNCTION \"public\".\"stamp_resource\"()",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "function:\"public\".\"valid_resource_link\"(\"value\" \"text\")",
+      "statement_type": "CREATE OR REPLACE",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER FUNCTION \"public\".\"valid_resource_link\"(\"value\"",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "function:\"public\".\"valid_resource_tags\"(\"value\" \"text\"[])",
+      "statement_type": "CREATE OR REPLACE",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER FUNCTION \"public\".\"valid_resource_tags\"(\"value\"",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "table:public.learning_resources",
+      "statement_type": "CREATE TABLE IF",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER TABLE \"public\".\"learning_resources\"",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "table:public.profiles",
+      "statement_type": "CREATE TABLE IF",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER TABLE \"public\".\"profiles\"",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "constraint:public.learning_resources.learning_resources_pkey",
+      "statement_type": "ALTER TABLE ONLY",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "constraint:public.profiles.profiles_pkey",
+      "statement_type": "ALTER TABLE ONLY",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "constraint:public.profiles.profiles_username_key",
+      "statement_type": "ALTER TABLE ONLY",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "index:idx_profiles_full_name",
+      "statement_type": "CREATE INDEX \"idx_profiles_full_name\"",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "index:resources_author",
+      "statement_type": "CREATE INDEX \"resources_author\"",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "index:resources_catalog",
+      "statement_type": "CREATE INDEX \"resources_catalog\"",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "index:resources_tags",
+      "statement_type": "CREATE INDEX \"resources_tags\"",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "trigger:public.learning_resources.resource_stamp",
+      "statement_type": "CREATE OR REPLACE",
+      "reason": "Duplicate object; Marketplace definition retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "constraint:public.learning_resources.learning_resources_author_id_fkey",
+      "statement_type": "ALTER TABLE ONLY",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "constraint:public.profiles.profiles_id_fkey",
+      "statement_type": "ALTER TABLE ONLY",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "policy:public.learning_resources.Authenticated users read published resources",
+      "statement_type": "CREATE POLICY \"Authenticated",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "policy:public.profiles.Users can create own profile",
+      "statement_type": "CREATE POLICY \"Users",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "policy:public.profiles.Users can delete own profile",
+      "statement_type": "CREATE POLICY \"Users",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "policy:public.profiles.Users can read own profile",
+      "statement_type": "CREATE POLICY \"Users",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": "policy:public.profiles.Users can update own profile",
+      "statement_type": "CREATE POLICY \"Users",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER TABLE \"public\".\"learning_resources\"",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER TABLE \"public\".\"profiles\"",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER PUBLICATION \"supabase_realtime\"",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT USAGE ON",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT USAGE ON",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT USAGE ON",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT USAGE ON",
+      "reason": "Identical statement already present"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace shared helper/function definition and privileges retained"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "GRANT ALL ON",
+      "reason": "Marketplace is authoritative for shared table definitions, constraints, permissions and policies"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    },
+    {
+      "source": "SkillTrack",
+      "object": null,
+      "statement_type": "ALTER DEFAULT PRIVILEGES",
+      "reason": "Explicit object grants retained; inherited broad default grants omitted"
+    }
+  ],
+  "sha256": "3c945c93db50176bde5e2446ca0de58a71cc615dda38f755b1273edf179478dc"
+}

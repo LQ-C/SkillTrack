@@ -56,6 +56,10 @@ export async function loadResourceSource(
   ) {
     throw new AnalysisError(403, "resource_analysis_forbidden");
   }
+  if (resource.kind !== "Video" && typeof resource.external_url === "string" &&
+      /\/storage\/v1\/object\/(?:public|authenticated)\/mentor-video-files\//.test(resource.external_url)) {
+    throw new AnalysisError(422, "video_storage_reference_unsupported");
+  }
   let transcript: Record<string, unknown> | null = null;
   // File-backed Reading resources require current extraction text. Ordinary
   // external Reading links retain authored-body analysis.
@@ -66,18 +70,26 @@ export async function loadResourceSource(
     try {
       const url = new URL(resource.external_url);
       pdf =
-        /^\/storage\/v1\/object\/(?:public|authenticated)\/marketplace-documents\/.+\.pdf$/i
+        /^\/storage\/v1\/object\/(?:public|authenticated)\/(?:marketplace-documents|mentor-reading-files)\/.+\.pdf$/i
           .test(decodeURIComponent(url.pathname));
     } catch { /* Ordinary external Reading links keep saved-body analysis. */ }
   }
   const image = resource.kind === "Reading" &&
     await backend("rpc/is_image_resource", { p_resource: resource }) === true;
   if (resource.kind === "Video" || pdf || image) {
-    const location = videoLocation(
-      resource.external_url,
-      projectUrl,
-      image ? imageBucket : pdf ? pdfBucket : bucket,
-    );
+    const candidates = resource.kind === "Video"
+      ? ["mentor-video-files", "mentor-reading-files", bucket, "marketplace-videos"]
+      : ["mentor-reading-files", image ? imageBucket : pdfBucket];
+    let location: {bucket: string; path: string} | undefined;
+    for (const candidate of new Set(candidates)) {
+      try { location = videoLocation(resource.external_url, projectUrl, candidate); break; }
+      catch { /* Try only the next verified bucket; never follow the source URL. */ }
+    }
+    if (!location || (location.bucket === "mentor-video-files" &&
+        (resource.kind !== "Video" || !location.path.toLowerCase().endsWith(".mp4"))) ||
+        (typeof resource.attachment_path === "string" && resource.attachment_path !== location.path)) {
+      throw new AnalysisError(422, "video_storage_reference_unsupported");
+    }
     const ready = await backend(
       pdf || image
         ? "rpc/read_ready_resource_extraction"

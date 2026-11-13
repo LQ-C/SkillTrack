@@ -110,7 +110,18 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (!mounted) return;
       _showFeedback();
       if (destination == null) return;
-      if (destination.taskId == null) {
+      if (destination.resourceId != null) {
+        await AppRouter.resourceDetails(context, destination.resourceId!);
+      } else if (destination.taskId == null && destination.boardId.isNotEmpty) {
+        await AppRouter.kanbanBoard(
+          context,
+          BoardRouteArgs(
+            projectId: destination.projectId,
+            boardId: destination.boardId,
+            projectName: destination.projectName,
+          ),
+        );
+      } else if (destination.taskId == null) {
         final openProjects = widget.onOpenProjectDashboard;
         if (openProjects != null) {
           openProjects();

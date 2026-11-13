@@ -54,7 +54,7 @@ Future<void> showApp(
     ),
   );
   await tester.pumpAndSettle();
-  await tester.tap(find.text('Notifications'));
+  await tester.tap(find.byTooltip('Notifications'));
   await tester.pumpAndSettle();
 }
 
@@ -254,7 +254,7 @@ void main() {
     expect(await repo.getUnreadCount(), 0);
   });
 
-  testWidgets('project notification returns to the project dashboard', (
+  testWidgets('project notification opens its exact project board', (
     tester,
   ) async {
     final repo = FakeNotificationRepository()
@@ -279,8 +279,8 @@ void main() {
     await showApp(tester, repo, projects: projects);
     await tester.tap(find.text('Project deadline approaching'));
     await tester.pumpAndSettle();
-    expect(find.text('My Projects'), findsOneWidget);
     expect(find.text('Demo Project'), findsOneWidget);
+    expect(find.text('My Projects'), findsNothing);
     expect(await repo.getUnreadCount(), 0);
   });
 

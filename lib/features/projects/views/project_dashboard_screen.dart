@@ -1,3 +1,4 @@
+import 'package:skilltrack/app/widgets/notification_bell.dart';
 import 'package:flutter/material.dart';
 
 import '../../../app/router/app_router.dart';
@@ -457,6 +458,7 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 )
               : const Text('My Projects'),
           actions: [
+            const NotificationBell(),
             IconButton(
               tooltip: _showSearch ? 'Close search' : 'Search projects',
               onPressed: () => setState(() {

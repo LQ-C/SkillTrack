@@ -55,3 +55,8 @@ app.*.map.json
 android/key.properties
 *.jks
 *.keystore
+
+# Local validation dependencies and scratch output
+**/node_modules/
+/integration-*.txt
+/integration-tools/

@@ -1,3 +1,7 @@
+Storage bucket split and rollout: [Resource bucket split](docs/RESOURCE_BUCKET_SPLIT.md).
+
+Integration setup and results: [Marketplace integration](docs/MARKETPLACE_INTEGRATION.md).
+
 ## Project Structure
 
 SkillTrack follows a feature-based MVVM architecture.

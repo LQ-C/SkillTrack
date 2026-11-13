@@ -142,7 +142,7 @@ void main() {
           ),
         );
         await tester.pumpAndSettle();
-        await tester.tap(find.text('Notifications'));
+        await tester.tap(find.byTooltip('Notifications'));
         await tester.pumpAndSettle();
 
         double opacity(String id) => tester
@@ -741,7 +741,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Notifications'));
+    await tester.tap(find.byTooltip('Notifications'));
     await tester.pumpAndSettle();
     final today = DateTime.now();
     final yesterday = today.subtract(const Duration(days: 1));

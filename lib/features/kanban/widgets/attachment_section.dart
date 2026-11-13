@@ -34,15 +34,11 @@ class _AttachmentSectionState extends State<AttachmentSection> {
     setState(() => _isPickingAttachment = true);
     try {
       try {
-        final selection = await FilePicker.pickFiles(
-          withData: false,
-          withReadStream: true,
-        );
-        final file = selection?.files.singleOrNull;
+        final file = await FilePicker.pickFile();
         if (file == null) return;
         final bytes = await readTaskAttachment(
-          file.readStream,
-          declaredSize: file.size,
+          file.readAsByteStream(),
+          declaredSize: await file.length() ?? 0,
         );
         if (!context.mounted) return;
         await viewModel.uploadAttachment(
@@ -143,7 +139,7 @@ class _AttachmentSectionState extends State<AttachmentSection> {
             ),
             title: Text(attachment.fileName),
             subtitle: Text(
-              '${attachment.mimeType ?? 'File'} · ${attachment.fileSizeBytes ?? 0} bytes',
+              '${attachment.mimeType ?? 'File'} Ãƒâ€šÃ‚Â· ${attachment.fileSizeBytes ?? 0} bytes',
             ),
             onTap: _openingAttachmentId != null
                 ? null

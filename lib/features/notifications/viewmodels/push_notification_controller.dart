@@ -1,4 +1,7 @@
+import '../../../core/constants/app_constants.dart';
 import 'dart:async';
+import 'package:flutter/foundation.dart';
+import '../services/notification_installation_service.dart';
 
 import '../../../core/errors/app_exception.dart';
 import '../repositories/notification_repository.dart';
@@ -10,8 +13,180 @@ abstract interface class PushPreferenceActions {
 }
 
 /// One application-scoped coordinator. No BuildContext or navigation state.
-class PushNotificationController implements PushPreferenceActions {
-  PushNotificationController(this._preferences, this._devices, this._service);
+class PushPermissionOffer {
+  const PushPermissionOffer(this.user, this.version, this.settings);
+  final String user;
+  final int version;
+  final bool settings;
+}
+
+abstract interface class PushPermissionActions {
+  Future<void> rememberPushChoice(bool enabled);
+  Future<void> openNotificationSettings();
+}
+
+class PushNotificationController extends ChangeNotifier
+    implements PushPreferenceActions, PushPermissionActions {
+  PushNotificationController(
+    this._preferences,
+    this._devices,
+    this._service, {
+    NotificationInstallationService? installation,
+  }) : _installation = installation;
+  final NotificationInstallationService? _installation;
+  PushPermissionOffer? offer;
+  PushPermissionOffer? _settingsConsent;
+  bool _checkingOnboarding = false, _consenting = false;
+  bool get onboardingAvailable =>
+      _installation?.supported == true && _service.isSupported;
+  bool isOfferCurrent(PushPermissionOffer value) =>
+      _isCurrent(value.user, value.version);
+  void _changed() {
+    if (!_disposed) notifyListeners();
+  }
+
+  Future<PushPermissionOffer?> prepareOnboarding() async {
+    if (!onboardingAvailable ||
+        _disposed ||
+        _checkingOnboarding ||
+        _consenting) {
+      return null;
+    }
+    _checkingOnboarding = true;
+    try {
+      await syncSession();
+      final user = _preferences.currentUserId, version = _version;
+      if (user == null || !_serviceReady || !_isCurrent(user, version)) {
+        return null;
+      }
+      final state = await _installation!.read(user);
+      if (!_isCurrent(user, version) ||
+          state.handled ||
+          state.optedOut ||
+          (state.granted && _enabled)) {
+        return null;
+      }
+      // Persist before presentation: rebuilds, another login and process death do not nag.
+      await _installation.markHandled();
+      if (!_isCurrent(user, version)) return null;
+      offer = PushPermissionOffer(
+        user,
+        version,
+        !state.granted && !state.canRequest,
+      );
+      return offer;
+    } catch (_) {
+      return null;
+    } finally {
+      _checkingOnboarding = false;
+    }
+  }
+
+  void dismissOffer(PushPermissionOffer value) {
+    if (identical(offer, value)) {
+      offer = null;
+      _changed();
+    }
+  }
+
+  Future<void> acceptOffer(PushPermissionOffer value) async {
+    if (_consenting || !identical(offer, value) || !isOfferCurrent(value)) {
+      return;
+    }
+    offer = null;
+    _changed();
+    if (value.settings) {
+      _settingsConsent = value;
+      try {
+        await _installation!.openSettings();
+      } catch (_) {
+        _settingsConsent = null;
+        errorMessage = 'Unable to open Android notification settings.';
+      }
+    } else {
+      await _enableWithConsent(value);
+    }
+  }
+
+  Future<void> _enableWithConsent(PushPermissionOffer value) async {
+    if (_consenting || !isOfferCurrent(value)) return;
+    _consenting = true;
+    try {
+      await setEnabled(true, requestPermission: true);
+      if (!isOfferCurrent(value)) return;
+      // Reload category switches instead of overwriting them with stale defaults.
+      final previous = await _preferences.getPreferences();
+      if (!isOfferCurrent(value)) return;
+      await _preferences.updatePreferences(
+        previous.copyWith(pushEnabled: true),
+      );
+      if (!isOfferCurrent(value)) return;
+      await rememberPushChoice(true);
+      errorMessage = null;
+    } catch (error) {
+      if (isOfferCurrent(value)) {
+        try {
+          await setEnabled(false);
+        } catch (_) {}
+        errorMessage = AppException.messageFor(
+          error,
+          fallback:
+              'Unable to enable push. You can try again in Notification Preferences.',
+        );
+      }
+    } finally {
+      _consenting = false;
+      _changed();
+    }
+  }
+
+  Future<void> resumePermissionOnboarding() async {
+    final pending = _settingsConsent;
+    if (pending == null || !isOfferCurrent(pending)) {
+      _settingsConsent = null;
+      return;
+    }
+    _settingsConsent = null;
+    try {
+      if ((await _installation!.read(pending.user)).granted &&
+          isOfferCurrent(pending)) {
+        await _enableWithConsent(pending);
+      }
+    } catch (_) {
+      /* Login and in-app notifications remain available. */
+    }
+  }
+
+  Future<String?> permissionGuidance() async {
+    final user = _preferences.currentUserId;
+    if (!onboardingAvailable || user == null) return null;
+    try {
+      final state = await _installation!.read(user);
+      if (_preferences.currentUserId != user || _disposed) return null;
+      return state.granted
+          ? 'Android notification permission is allowed. Your account push preference is controlled by the switch below.'
+          : state.canRequest
+          ? 'Android notification permission has not been allowed. Enable push to request it.'
+          : PushPermissionMessages.settingsRequired;
+    } catch (_) {
+      return 'Unable to check Android notification permission. You can still use in-app notifications.';
+    }
+  }
+
+  @override
+  Future<void> rememberPushChoice(bool enabled) async {
+    final user = _preferences.currentUserId;
+    if (user != null && onboardingAvailable) {
+      await _installation!.rememberChoice(user, enabled);
+    }
+  }
+
+  @override
+  Future<void> openNotificationSettings() async {
+    if (!onboardingAvailable) return;
+    await _installation!.openSettings();
+  }
+
   final NotificationRepository _preferences;
   final PushDeviceRepository _devices;
   final PushNotificationService _service;
@@ -50,6 +225,9 @@ class PushNotificationController implements PushPreferenceActions {
     if (user != _desiredUser) {
       _desiredUser = user;
       ++_version;
+      offer = null;
+      _settingsConsent = null;
+      _changed();
       _service.setForegroundEnabled(false);
     }
     final version = _version;
@@ -93,7 +271,7 @@ class PushNotificationController implements PushPreferenceActions {
         await _service.start(user);
         _serviceReady = true;
         if (!_isCurrent(user, version)) return;
-        if (!_preferencesLoaded || resumed) {
+        if (!_preferencesLoaded || (resumed && !_consenting)) {
           final preferences = await _preferences.getPreferences();
           if (!_isCurrent(user, version)) return;
           _enabled = preferences.pushEnabled;
@@ -177,14 +355,24 @@ class PushNotificationController implements PushPreferenceActions {
         throw const AppException('Sign in again to update push notifications.');
       }
       if (enabled) {
-        final authorized = requestPermission
-            ? await _service.requestPermission()
+        var authorized = requestPermission && !onboardingAvailable
+            ? false
             : await _service.hasPermission();
+        if (!authorized && requestPermission) {
+          if (onboardingAvailable) {
+            final state = await _installation!.read(user);
+            if (!_isCurrent(user, version)) return;
+            if (!state.canRequest) {
+              throw const AppException(PushPermissionMessages.settingsRequired);
+            }
+            await _installation.markRequested();
+            if (!_isCurrent(user, version)) return;
+          }
+          authorized = await _service.requestPermission();
+        }
         if (!_isCurrent(user, version)) return;
         if (!authorized) {
-          throw const AppException(
-            'Notification permission was denied. Allow notifications in Android settings to enable push.',
-          );
+          throw const AppException(PushPermissionMessages.denied);
         }
         final token = await _service.getToken();
         if (!_isCurrent(user, version)) return;
@@ -238,6 +426,7 @@ class PushNotificationController implements PushPreferenceActions {
     _opened.clear();
   }
 
+  @override
   Future<void> dispose() async {
     if (_disposed) return;
     _disposed = true;
@@ -245,5 +434,6 @@ class PushNotificationController implements PushPreferenceActions {
     await _stop(invalidateToken: false);
     await _service.dispose();
     await _taps.close();
+    super.dispose();
   }
 }

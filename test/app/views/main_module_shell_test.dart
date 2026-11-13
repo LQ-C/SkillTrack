@@ -1,472 +1,169 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/app/skill_track_app.dart';
 import 'package:skilltrack/app/views/main_module_shell.dart';
-import 'package:skilltrack/features/kanban/models/kanban_status.dart';
-import 'package:skilltrack/app/widgets/skilltrack_bottom_navigation.dart';
-import 'package:skilltrack/features/notifications/models/app_notification.dart';
-import 'package:skilltrack/features/notifications/models/notification_context_type.dart';
-import 'package:skilltrack/features/notifications/models/notification_type.dart';
-import 'package:skilltrack/features/notifications/services/notification_realtime_service.dart';
+import 'package:skilltrack/app/marketplace_dependencies.dart';
+import 'package:skilltrack/app/router/app_router.dart';
+import 'package:skilltrack/app/app_theme.dart';
+import 'package:skilltrack/features/authentication/services/account_service.dart';
 import 'package:skilltrack/features/notifications/viewmodels/notification_badge_controller.dart';
-import 'package:skilltrack/features/notifications/viewmodels/notification_list_view_model.dart';
 import 'package:skilltrack/features/notifications/views/notification_screen.dart';
-import 'package:skilltrack/features/projects/models/project_with_progress.dart';
-import 'package:skilltrack/features/projects/views/project_dashboard_screen.dart';
-
+import 'package:skilltrack/features/educational_content/views/resource_detail.dart';
+import '../../features/projects/fake_project_repository.dart';
 import '../../features/kanban/fake_repository.dart';
 import '../../features/notifications/fake_notification_repository.dart';
-import '../../features/projects/fake_project_repository.dart';
+import '../../marketplace/content_test.dart' show FakeContentRepository;
+import '../../marketplace/tutor_management_test.dart' show MemoryTutors;
 
-class _Projects extends FakeProjectRepository {
-  _Projects({super.items});
-  int loads = 0;
-
+class Accounts extends AccountService {
   @override
-  Future<List<ProjectWithProgress>> getProjectsWithProgress() {
-    loads++;
-    return super.getProjectsWithProgress();
-  }
+  bool get emailVerified => true;
+  @override
+  String? get email => "fixture@example.test";
+  @override
+  Future<Map<String, dynamic>> loadProfile() async => {
+    'full_name': 'Test Student',
+    'date_of_birth': '2000-01-01',
+    'role': 'student',
+    'bio': '',
+  };
 }
 
-class _Notifications extends FakeNotificationRepository {
-  int loads = 0;
-
-  @override
-  Future<List<AppNotification>> getNotifications({
-    int limit = 50,
-    DateTime? before,
-    String? beforeId,
-  }) {
-    loads++;
-    return super.getNotifications(
-      limit: limit,
-      before: before,
-      beforeId: beforeId,
-    );
-  }
-}
-
-class _Transport implements NotificationRealtimeTransport {
-  int starts = 0, stops = 0;
-  void Function(PostgresChangePayload)? onPayload;
-
-  @override
-  Future<void> subscribeForUser(
-    String userId,
-    void Function(PostgresChangePayload) onPayload,
-    void Function(RealtimeSubscribeStatus) onStatus,
-  ) async {
-    starts++;
-    this.onPayload = onPayload;
-    onStatus(RealtimeSubscribeStatus.subscribed);
-  }
-
-  @override
-  Future<void> unsubscribe() async {
-    stops++;
-    onPayload = null;
-  }
-
-  void insert(AppNotification item) => onPayload!(
-    PostgresChangePayload(
-      schema: 'public',
-      table: 'notifications',
-      commitTimestamp: DateTime.now().toUtc(),
-      eventType: PostgresChangeEvent.insert,
-      newRecord: item.toMap(),
-      oldRecord: const {},
-      errors: null,
+Future<void> showShell(WidgetTester tester) async {
+  final notifications = FakeNotificationRepository();
+  final projects = FakeProjectRepository();
+  final kanban = FakeKanbanRepository();
+  final badge = NotificationBadgeController(notifications);
+  final marketplace = MarketplaceDependencies.inject(
+    accounts: Accounts(),
+    content: FakeContentRepository(),
+    tutors: MemoryTutors(),
+  );
+  final router = AppRouter(
+    projectRepository: projects,
+    kanbanRepository: kanban,
+    notificationRepository: notifications,
+    badgeController: badge,
+    marketplace: marketplace,
+  );
+  addTearDown(badge.dispose);
+  await tester.pumpWidget(
+    MaterialApp(
+      theme: AppTheme.light,
+      onGenerateRoute: router.onGenerateRoute,
+      home: MainModuleShell(
+        projectRepository: projects,
+        kanbanRepository: kanban,
+        notificationRepository: notifications,
+        badgeController: badge,
+        marketplace: marketplace,
+      ),
     ),
   );
-}
-
-AppNotification _notification(String id, {bool task = false, DateTime? date}) =>
-    AppNotification(
-      id: id,
-      userId: 'user',
-      type: NotificationType.deadlineReminder,
-      contextType: task
-          ? NotificationContextType.task
-          : NotificationContextType.project,
-      projectId: '1',
-      boardId: 'board-1',
-      taskId: task ? 'task-1' : null,
-      title: 'Deadline alert $id',
-      message: 'Due soon',
-      createdAt: date ?? DateTime.now().toUtc(),
-    );
-
-Finder _destination(String label) => find.descendant(
-  of: find.byType(SkillTrackBottomNavigation),
-  matching: find.text(label),
-);
-
-int _selectedIndex(WidgetTester tester) =>
-    tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex;
-
-Future<void> _tapModule(WidgetTester tester, String label) async {
-  await tester.tap(_destination(label));
   await tester.pumpAndSettle();
 }
 
-Future<void> _swipe(WidgetTester tester, double direction) async {
-  await tester.drag(find.byType(PageView), Offset(direction * 320, 0));
-  await tester.pumpAndSettle();
-}
-
-Future<void> _showApp(
-  WidgetTester tester, {
-  _Projects? projects,
-  _Notifications? notifications,
-  FakeKanbanRepository? kanban,
-  NotificationRealtimeService? realtime,
-}) async {
-  tester.view.physicalSize = const Size(390, 844);
-  tester.view.devicePixelRatio = 1;
-  addTearDown(tester.view.resetPhysicalSize);
-  addTearDown(tester.view.resetDevicePixelRatio);
-  await tester.pumpWidget(
-    SkillTrackApp(
-      projectRepository: projects ?? _Projects(),
-      kanbanRepository: kanban ?? FakeKanbanRepository(),
-      notificationRepository: notifications ?? _Notifications(),
-      realtimeService: realtime,
-    ),
+Future<void> tab(WidgetTester tester, String label) async {
+  await tester.tap(
+    find
+        .descendant(of: find.byType(NavigationBar), matching: find.text(label))
+        .first,
   );
   await tester.pumpAndSettle();
 }
 
 void main() {
-  testWidgets('starts on Projects with one fixed navigation bar', (
+  testWidgets('five real tabs retain one shell and project search', (
     tester,
   ) async {
-    await _showApp(tester);
-    expect(_selectedIndex(tester), 2);
-    expect(find.text('My Projects').hitTestable(), findsOneWidget);
-    expect(find.byType(SkillTrackBottomNavigation), findsOneWidget);
-    expect(
-      tester.widget<PageView>(find.byType(PageView)).physics,
-      isA<PageScrollPhysics>(),
-    );
-    final barRect = tester.getRect(find.byType(NavigationBar));
-    final context = tester.element(find.byType(MainModuleShell));
-    expect(Navigator.of(context).canPop(), isFalse);
-    await tester.drag(find.byType(PageView), const Offset(-240, 0));
-    await tester.pump(const Duration(milliseconds: 30));
-    expect(tester.getRect(find.byType(NavigationBar)), barRect);
-    await tester.pumpAndSettle();
-    expect(_selectedIndex(tester), 3);
-    expect(find.text('No notifications yet').hitTestable(), findsOneWidget);
-    expect(find.byType(SkillTrackBottomNavigation), findsOneWidget);
-    await _swipe(tester, 1);
-    expect(_selectedIndex(tester), 2);
-    expect(find.text('My Projects').hitTestable(), findsOneWidget);
-    expect(Navigator.of(context).canPop(), isFalse);
-    await _swipe(tester, 1);
-    expect(_selectedIndex(tester), 2);
-  });
-
-  testWidgets('bottom destinations animate the existing page controller', (
-    tester,
-  ) async {
-    await _showApp(tester);
-    final controller = tester
-        .widget<PageView>(find.byType(PageView))
-        .controller!;
-    await tester.tap(_destination('Notifications'));
-    await tester.pump();
-    await tester.pump(const Duration(milliseconds: 50));
-    expect(controller.page, inExclusiveRange(0, 1));
-    await tester.pumpAndSettle();
-    expect(_selectedIndex(tester), 3);
-    expect(controller.page, 1);
-    await _tapModule(tester, 'Notifications');
-    expect(controller.page, 1);
-    await _tapModule(tester, 'Project');
-    expect(_selectedIndex(tester), 2);
-    expect(
-      tester.widget<PageView>(find.byType(PageView)).controller,
-      same(controller),
-    );
-    expect(find.byType(MainModuleShell), findsOneWidget);
-    expect(
-      Navigator.of(tester.element(find.byType(MainModuleShell))).canPop(),
-      isFalse,
-    );
-  });
-
-  testWidgets('unavailable destinations show feedback without changing pages', (
-    tester,
-  ) async {
-    await _showApp(tester);
-    for (final label in ['Home', 'Marketplace', 'Profile']) {
-      await _tapModule(tester, label);
-      expect(
-        find.text('$label is not available in this prototype.'),
-        findsOneWidget,
-      );
-      expect(_selectedIndex(tester), 2);
-      await tester.pump(const Duration(seconds: 5));
-      await tester.pumpAndSettle();
-    }
-    await _tapModule(tester, 'Notifications');
-    await _tapModule(tester, 'Home');
-    expect(
-      find.text('Home is not available in this prototype.'),
-      findsOneWidget,
-    );
-    expect(_selectedIndex(tester), 3);
-    await _swipe(tester, -1);
-    expect(_selectedIndex(tester), 3);
-  });
-
-  testWidgets(
-    'swipes preserve search, filtering, pagination and scroll position',
-    (tester) async {
-      final projects = _Projects(
-        items: [sampleProject('1', 'Flutter'), sampleProject('2', 'Dart')],
-      );
-      final notifications = _Notifications();
-      final newest = DateTime.now().toUtc();
-      notifications.items.addAll(
-        List.generate(
-          51,
-          (index) => _notification(
-            '$index',
-            date: newest.subtract(Duration(minutes: index)),
-          ),
-        ),
-      );
-      await _showApp(tester, projects: projects, notifications: notifications);
-      await tester.tap(find.byTooltip('Search projects'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField), 'Flutter');
-      tester.testTextInput.hide();
-      await tester.pumpAndSettle();
-      await _swipe(tester, -1);
-      final screen = tester.widget<NotificationScreen>(
-        find.byType(NotificationScreen),
-      );
-      final model = screen.viewModel;
-      await tester.tap(find.text('Unread 51'));
-      await tester.pumpAndSettle();
-      final scrollable = find
-          .descendant(
-            of: find.byType(NotificationScreen),
-            matching: find.byWidgetPredicate(
-              (widget) =>
-                  widget is Scrollable &&
-                  widget.axisDirection == AxisDirection.down,
-            ),
-          )
-          .first;
-      await tester.scrollUntilVisible(
-        find.text('Load older notifications'),
-        500,
-        scrollable: scrollable,
-      );
-      await tester.tap(find.text('Load older notifications'));
-      await tester.pumpAndSettle();
-      expect(model.allNotifications.length, 51);
-      final scrollOffset = tester
-          .state<ScrollableState>(scrollable)
-          .position
-          .pixels;
-      expect(scrollOffset, greaterThan(0));
-      await _swipe(tester, 1);
-      expect(
-        tester.widget<TextField>(find.byType(TextField)).controller!.text,
-        'Flutter',
-      );
-      expect(find.text('Dart').hitTestable(), findsNothing);
-      await _swipe(tester, -1);
-      expect(
-        tester
-            .widget<NotificationScreen>(find.byType(NotificationScreen))
-            .viewModel,
-        same(model),
-      );
-      expect(model.selectedFilter, NotificationListFilter.unread);
-      expect(model.allNotifications.length, 51);
-      expect(
-        tester.state<ScrollableState>(scrollable).position.pixels,
-        scrollOffset,
-      );
-      expect(projects.loads, 1);
-      expect(notifications.loads, 2);
-    },
-  );
-
-  testWidgets('keeps shared Realtime and badge alive while changing pages', (
-    tester,
-  ) async {
-    final transport = _Transport();
-    final realtime = NotificationRealtimeService(transport);
-    final notifications = _Notifications();
-    await _showApp(tester, notifications: notifications, realtime: realtime);
-    final shell = tester.widget<MainModuleShell>(find.byType(MainModuleShell));
-    expect(shell.realtime, same(realtime));
-    await _swipe(tester, -1);
-    final model = tester
-        .widget<NotificationScreen>(find.byType(NotificationScreen))
-        .viewModel;
-    await _swipe(tester, 1);
-    final fresh = _notification('fresh');
-    notifications.items.add(fresh);
-    transport.insert(fresh);
-    await tester.pumpAndSettle();
-    expect(shell.badgeController.unreadCount, 1);
-    await _swipe(tester, -1);
-    expect(find.text('Deadline alert fresh').hitTestable(), findsOneWidget);
-    expect(
-      tester
-          .widget<NotificationScreen>(find.byType(NotificationScreen))
-          .viewModel,
-      same(model),
-    );
-    expect(
-      tester
-          .widget<ProjectDashboardScreen>(
-            find.byType(ProjectDashboardScreen, skipOffstage: false),
-          )
-          .badgeController,
-      same(shell.badgeController),
-    );
-    expect(transport.starts, 1);
-    expect(notifications.loads, 1);
-    await tester.pumpWidget(const SizedBox.shrink());
-    await tester.pumpAndSettle();
-    expect(transport.stops, 1);
-  });
-
-  testWidgets('project notification switches the same shell to Projects', (
-    tester,
-  ) async {
-    final notifications = _Notifications()..items.add(_notification('project'));
-    final projects = _Projects(
-      items: [sampleProject('1', 'Flutter', boardId: 'board-1')],
-    );
-    await _showApp(tester, projects: projects, notifications: notifications);
-    await _tapModule(tester, 'Notifications');
-    final state = tester.state(find.byType(MainModuleShell));
-    await tester.tap(find.text('Deadline alert project'));
-    await tester.pumpAndSettle();
-    expect(_selectedIndex(tester), 2);
-    expect(tester.state(find.byType(MainModuleShell)), same(state));
-    expect(find.byType(MainModuleShell), findsOneWidget);
-    expect(find.text('Flutter').hitTestable(), findsOneWidget);
-    expect(notifications.items.single.isRead, isTrue);
-    expect(notifications.loads, 1);
-  });
-
-  testWidgets(
-    'task details and preferences return to the selected Notification page',
-    (tester) async {
-      final notifications = _Notifications()
-        ..items.add(_notification('task', task: true));
-      final projects = _Projects(
-        items: [sampleProject('1', 'Flutter', boardId: 'board-1')],
-      );
-      final kanban = FakeKanbanRepository(
-        tasks: [sampleTask('task-1', 'Study', KanbanStatus.todo)],
-      );
-      await _showApp(
-        tester,
-        projects: projects,
-        notifications: notifications,
-        kanban: kanban,
-      );
-      await _tapModule(tester, 'Notifications');
-      await tester.tap(find.text('Deadline alert task'));
-      await tester.pumpAndSettle();
-      expect(find.text('Task Details'), findsOneWidget);
-      expect(find.text('Study'), findsOneWidget);
-      expect(notifications.items.single.isRead, isTrue);
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(_selectedIndex(tester), 3);
-      await tester.tap(find.byTooltip('Notification preferences'));
-      await tester.pumpAndSettle();
-      expect(find.text('Notification Preferences'), findsOneWidget);
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(_selectedIndex(tester), 3);
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(_selectedIndex(tester), 2);
-      expect(
-        tester.widget<PopScope<Object?>>(find.byType(PopScope<Object?>)).canPop,
-        isTrue,
-      );
-    },
-  );
-
-  testWidgets(
-    'direct Notifications route starts on page one and Back selects Projects',
-    (tester) async {
-      final notifications = _Notifications()
-        ..items.add(_notification('direct'));
-      final badge = NotificationBadgeController(notifications);
-      final router = AppRouter(
-        projectRepository: _Projects(items: [sampleProject('1', 'Flutter')]),
-        kanbanRepository: FakeKanbanRepository(),
-        notificationRepository: notifications,
-        badgeController: badge,
-      );
-      await tester.pumpWidget(
-        MaterialApp(
-          initialRoute: AppRoutes.notifications,
-          onGenerateInitialRoutes: (name) => [
-            router.onGenerateRoute(RouteSettings(name: name)),
-          ],
-          onGenerateRoute: router.onGenerateRoute,
-        ),
-      );
-      await tester.pumpAndSettle();
-      expect(_selectedIndex(tester), 3);
-      expect(
-        tester.widget<PageView>(find.byType(PageView)).controller!.page,
-        1,
-      );
-      expect(find.byType(SkillTrackBottomNavigation), findsOneWidget);
-      await tester.binding.handlePopRoute();
-      await tester.pumpAndSettle();
-      expect(_selectedIndex(tester), 2);
-      expect(
-        Navigator.of(tester.element(find.byType(MainModuleShell))).canPop(),
-        isFalse,
-      );
-      await _tapModule(tester, 'Notifications');
-      await tester.tap(find.text('Deadline alert direct'));
-      await tester.pumpAndSettle();
-      expect(_selectedIndex(tester), 2);
+    await showShell(tester);
+    for (final name in ['Home', 'Explore', 'Library', 'Project', 'Profile']) {
+      await tab(tester, name);
       expect(find.byType(MainModuleShell), findsOneWidget);
-      await tester.pumpWidget(const SizedBox.shrink());
-      badge.dispose();
+      expect(find.byType(NavigationBar), findsOneWidget);
+      expect(find.byTooltip('Notifications').hitTestable(), findsOneWidget);
+    }
+    await tab(tester, 'Project');
+    await tester.tap(find.byTooltip('Search projects'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(TextField), 'Retained query');
+    await tab(tester, 'Home');
+    await tab(tester, 'Project');
+    expect(
+      tester.widget<TextField>(find.byType(TextField)).controller!.text,
+      'Retained query',
+    );
+  });
+  testWidgets(
+    'bell opens one inbox above retained shell and back restores tab',
+    (tester) async {
+      await showShell(tester);
+      await tab(tester, 'Library');
+      final bell = tester.widget<IconButton>(
+        find
+            .ancestor(
+              of: find.byTooltip('Notifications').hitTestable(),
+              matching: find.byType(IconButton),
+            )
+            .first,
+      );
+      bell.onPressed!();
+      bell.onPressed!();
+      await tester.pumpAndSettle();
+      expect(find.byType(NotificationScreen), findsOneWidget);
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        2,
+      );
     },
   );
-
-  testWidgets('project forms and Kanban open above the retained shell', (
+  testWidgets(
+    'repeated tab taps keep the same library and selected back returns home',
+    (tester) async {
+      await showShell(tester);
+      await tab(tester, 'Library');
+      final bar = tester.widget<NavigationBar>(find.byType(NavigationBar));
+      bar.onDestinationSelected!(2);
+      bar.onDestinationSelected!(2);
+      await tester.pumpAndSettle();
+      expect(find.byType(MainModuleShell), findsOneWidget);
+      await tester.binding.handlePopRoute();
+      await tester.pumpAndSettle();
+      expect(
+        tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+        0,
+      );
+    },
+  );
+  testWidgets(
+    'recommendation destination uses actual resource detail repository',
+    (tester) async {
+      await showShell(tester);
+      await tab(tester, 'Library');
+      final context = tester.element(find.byType(MainModuleShell));
+      AppRouter.resourceDetails(context, 'one');
+      await tester.pumpAndSettle();
+      expect(find.byType(ResourceDetail), findsOneWidget);
+      expect(find.text('Flutter login guide'), findsOneWidget);
+    },
+  );
+  testWidgets('test app without account dependencies starts project module', (
     tester,
   ) async {
-    final projects = _Projects(items: [sampleProject('1', 'Flutter')]);
-    await _showApp(tester, projects: projects);
-    final shellState = tester.state(find.byType(MainModuleShell));
-    await tester.tap(find.byKey(const Key('new-project-button')));
+    await tester.pumpWidget(
+      SkillTrackApp(
+        projectRepository: FakeProjectRepository(),
+        kanbanRepository: FakeKanbanRepository(),
+        notificationRepository: FakeNotificationRepository(),
+      ),
+    );
     await tester.pumpAndSettle();
-    expect(find.byKey(const Key('project-name-field')), findsOneWidget);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const Key('project-1')));
-    await tester.pumpAndSettle();
-    expect(find.text('Kanban Board'), findsOneWidget);
-    await tester.binding.handlePopRoute();
-    await tester.pumpAndSettle();
-    expect(tester.state(find.byType(MainModuleShell)), same(shellState));
-    expect(_selectedIndex(tester), 2);
-    expect(find.byType(SkillTrackBottomNavigation), findsOneWidget);
+    expect(find.text('My Projects'), findsOneWidget);
+    expect(
+      tester.widget<NavigationBar>(find.byType(NavigationBar)).selectedIndex,
+      3,
+    );
   });
 }

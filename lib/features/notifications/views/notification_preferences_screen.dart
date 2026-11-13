@@ -13,13 +13,26 @@ class NotificationPreferencesScreen extends StatefulWidget {
 }
 
 class _NotificationPreferencesScreenState
-    extends State<NotificationPreferencesScreen> {
+    extends State<NotificationPreferencesScreen>
+    with WidgetsBindingObserver {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) widget.viewModel.initialize();
     });
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) widget.viewModel.initialize();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
   }
 
   @override
@@ -76,14 +89,27 @@ class _NotificationPreferencesScreenState
                             ),
                           ),
                         ),
+                      if (model.permissionMessage != null)
+                        Padding(
+                          padding: const EdgeInsets.only(bottom: 8),
+                          child: Text(model.permissionMessage!),
+                        ),
                       SwitchListTile(
                         title: const Text('Push notifications'),
                         subtitle: const Text(
-                          'Receive notifications when SkillTrack is not open.',
+                          'Receive notifications when SkillTrack is not open. Android notification permission must also be allowed.',
                         ),
                         value: settings.pushEnabled,
                         onChanged: model.isSaving ? null : model.setPushEnabled,
                       ),
+                      if (model.canOpenSettings)
+                        TextButton.icon(
+                          onPressed: model.isSaving ? null : model.openSettings,
+                          icon: const Icon(Icons.settings_outlined),
+                          label: const Text(
+                            'Open Android Notification Settings',
+                          ),
+                        ),
                       SwitchListTile(
                         title: const Text('Stalled task alerts'),
                         subtitle: const Text(

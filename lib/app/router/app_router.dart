@@ -1,7 +1,18 @@
+import '../../features/notifications/widgets/push_permission_onboarding.dart';
+import 'package:flutter/material.dart';
+import 'package:skilltrack/features/tutor_management/views/explore_mentors_screen.dart';
+import 'package:skilltrack/features/authentication/services/account_service.dart';
+import 'package:skilltrack/features/tutor_management/views/mentorship_screen.dart';
+import 'package:skilltrack/features/profile/views/profile_screen.dart';
+import 'package:skilltrack/features/educational_content/views/content_screen.dart';
+
+import '../marketplace_dependencies.dart';
+import '../views/account_gate.dart';
+import '../views/notification_route.dart';
+import '../../features/educational_content/views/resource_detail.dart';
 import '../../features/learning_integration/repositories/bookmark_repository.dart';
 import '../../features/learning_integration/view_models/task_bookmarks_view_model.dart';
 import 'dart:async';
-import 'package:flutter/material.dart';
 
 import '../../features/learning_integration/repositories/recommendation_repository.dart';
 import '../../features/learning_integration/view_models/task_recommendations_view_model.dart';
@@ -118,7 +129,9 @@ class AppRouter {
     this.badgeController,
     this.realtime,
     this.pushPreferences,
+    this.marketplace,
   });
+  final MarketplaceDependencies? marketplace;
   final ProjectRepository projectRepository;
   final KanbanRepository kanbanRepository;
   final TaskGenerationRepository? taskGenerationRepository;
@@ -133,28 +146,60 @@ class AppRouter {
     Widget page;
     switch (settings.name) {
       case AppRoutes.projectDashboard:
-      case AppRoutes.notifications:
         page = notificationRepository == null || badgeController == null
-            ? settings.name == AppRoutes.projectDashboard
-                  ? ProjectDashboardScreen(
-                      projectRepository: projectRepository,
-                      kanbanRepository: kanbanRepository,
-                      badgeController: badgeController,
-                    )
-                  : const _RouteUnavailable()
+            ? ProjectDashboardScreen(
+                projectRepository: projectRepository,
+                kanbanRepository: kanbanRepository,
+              )
             : MainModuleShell(
-                initialNotificationId: arguments is NotificationRouteArgs
-                    ? arguments.notificationId
-                    : null,
-                initialPage: settings.name == AppRoutes.notifications
-                    ? MainModulePage.notifications
-                    : MainModulePage.projects,
                 projectRepository: projectRepository,
                 kanbanRepository: kanbanRepository,
                 notificationRepository: notificationRepository!,
                 badgeController: badgeController!,
+                marketplace: marketplace,
                 realtime: realtime,
               );
+        if (pushPreferences is PushNotificationController) {
+          page = PushPermissionOnboarding(
+            controller: pushPreferences as PushNotificationController,
+            child: page,
+          );
+        }
+        if (marketplace != null) {
+          page = AccountGate(dependencies: marketplace!, child: page);
+        }
+      case AppRoutes.notifications:
+        page = notificationRepository == null || badgeController == null
+            ? const _RouteUnavailable()
+            : NotificationRoute(
+                router: this,
+                notificationId: arguments is NotificationRouteArgs
+                    ? arguments.notificationId
+                    : null,
+              );
+      case '/marketplace/explore':
+        page = marketplace == null
+            ? const _RouteUnavailable()
+            : ExploreMentorsScreen(repository: marketplace!.tutors);
+      case '/marketplace/mentorship':
+        page = marketplace == null
+            ? const _RouteUnavailable()
+            : MentorshipScreen(repository: marketplace!.tutors);
+      case '/marketplace/profile':
+        page = marketplace == null
+            ? const _RouteUnavailable()
+            : ProfileScreen(service: marketplace!.accounts);
+      case '/marketplace/library':
+        page = marketplace == null
+            ? const _RouteUnavailable()
+            : ContentScreen(
+                repository: marketplace!.content,
+                initialCategory: arguments is String ? arguments : null,
+              );
+      case '/resources/details':
+        page = marketplace == null || arguments is! String
+            ? const _RouteUnavailable()
+            : _ResourceRoute(dependencies: marketplace!, id: arguments);
       case AppRoutes.notificationPreferences:
         page = notificationRepository == null
             ? const _RouteUnavailable()
@@ -213,6 +258,57 @@ class AppRouter {
     }
     return MaterialPageRoute<dynamic>(settings: settings, builder: (_) => page);
   }
+
+  static Future<void> openExplore(
+    BuildContext context,
+    AccountService service,
+  ) => Navigator.of(context).pushNamed<void>('/marketplace/explore');
+  static Future<void> openMentorship(
+    BuildContext context,
+    AccountService service,
+  ) => Navigator.of(context).pushNamed<void>('/marketplace/mentorship');
+  static Future<void> openProfile(
+    BuildContext context,
+    AccountService service,
+  ) => Navigator.of(context).pushNamed<void>('/marketplace/profile');
+  static Future<void> openLibrary(
+    BuildContext context,
+    AccountService service, {
+    String? category,
+  }) => Navigator.of(
+    context,
+  ).pushNamed<void>('/marketplace/library', arguments: category);
+
+  // Feature screens retain their constructor dependencies and workflows. All
+  // nested detail/editor/booking/payment routes use the same route factory.
+  static MaterialPageRoute<T> featureRoute<T>({
+    required WidgetBuilder builder,
+    RouteSettings? settings,
+  }) => MaterialPageRoute<T>(
+    builder: builder,
+    settings: settings ?? const RouteSettings(name: '/marketplace/flow'),
+  );
+
+  static final _opening = <(NavigatorState, String)>{};
+  static Future<void> _pushOnce(
+    BuildContext context,
+    String name, {
+    Object? arguments,
+  }) async {
+    final navigator = Navigator.of(context);
+    final key = (navigator, name);
+    if (!_opening.add(key)) return;
+    try {
+      await navigator.pushNamed<void>(name, arguments: arguments);
+    } finally {
+      _opening.remove(key);
+    }
+  }
+
+  static Future<void> resourceDetails(BuildContext context, String id) =>
+      Navigator.of(
+        context,
+      ).pushNamed<void>('/resources/details', arguments: id);
 
   static Future<ProjectWithProgress?> createProject(
     BuildContext context,
@@ -298,9 +394,9 @@ class AppRouter {
   }) {
     final navigator = navigatorKey.currentState;
     if (navigator == null) return false;
-    navigator.pushNamedAndRemoveUntil<void>(
+    navigator.popUntil((route) => route.isFirst);
+    navigator.pushNamed<void>(
       AppRoutes.notifications,
-      (_) => false,
       arguments: notificationId == null
           ? null
           : NotificationRouteArgs(notificationId),
@@ -309,7 +405,7 @@ class AppRouter {
   }
 
   static Future<void> notifications(BuildContext context) =>
-      Navigator.of(context).pushNamed<void>(AppRoutes.notifications);
+      _pushOnce(context, AppRoutes.notifications);
 
   static Future<void> notificationPreferences(BuildContext context) =>
       Navigator.of(context).pushNamed<void>(AppRoutes.notificationPreferences);
@@ -654,6 +750,38 @@ class _TaskDetailsRouteState extends State<_TaskDetailsRoute> {
           onEdit: _isOpeningEdit ? null : _edit,
           fullScreen: true,
         ),
+      );
+    },
+  );
+}
+
+class _ResourceRoute extends StatefulWidget {
+  const _ResourceRoute({required this.dependencies, required this.id});
+  final MarketplaceDependencies dependencies;
+  final String id;
+  @override
+  State<_ResourceRoute> createState() => _ResourceRouteState();
+}
+
+class _ResourceRouteState extends State<_ResourceRoute> {
+  late final ready = Future.wait<dynamic>([
+    widget.dependencies.content.permissions(),
+    widget.dependencies.content.bookmarks(),
+  ]);
+  @override
+  Widget build(BuildContext context) => FutureBuilder<List<dynamic>>(
+    future: ready,
+    builder: (context, snapshot) {
+      if (snapshot.hasError) return const _RouteUnavailable();
+      if (!snapshot.hasData) {
+        return const Scaffold(body: Center(child: CircularProgressIndicator()));
+      }
+      return ResourceDetail(
+        repository: widget.dependencies.content,
+        id: widget.id,
+        bookmarked: (snapshot.data![1] as Set<String>).contains(widget.id),
+        canPublish:
+            (snapshot.data![0] as ({bool mentor, bool publisher})).publisher,
       );
     },
   );

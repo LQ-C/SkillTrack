@@ -55,8 +55,8 @@ class Config:
             raise ValueError("Renew interval must be shorter than lease; max video size must be positive")
         if not config.video_bucket or "/" in config.video_bucket:
             raise ValueError("Set VIDEO_BUCKET to the existing video bucket")
-        if config.pdf_bucket != "marketplace-documents":
-            raise ValueError("PDF_BUCKET must match the verified marketplace-documents contract")
+        if config.pdf_bucket not in {"marketplace-documents", "mentor-reading-files"}:
+            raise ValueError("PDF_BUCKET must be marketplace-documents or mentor-reading-files")
         if not 1 <= config.discovery_batch_size <= 100:
             raise ValueError("DISCOVERY_BATCH_SIZE must be between 1 and 100")
         return config

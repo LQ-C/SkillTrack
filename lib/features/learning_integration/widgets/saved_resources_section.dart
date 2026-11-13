@@ -1,3 +1,4 @@
+import 'package:skilltrack/app/router/app_router.dart';
 import 'package:flutter/material.dart';
 import '../models/resource_recommendation.dart';
 import '../view_models/task_bookmarks_view_model.dart';
@@ -69,6 +70,8 @@ class SavedResourcesSection extends StatelessWidget {
             for (final resource in model.items)
               ListTile(
                 contentPadding: EdgeInsets.zero,
+                onTap: () =>
+                    AppRouter.resourceDetails(context, resource.resourceId),
                 title: Text(resource.title),
                 subtitle: Text(
                   [

@@ -17,7 +17,7 @@ Deno.serve(createQueueHandler(
       apiKey: () => Deno.env.get("GEMINI_API_KEY"),
       model: Deno.env.get("GEMINI_RESOURCE_TAG_MODEL"),
     });
-    const [analysis, indexing, images] = await Promise.allSettled([
+    const [analysis, indexing, images, mentorImages] = await Promise.allSettled([
       drainOne(
         backend,
         provider,
@@ -43,10 +43,15 @@ Deno.serve(createQueueHandler(
           draftResourceId,
         )
       ),
+      drainImage(backend, new GeminiTagProvider({
+        apiKey: () => Deno.env.get("GEMINI_API_KEY"),
+        model: Deno.env.get("GEMINI_RESOURCE_IMAGE_MODEL") ?? Deno.env.get("GEMINI_RESOURCE_TAG_MODEL"),
+      }), url, key, "mentor-reading-files", draftResourceId),
     ]);
     if (analysis.status === "rejected") throw analysis.reason;
     return {
       ...analysis.value,
+      mentorImages: mentorImages.status === "fulfilled" ? mentorImages.value : { outcome: "unavailable" },
       images: images.status === "fulfilled"
         ? images.value
         : { outcome: "unavailable" },

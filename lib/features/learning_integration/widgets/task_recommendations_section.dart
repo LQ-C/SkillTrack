@@ -1,3 +1,4 @@
+import 'package:skilltrack/app/router/app_router.dart';
 import '../view_models/task_bookmarks_view_model.dart';
 import 'saved_resources_section.dart';
 import 'package:flutter/material.dart';
@@ -82,7 +83,16 @@ class TaskRecommendationsSection extends StatelessWidget {
                           ),
                         ),
                         const SizedBox(height: 4),
-                        Text(resource.title, style: theme.textTheme.titleSmall),
+                        TextButton(
+                          onPressed: () => AppRouter.resourceDetails(
+                            context,
+                            resource.resourceId,
+                          ),
+                          child: Text(
+                            resource.title,
+                            style: theme.textTheme.titleSmall,
+                          ),
+                        ),
                         if (resource.summary.isNotEmpty) ...[
                           const SizedBox(height: 4),
                           Text(

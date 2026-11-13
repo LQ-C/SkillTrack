@@ -21,6 +21,7 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
   bool hasLoaded = false;
   bool _isInitializing = false;
   String? errorMessage;
+  String? permissionMessage;
 
   Future<void> initialize() async {
     if (_disposed || _isInitializing || isSaving) return;
@@ -30,9 +31,12 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
     notifyListeners();
     try {
       final loaded = await _repository.getPreferences();
-      if (_disposed) return;
+      if (_disposed || loaded.userId != _repository.currentUserId) return;
       preferences = loaded;
       hasLoaded = true;
+      if (_push is PushNotificationController) {
+        permissionMessage = await _push.permissionGuidance();
+      }
     } catch (_) {
       if (!_disposed) errorMessage = 'Unable to load notification preferences.';
     } finally {
@@ -43,12 +47,24 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
   }
 
   Future<void> retry() => initialize();
+  bool get canOpenSettings =>
+      _push is PushNotificationController && _push.onboardingAvailable;
+  Future<void> openSettings() async {
+    if (_push is! PushPermissionActions || isSaving) return;
+    try {
+      await (_push as PushPermissionActions).openNotificationSettings();
+    } catch (_) {
+      errorMessage = 'Unable to open Android notification settings.';
+      notifyListeners();
+    }
+  }
 
   Future<void> _save(
     NotificationPreferences next, {
     bool pushChanged = false,
   }) async {
     if (_disposed || isSaving || _isInitializing) return;
+    final owner = _repository.currentUserId;
     final previous = preferences;
     preferences = next;
     isSaving = true;
@@ -64,13 +80,20 @@ class NotificationPreferencesViewModel extends ChangeNotifier {
         }
         await _push.setEnabled(true, requestPermission: true);
       }
+      if (_disposed || owner != _repository.currentUserId) return;
       final saved = await _repository.updatePreferences(next);
+      if (_disposed || owner != _repository.currentUserId) return;
       committed = true;
+      if (pushChanged && _push is PushPermissionActions) {
+        await (_push as PushPermissionActions).rememberPushChoice(
+          next.pushEnabled,
+        );
+      }
       if (pushChanged) await _push?.setEnabled(next.pushEnabled);
       if (_disposed) return;
       preferences = saved;
     } catch (error) {
-      if (_disposed) return;
+      if (_disposed || owner != _repository.currentUserId) return;
       if (!committed) {
         preferences = previous;
         if (pushChanged && next.pushEnabled) {

@@ -444,7 +444,9 @@ void main() {
       expect(find.byType(SwitchListTile), findsNWidgets(4));
       expect(find.text('Push notifications'), findsOneWidget);
       expect(
-        find.text('Receive notifications when SkillTrack is not open.'),
+        find.textContaining(
+          'Receive notifications when SkillTrack is not open.',
+        ),
         findsOneWidget,
       );
     },
@@ -453,6 +455,8 @@ void main() {
   testWidgets(
     'push tap opens the existing inbox once and preserves its detail flow',
     (tester) async {
+      // Keep the serial queue in this widget test's async zone.
+      controller = PushNotificationController(preferences, devices, service);
       await tester.pumpWidget(
         SkillTrackApp(
           projectRepository: FakeProjectRepository(),
@@ -527,6 +531,7 @@ void main() {
   testWidgets('initial push tap waits until the existing router is mounted', (
     tester,
   ) async {
+    controller = PushNotificationController(preferences, devices, service);
     service.initialTap = const PushNotificationTap(
       notificationId: 'initial',
       userId: 'user',
@@ -549,6 +554,8 @@ void main() {
     testWidgets(
       'recommendation ${initial ? "cold-start" : "background"} push opens the correct task and resources once',
       (tester) async {
+        // Keep the serial queue in this widget test's async zone.
+        controller = PushNotificationController(preferences, devices, service);
         // Construct the serial queue inside the widget test's async zone.
         controller = PushNotificationController(preferences, devices, service);
         final notifications = preferences;
@@ -654,7 +661,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Notifications'));
+      await tester.tap(find.byTooltip('Notifications'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Resources to help you get unstuck'));
       await tester.pumpAndSettle();

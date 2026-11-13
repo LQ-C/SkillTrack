@@ -40,6 +40,38 @@ class DiscoveryTests(unittest.TestCase):
             self.assertEqual(rpc.call_args.args[1]["p_after_id"], "r2")
             self.assertIsNone(self.gateway.discovery_cursor)
 
+    def test_private_mentor_pdf_and_video_keep_legacy_discovery(self):
+        for kind, extension in [("Video", "mp4"), ("Reading", "pdf")]:
+            row = {"id": "mentor-file", "kind": kind, "external_url":
+                f"https://project.supabase.co/storage/v1/object/authenticated/mentor-reading-files/owner/file.{extension}"}
+            # Use the configured host; cross-project references are rejected.
+            row["external_url"] = self.config.supabase_url + row["external_url"].split(".co", 1)[1]
+            with patch.object(self.gateway, "_rpc", side_effect=[[row], "job"]) as rpc:
+                self.gateway.discover()
+                self.assertEqual(rpc.call_args.args[1]["p_storage_bucket"], "mentor-reading-files")
+                self.assertEqual(rpc.call_args.args[1]["p_storage_path"], f"owner/file.{extension}")
+
+    def test_split_bucket_discovery_preserves_all_video_locations(self):
+        for bucket in ['mentor-video-files', 'mentor-reading-files', 'marketplace-videos', self.config.video_bucket]:
+            row = {'id': 'video', 'kind': 'Video', 'external_url':
+                f'{self.config.supabase_url}/storage/v1/object/authenticated/{bucket}/owner/file.mp4'}
+            with self.subTest(bucket=bucket), patch.object(self.gateway, '_rpc', side_effect=[[row], 'job']) as rpc:
+                self.gateway.discover()
+                self.assertEqual(rpc.call_args.args[1]['p_storage_bucket'], bucket)
+
+    def test_split_bucket_rejects_foreign_signed_traversal_and_wrong_kind(self):
+        base = f'{self.config.supabase_url}/storage/v1/object/authenticated/mentor-video-files/'
+        rows = [
+            {'id':'reading','kind':'Reading','external_url':base+'owner/file.pdf'},
+            {'id':'wrong-ext','kind':'Video','external_url':base+'owner/file.pdf'},
+            {'id':'signed','kind':'Video','external_url':base+'owner/file.mp4?token=secret'},
+            {'id':'traversal','kind':'Video','external_url':base+'owner/%2e%2e/file.mp4'},
+            {'id':'foreign','kind':'Video','external_url':base.replace('example.supabase.co','foreign.invalid')+'owner/file.mp4'},
+        ]
+        with patch.object(self.gateway, '_rpc', return_value=rows) as rpc:
+            self.gateway.discover()
+            self.assertEqual(rpc.call_count, 1)
+
     def test_draft_target_and_page_failure_replay(self):
         row = {"id": "draft", "external_url": self.url}
         self.gateway.discovery_cursor = "cursor"

@@ -1,3 +1,5 @@
+> For the new **SkillTrack - final** checkout, current native verification and startup instructions are in [WORKER_VERIFICATION.md](../../../docs/WORKER_VERIFICATION.md). The older paths and rollout notes below are historical context.
+
 > Updated extraction flow: see `workers/content_analysis/EXTRACTION_ROLLOUT.md`
 > from the repository root. Migration 013 unifies video and private Reading PDFs.
 > Older video-only descriptions below document the compatibility baseline.
@@ -20,7 +22,7 @@ Both migrations use transactions and RESTRICT drops. Migration 003 checks that e
 
 The server role needs existing SELECT and UPDATE privileges on learning_resources and storage.objects for SELECT FOR SHARE. The migrations retain RLS and backend-only RPC/table access. They do not grant clients permission to claim work or write transcript text. The local resource fixture follows the owner-confirmed UUID schema; no resource foreign key or type conversion is added to legacy opaque transcription IDs.
 
-Normal discovery scans `kind = 'Video' AND status = 'published' AND moderation_hidden = false` in UUID order, one bounded page per cycle. Set `VIDEO_BUCKET` to the actual existing video bucket and optionally `DISCOVERY_BATCH_SIZE` (1�100, default 25). The worker accepts only stable HTTPS `/storage/v1/object/public/<bucket>/<path>` or `/storage/v1/object/authenticated/<bucket>/<path>` URLs on `SUPABASE_URL`. External, YouTube, signed, query-bearing and traversal URLs are skipped. Downloads use the authenticated Storage endpoint, never the resource URL itself.
+Normal discovery scans `kind = 'Video' AND status = 'published' AND moderation_hidden = false` in UUID order, one bounded page per cycle. Set `VIDEO_BUCKET` to the actual existing video bucket and optionally `DISCOVERY_BATCH_SIZE` (1–100, default 25). The worker accepts only stable HTTPS `/storage/v1/object/public/<bucket>/<path>` or `/storage/v1/object/authenticated/<bucket>/<path>` URLs on `SUPABASE_URL`. External, YouTube, signed, query-bearing and traversal URLs are skipped. Downloads use the authenticated Storage endpoint, never the resource URL itself.
 
 The backend rechecks resource eligibility and object existence. The Storage object UUID becomes source_file_id, with Storage version, etag or updated_at as source_version. Replacing an object creates a new identity/version and permits another job. Matching transcripts and all existing jobs are skipped, including terminal failed jobs. Discovery never resets attempts. The existing atomic enqueue handles concurrent duplicate discovery.
 
@@ -133,7 +135,7 @@ Edit `.env` with `SUPABASE_URL` and a **backend-only** `SUPABASE_SERVICE_ROLE_KE
 & '..\.venv\Scripts\python.exe' -m skilltrack_speech.worker
 ```
 
-The worker polls outward; the PC has no public endpoint. It claims one job with a token and renewable lease, handles bounded retries, and saves transcript and ready status in one database transaction. The PC must stay on for jobs to run. The successful path is `pending → processing → ready`.
+The worker polls outward; the PC has no public endpoint. It claims one job with a token and renewable lease, handles bounded retries, and saves transcript and ready status in one database transaction. The PC must stay on for jobs to run. The successful path is `pending â†’ processing â†’ ready`.
 
 The offline tests cover resource ID preservation, duplicate enqueue, stale claims, failures, temporary cleanup, JSON parsing, and command construction. A real PostgreSQL concurrent-claim test and live upload-to-transcript test still require a test database and the marketplace uploader. The PDF extractor, Flutter app, and recommendation logic are unchanged.
 

@@ -1,0 +1,15 @@
+{
+  "name": "skilltrack-backend-fixtures",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=24"
+  },
+  "scripts": {
+    "test": "node --experimental-transform-types --test *.test.mjs ../functions/generate-project-tasks/generator.test.ts ../functions/project-notification-generator/generator.test.ts ../functions/project-notification-generator/index.test.ts"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.5.15",
+    "@electric-sql/pglite-pgvector": "0.0.16"
+  }
+}
