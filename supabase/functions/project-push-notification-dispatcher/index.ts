@@ -29,6 +29,19 @@ type Sender = (
   device: Device,
 ) => Promise<"sent" | "invalid" | "failed">;
 
+// Only fixed stage names, configuration names and provider status codes belong here.
+// Never pass raw errors, payloads, credentials or device tokens to this logger.
+function logPushFailure(stage: string, code?: string | number) {
+  const safeCode = typeof code === "number" ||
+      (typeof code === "string" && /^[A-Z0-9_]{1,32}$/.test(code))
+    ? code
+    : undefined;
+  console.error("Project push delivery failed", {
+    stage,
+    ...(safeCode === undefined ? {} : { code: safeCode }),
+  });
+}
+
 const channelId = "skilltrack_project_notifications";
 const categoryPreference = {
   STALLED_TASK: "stalled_task_enabled",
@@ -121,6 +134,7 @@ export function createPushDispatcher(dependencies: {
       return Response.json({ error: "Unauthorized" }, { status: 401 });
     }
     const counts = { sent: 0, failed: 0, deactivated: 0, skipped: 0 };
+    let stage = "read_webhook";
     try {
       // Database Webhooks send only one row. Bound parsing without trusting Content-Length.
       const reader = request.body?.getReader();
@@ -160,6 +174,7 @@ export function createPushDispatcher(dependencies: {
       ) {
         return Response.json({ error: "Invalid webhook" }, { status: 400 });
       }
+      stage = "load_notification";
       const row = await dependencies.store.notification(id, userId);
       if (!row || row.id !== id || row.user_id !== userId) {
         counts.skipped++;
@@ -167,6 +182,7 @@ export function createPushDispatcher(dependencies: {
       }
       const category =
         categoryPreference[row.type as keyof typeof categoryPreference];
+      stage = "load_preferences";
       const preferences = await dependencies.store.preferences(userId);
       if (
         !category || preferences?.push_enabled !== true ||
@@ -177,6 +193,7 @@ export function createPushDispatcher(dependencies: {
       }
       let afterId: string | null = null;
       while (true) {
+        stage = "load_devices";
         const devices = await dependencies.store.devices(userId, afterId);
         for (let index = 0; index < devices.length; index += 5) {
           const results = await Promise.allSettled(
@@ -207,6 +224,7 @@ export function createPushDispatcher(dependencies: {
       }
       return Response.json(counts, { status: counts.failed ? 502 : 200 });
     } catch (_) {
+      logPushFailure(stage);
       return Response.json({ ...counts, failed: counts.failed + 1 }, {
         status: 503,
       });
@@ -269,7 +287,10 @@ export function createFcmSender(config: {
         }),
         signal: AbortSignal.timeout(10000),
       });
-      if (!response.ok) throw new Error("Push authentication unavailable");
+      if (!response.ok) {
+        logPushFailure("firebase_authentication", response.status);
+        throw new Error("Push authentication unavailable");
+      }
       const data = await response.json();
       if (typeof data.access_token !== "string" || !data.access_token) {
         throw new Error("Push authentication unavailable");
@@ -303,6 +324,7 @@ export function createFcmSender(config: {
       },
     );
     if (response.ok) return "sent";
+    logPushFailure("firebase_send", response.status);
     const body = await response.json().catch(() => null);
     if (isInvalidToken(body)) return "invalid";
     if (response.status === 401) cached = null;
@@ -313,11 +335,17 @@ export function createFcmSender(config: {
 function productionDispatcher() {
   function required(name: string): string {
     const value = Deno.env.get(name);
-    if (!value) throw new Error("Push configuration unavailable");
+    if (!value) {
+      logPushFailure("missing_configuration", name);
+      throw new Error("Push configuration unavailable");
+    }
     return value;
   }
   const secret = required("PROJECT_PUSH_WEBHOOK_SECRET");
-  if (secret.length < 32) throw new Error("Push configuration unavailable");
+  if (secret.length < 32) {
+    logPushFailure("invalid_configuration", "PROJECT_PUSH_WEBHOOK_SECRET");
+    throw new Error("Push configuration unavailable");
+  }
   const client = createClient(
     required("SUPABASE_URL"),
     required("SUPABASE_SERVICE_ROLE_KEY"),
@@ -330,7 +358,10 @@ function productionDispatcher() {
       const { data, error } = await client.from("notifications").select(
         "id,user_id,type,context_type,title,message,project_id,board_id,task_id",
       ).eq("id", id).eq("user_id", userId).maybeSingle();
-      if (error) throw new Error("Notification unavailable");
+      if (error) {
+        logPushFailure("notification_query", error.code);
+        throw new Error("Notification unavailable");
+      }
       return data;
     },
     async preferences(userId) {
@@ -338,7 +369,10 @@ function productionDispatcher() {
         .select(
           "push_enabled,stalled_task_enabled,deadline_reminder_enabled,recommendation_enabled",
         ).eq("user_id", userId).maybeSingle();
-      if (error) throw new Error("Preferences unavailable");
+      if (error) {
+        logPushFailure("preferences_query", error.code);
+        throw new Error("Preferences unavailable");
+      }
       return data;
     },
     async devices(userId, afterId) {
@@ -346,7 +380,10 @@ function productionDispatcher() {
         .eq("user_id", userId).eq("is_active", true);
       if (afterId) query = query.gt("id", afterId);
       const { data, error } = await query.order("id").limit(100);
-      if (error) throw new Error("Devices unavailable");
+      if (error) {
+        logPushFailure("devices_query", error.code);
+        throw new Error("Devices unavailable");
+      }
       return data ?? [];
     },
     async deactivate(userId, device) {
@@ -378,6 +415,7 @@ if (import.meta.main) {
       handler ??= productionDispatcher();
       return handler(request);
     } catch (_) {
+      logPushFailure("initialize_dispatcher");
       return Response.json({ sent: 0, failed: 1, deactivated: 0, skipped: 0 }, {
         status: 503,
       });

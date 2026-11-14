@@ -362,3 +362,43 @@ Deno.test("FCM OAuth assertions are signed and the access token is reused", asyn
   assert.equal(oauthCalls, 1);
   assert.equal(sendCalls, 2);
 });
+
+Deno.test("database failures log only the failed stage and preserve the response contract", async () => {
+  const original = console.error;
+  const logs: unknown[][] = [];
+  console.error = (...args: unknown[]) => {
+    logs.push(args);
+  };
+  try {
+    for (
+      const [method, stage] of [
+        ["notification", "load_notification"],
+        ["preferences", "load_preferences"],
+        ["devices", "load_devices"],
+      ] as const
+    ) {
+      const f = fixture();
+      f.store[method] = () =>
+        Promise.reject(new Error("sensitive-token-and-database-details"));
+      const response = await createPushDispatcher({
+        secret,
+        store: f.store,
+        send: () => Promise.resolve("sent" as const),
+      })(webhook());
+      assert.equal(response.status, 503);
+      assert.deepEqual(await response.json(), {
+        sent: 0,
+        failed: 1,
+        deactivated: 0,
+        skipped: 0,
+      });
+      assert.deepEqual(logs.at(-1), ["Project push delivery failed", {
+        stage,
+      }]);
+    }
+    assert(!JSON.stringify(logs).includes("sensitive-token"));
+    assert(!JSON.stringify(logs).includes(userId));
+  } finally {
+    console.error = original;
+  }
+});

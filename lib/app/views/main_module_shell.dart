@@ -67,6 +67,8 @@ class _MainModuleShellState extends State<MainModuleShell> {
     return switch (index) {
       0 => HomeScreen(
         showBottomNavigation: false,
+        repository: m.dashboard,
+        onProjects: () async => select(3),
         loadProfile: m.accounts.loadProfile,
         onProfile: () async => select(4),
         onExplore: () async => select(1),

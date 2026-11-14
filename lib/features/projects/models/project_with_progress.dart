@@ -6,10 +6,12 @@ class ProjectWithProgress {
     required this.boardId,
     required this.totalTaskCount,
     required this.completedTaskCount,
+    this.stalledTaskCount = 0,
   });
 
   final LearningProject project;
   final String? boardId;
+  final int stalledTaskCount;
   final int totalTaskCount;
   final int completedTaskCount;
 
@@ -23,6 +25,7 @@ class ProjectWithProgress {
         ),
         boardId: map['board_id']?.toString(),
         totalTaskCount: (map['total_task_count'] as num?)?.toInt() ?? 0,
+        stalledTaskCount: (map['stalled_task_count'] as num?)?.toInt() ?? 0,
         completedTaskCount: (map['completed_task_count'] as num?)?.toInt() ?? 0,
       );
 
@@ -30,17 +33,20 @@ class ProjectWithProgress {
     'project': project.toMap(),
     'board_id': boardId,
     'total_task_count': totalTaskCount,
+    'stalled_task_count': stalledTaskCount,
     'completed_task_count': completedTaskCount,
   };
 
   ProjectWithProgress copyWith({
     LearningProject? project,
     String? boardId,
+    int? stalledTaskCount,
     int? totalTaskCount,
     int? completedTaskCount,
   }) => ProjectWithProgress(
     project: project ?? this.project,
     boardId: boardId ?? this.boardId,
+    stalledTaskCount: stalledTaskCount ?? this.stalledTaskCount,
     totalTaskCount: totalTaskCount ?? this.totalTaskCount,
     completedTaskCount: completedTaskCount ?? this.completedTaskCount,
   );

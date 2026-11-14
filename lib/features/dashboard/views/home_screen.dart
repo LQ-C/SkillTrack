@@ -1,8 +1,12 @@
-import 'package:skilltrack/app/widgets/notification_bell.dart';
-import 'package:skilltrack/features/dashboard/viewmodels/dashboard_view_model.dart';
+import '../widgets/project_carousel.dart';
+import '../../../app/app_colors.dart';
+import '../widgets/home_action_card.dart';
 import 'package:flutter/material.dart';
-import 'package:skilltrack/app/app_colors.dart';
-import 'package:skilltrack/features/dashboard/widgets/home_action_card.dart';
+import '../../../app/widgets/notification_bell.dart';
+import '../../../app/router/app_router.dart';
+import '../../../core/utils/date_formatter.dart';
+import '../repositories/dashboard_repository.dart';
+import '../viewmodels/dashboard_view_model.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({
@@ -12,36 +16,31 @@ class HomeScreen extends StatefulWidget {
     required this.onLibrary,
     this.onMentorship,
     this.onExplore,
+    this.onProjects,
+    this.repository,
     this.showBottomNavigation = true,
   });
-  final bool showBottomNavigation;
   final Future<Map<String, dynamic>> Function() loadProfile;
   final Future<void> Function() onProfile;
-  final Future<void> Function(String? category) onLibrary;
-  final Future<void> Function()? onMentorship;
-  final Future<void> Function()? onExplore;
+  final Future<void> Function(String?) onLibrary;
+  final Future<void> Function()? onMentorship, onExplore, onProjects;
+  final DashboardRepository? repository;
+  final bool showBottomNavigation;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
 }
 
 class _HomeScreenState extends State<HomeScreen> {
-  late final viewModel = DashboardViewModel(widget.loadProfile);
-  String? get name => viewModel.name;
-  bool get loading => viewModel.loading;
-  bool get failed => viewModel.failed;
+  late final vm = DashboardViewModel(
+    widget.loadProfile,
+    repository: widget.repository,
+  );
   bool opening = false;
-  bool get showExplore =>
-      (viewModel.role == 'student' || viewModel.role == 'mentor') &&
-      widget.onExplore != null;
-
-  Future<void> openExplore() async {
-    if (opening || !showExplore) return;
-    setState(() => opening = true);
-    try {
-      await widget.onExplore!();
-    } finally {
-      if (mounted) setState(() => opening = false);
-    }
+  @override
+  void initState() {
+    super.initState();
+    vm.addListener(refresh);
+    vm.load();
   }
 
   void refresh() {
@@ -50,266 +49,408 @@ class _HomeScreenState extends State<HomeScreen> {
 
   @override
   void dispose() {
-    viewModel.dispose();
+    vm.dispose();
     super.dispose();
   }
 
-  @override
-  void initState() {
-    super.initState();
-    viewModel.addListener(refresh);
-    load();
-  }
-
-  Future<void> load() => viewModel.load();
-
-  Future<void> openProfile() async {
+  Future<void> open(Future<void> Function() action) async {
     if (opening) return;
     setState(() => opening = true);
     try {
-      await widget.onProfile();
-      if (mounted) await load();
+      await action();
+      if (mounted) await vm.load();
     } finally {
       if (mounted) setState(() => opening = false);
     }
   }
 
-  Future<void> openLibrary() async {
-    if (opening) return;
-    setState(() => opening = true);
-    try {
-      await widget.onLibrary(null);
-    } finally {
-      if (mounted) setState(() => opening = false);
-    }
+  Future<void> route(String name, {Object? arguments}) async {
+    await Navigator.of(context).pushNamed(name, arguments: arguments);
   }
 
-  Future<void> openMentorship() async {
-    if (opening || widget.onMentorship == null) return;
-    setState(() => opening = true);
-    try {
-      await widget.onMentorship!();
-      if (mounted) await load();
-    } finally {
-      if (mounted) setState(() => opening = false);
-    }
-  }
-
+  Widget heading(String text) => Padding(
+    padding: const EdgeInsets.only(top: 20, bottom: 8),
+    child: Text(text, style: Theme.of(context).textTheme.titleMedium),
+  );
+  Widget notice(String section) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      if (vm.busy(section)) const LinearProgressIndicator(),
+      if (vm.errors.contains(section))
+        TextButton.icon(
+          onPressed: vm.busy(section) ? null : () => vm.retry(section),
+          icon: const Icon(Icons.refresh),
+          label: Text('Could not load $section. Retry'),
+        ),
+    ],
+  );
+  Widget card(
+    String title,
+    String subtitle, {
+    VoidCallback? onTap,
+    IconData icon = Icons.arrow_forward,
+  }) => Card(
+    child: ListTile(
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      title: Text(title),
+      subtitle: Text(subtitle),
+      trailing: onTap == null ? null : Icon(icon),
+      onTap: opening ? null : onTap,
+    ),
+  );
   @override
-  Widget build(BuildContext context) => Scaffold(
-    appBar: AppBar(
-      backgroundColor: Colors.transparent,
-      title: const Row(
-        children: [
-          Icon(Icons.spa_outlined, color: forest),
-          SizedBox(width: 9),
-          Flexible(
-            child: Text(
-              'SkillTrack',
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontWeight: FontWeight.w800, color: forest),
+  Widget build(BuildContext context) {
+    final data = vm.projects;
+    final session = vm.session;
+    final canExplore =
+        widget.onExplore != null && ['student', 'mentor'].contains(vm.role);
+    return Scaffold(
+      appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        title: const Row(
+          children: [
+            Icon(Icons.spa_outlined, color: forest),
+            SizedBox(width: 9),
+            Flexible(
+              child: Text(
+                'SkillTrack',
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontWeight: FontWeight.w800, color: forest),
+              ),
+            ),
+          ],
+        ),
+
+        actions: [
+          const NotificationBell(),
+          IconButton.filledTonal(
+            tooltip: 'Your profile',
+            onPressed: opening ? null : () => open(widget.onProfile),
+            icon: Text(
+              vm.name?.isNotEmpty == true
+                  ? vm.name!.characters.first.toUpperCase()
+                  : 'You',
             ),
           ),
+          const SizedBox(width: 12),
         ],
       ),
-      actions: [
-        const NotificationBell(),
-        Padding(
-          padding: const EdgeInsets.only(right: 14),
-          child: IconButton.filledTonal(
-            tooltip: 'Your profile',
-            onPressed: opening ? null : openProfile,
-            icon: Text(
-              name?.isNotEmpty == true
-                  ? name!.characters.first.toUpperCase()
-                  : 'You',
-              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-            ),
-          ),
-        ),
-      ],
-    ),
-    bottomNavigationBar: widget.showBottomNavigation
-        ? NavigationBar(
-            selectedIndex: 0,
-            onDestinationSelected: opening
-                ? null
-                : (index) {
-                    if (showExplore && index == 1) {
-                      openExplore();
-                      return;
-                    }
-                    if (index == (showExplore ? 2 : 1)) openLibrary();
-                    if (index == (showExplore ? 3 : 2)) openProfile();
-                  },
-            destinations: [
-              const NavigationDestination(
-                icon: Icon(Icons.home_outlined),
-                selectedIcon: Icon(Icons.home),
-                label: 'Home',
-              ),
-              if (showExplore)
+      bottomNavigationBar: widget.showBottomNavigation
+          ? NavigationBar(
+              selectedIndex: 0,
+              onDestinationSelected: (i) {
+                if (i == 1 && canExplore) open(widget.onExplore!);
+                if (i == (canExplore ? 2 : 1)) {
+                  open(() => widget.onLibrary(null));
+                }
+                if (i == (canExplore ? 3 : 2)) open(widget.onProfile);
+              },
+              destinations: [
                 const NavigationDestination(
-                  icon: Icon(Icons.explore_outlined),
-                  label: 'Explore',
+                  icon: Icon(Icons.home_outlined),
+                  label: 'Home',
                 ),
-              const NavigationDestination(
-                icon: Icon(Icons.auto_stories_outlined),
-                label: 'Library',
-              ),
-              const NavigationDestination(
-                icon: Icon(Icons.person_outline),
-                label: 'Profile',
-              ),
-            ],
-          )
-        : null,
-    body: SafeArea(
-      child: RefreshIndicator(
-        onRefresh: load,
-        child: Center(
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 960),
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(22, 16, 22, 32),
-              children: [
-                Text(
-                  loading
-                      ? 'Welcome to your learning space'
-                      : name == null || name!.isEmpty
-                      ? 'Welcome back'
-                      : 'Welcome back, $name',
-                  style: const TextStyle(fontSize: 16, color: muted),
-                ),
-                const SizedBox(height: 18),
-                Container(
-                  padding: const EdgeInsets.all(26),
-                  decoration: BoxDecoration(
-                    gradient: const LinearGradient(
-                      colors: [Color(0xFF443775), Color(0xFF6558A6)],
-                      begin: Alignment.topLeft,
-                      end: Alignment.bottomRight,
-                    ),
-                    borderRadius: BorderRadius.circular(26),
+                if (canExplore)
+                  const NavigationDestination(
+                    icon: Icon(Icons.explore_outlined),
+                    label: 'Explore',
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Row(
-                        children: [
-                          Icon(
-                            Icons.eco_outlined,
-                            color: Color(0xFFE4D8FF),
-                            size: 24,
-                          ),
-                          SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              'GROW A LITTLE EVERY DAY',
-                              style: TextStyle(
-                                color: Color(0xFFE4D8FF),
-                                fontSize: 11,
-                                letterSpacing: 1.7,
-                                fontWeight: FontWeight.bold,
+                const NavigationDestination(
+                  icon: Icon(Icons.auto_stories_outlined),
+                  label: 'Library',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.person_outline),
+                  label: 'Profile',
+                ),
+              ],
+            )
+          : null,
+      body: SafeArea(
+        child: RefreshIndicator(
+          onRefresh: vm.load,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 960),
+              child: ListView(
+                physics: const AlwaysScrollableScrollPhysics(),
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                children: [
+                  Text(
+                    vm.name?.isNotEmpty == true
+                        ? 'Welcome back, ${vm.name}'
+                        : 'Welcome back',
+                    style: Theme.of(context).textTheme.titleLarge,
+                  ),
+                  notice('profile'),
+                  const SizedBox(height: 12),
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF443775), Color(0xFF6558A6)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
+                      ),
+                      borderRadius: BorderRadius.circular(20),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Row(
+                          children: [
+                            Icon(
+                              Icons.eco_outlined,
+                              color: Color(0xFFE4D8FF),
+                              size: 24,
+                            ),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'GROW A LITTLE EVERY DAY',
+                                style: TextStyle(
+                                  color: Color(0xFFE4D8FF),
+                                  fontSize: 11,
+                                  letterSpacing: 1.7,
+                                  fontWeight: FontWeight.bold,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 22),
-                      const Text(
-                        'Small steps.\nReal skills.',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 40,
-                          height: 1.1,
-                          fontWeight: FontWeight.w800,
+                          ],
                         ),
-                      ),
-                      const SizedBox(height: 16),
-                      const Text(
-                        'Find a mentor, book a session, and learn with materials they share with you.',
-                        style: TextStyle(
-                          color: Color(0xFFEAE4F5),
-                          fontSize: 15,
-                          height: 1.6,
-                        ),
-                      ),
-                      const SizedBox(height: 24),
-                      FilledButton(
-                        style: FilledButton.styleFrom(
-                          backgroundColor: const Color(0xFFE4D8FF),
-                          foregroundColor: forest,
-                        ),
-                        onPressed: opening ? null : () => openLibrary(),
-                        child: const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 10),
-                          child: Row(
-                            children: [
-                              Expanded(child: Text('Explore the library')),
-                              SizedBox(width: 8),
-                              Icon(Icons.arrow_forward),
-                            ],
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                const SizedBox(height: 28),
-                const Text(
-                  'Make it your own',
-                  style: TextStyle(
-                    fontSize: 23,
-                    fontWeight: FontWeight.w800,
-                    color: forest,
-                  ),
-                ),
-                const SizedBox(height: 8),
-                const Text(
-                  'A good place to start, wherever you are in your journey.',
-                  style: TextStyle(color: muted, height: 1.5),
-                ),
-                HomeActionCard(
-                  icon: Icons.auto_stories_outlined,
-                  title: 'Find your next lesson',
-                  description:
-                      'Your mentor’s shared videos and learning materials.',
-                  action: 'Browse resources',
-                  onTap: opening ? null : () => openLibrary(),
-                ),
-                const SizedBox(height: 28),
-                if (widget.onMentorship != null) ...[
-                  HomeActionCard(
-                    icon: Icons.school_outlined,
-                    title: 'Learn together',
-                    description:
-                        'Find a mentor, offer your expertise and manage your sessions.',
-                    action: 'Open mentorship',
-                    onTap: opening ? null : openMentorship,
-                  ),
-                ],
-                if (failed)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 18),
-                    child: Column(
-                      children: [
+                        const SizedBox(height: 12),
                         const Text(
-                          'Your profile details could not be loaded. You can still explore the library.',
-                          style: TextStyle(color: muted),
+                          'Small steps.\nReal skills.',
+                          style: TextStyle(
+                            color: Colors.white,
+                            fontSize: 28,
+                            height: 1.1,
+                            fontWeight: FontWeight.w800,
+                          ),
                         ),
-                        TextButton(
-                          onPressed: load,
-                          child: const Text('Retry profile'),
+                        const SizedBox(height: 10),
+                        const Text(
+                          'Find a mentor, book a session, and learn with materials they share with you.',
+                          style: TextStyle(
+                            color: Color(0xFFEAE4F5),
+                            fontSize: 15,
+                            height: 1.4,
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        FilledButton(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: const Color(0xFFE4D8FF),
+                            foregroundColor: forest,
+                          ),
+                          onPressed: opening
+                              ? null
+                              : () => open(() => widget.onLibrary(null)),
+                          child: const Padding(
+                            padding: EdgeInsets.symmetric(vertical: 4),
+                            child: Row(
+                              children: [
+                                Expanded(child: Text('Explore the library')),
+                                SizedBox(width: 8),
+                                Icon(Icons.arrow_forward),
+                              ],
+                            ),
+                          ),
                         ),
                       ],
                     ),
                   ),
-              ],
+                  heading('Project overview'),
+                  notice('projects'),
+                  if (data != null)
+                    Card(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final metrics = [
+                            (
+                              data.active,
+                              'Active projects',
+                              Icons.folder_outlined,
+                            ),
+                            (
+                              data.today,
+                              'Tasks due today',
+                              Icons.today_outlined,
+                            ),
+                            (
+                              data.stalled,
+                              'Stalled tasks',
+                              Icons.pause_circle_outline,
+                            ),
+                          ];
+                          final stacked =
+                              constraints.maxWidth < 330 ||
+                              MediaQuery.textScalerOf(context).scale(14) > 21;
+                          final boxes = metrics
+                              .map(
+                                (m) => Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: Theme.of(
+                                      context,
+                                    ).colorScheme.surfaceContainerLow,
+                                  ),
+                                  child: Column(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      Icon(
+                                        m.$3,
+                                        color: Theme.of(
+                                          context,
+                                        ).colorScheme.primary,
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        '${m.$1}',
+                                        style: Theme.of(
+                                          context,
+                                        ).textTheme.titleLarge,
+                                      ),
+                                      Text(m.$2, textAlign: TextAlign.center),
+                                    ],
+                                  ),
+                                ),
+                              )
+                              .toList();
+                          return Padding(
+                            padding: const EdgeInsets.all(8),
+                            child: stacked
+                                ? Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.stretch,
+                                    children: [
+                                      for (
+                                        var i = 0;
+                                        i < boxes.length;
+                                        i++
+                                      ) ...[
+                                        if (i > 0) const SizedBox(height: 4),
+                                        boxes[i],
+                                      ],
+                                    ],
+                                  )
+                                : IntrinsicHeight(
+                                    child: Row(
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.stretch,
+                                      children: [
+                                        for (
+                                          var i = 0;
+                                          i < boxes.length;
+                                          i++
+                                        ) ...[
+                                          if (i > 0) const SizedBox(width: 4),
+                                          Expanded(child: boxes[i]),
+                                        ],
+                                      ],
+                                    ),
+                                  ),
+                          );
+                        },
+                      ),
+                    ),
+                  Wrap(
+                    alignment: WrapAlignment.spaceBetween,
+                    crossAxisAlignment: WrapCrossAlignment.center,
+                    spacing: 16,
+                    children: [
+                      heading('Your projects'),
+                      TextButton(
+                        onPressed: opening
+                            ? null
+                            : () => open(
+                                widget.onProjects ??
+                                    () => route(AppRoutes.projectDashboard),
+                              ),
+                        child: const Text('View all'),
+                      ),
+                    ],
+                  ),
+                  if (data != null && data.items.isEmpty)
+                    card(
+                      'Create your first project',
+                      'Turn a learning goal into your next step.',
+                      onTap: () => open(() => route(AppRoutes.createProject)),
+                    ),
+                  if (data != null && data.items.isNotEmpty)
+                    ProjectCarousel(
+                      projects: data.items.take(3).toList(),
+                      onOpen: opening
+                          ? null
+                          : (item) => open(
+                              () => AppRouter.kanbanBoard(
+                                context,
+                                BoardRouteArgs(
+                                  projectId: item.project.id,
+                                  boardId: item.boardId!,
+                                  projectName: item.project.name,
+                                  projectStatus: item.project.status,
+                                ),
+                              ),
+                            ),
+                    ),
+                  const SizedBox(height: 20),
+                  const Text(
+                    'Make it your own',
+                    style: TextStyle(
+                      fontSize: 23,
+                      fontWeight: FontWeight.w800,
+                      color: forest,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  const Text(
+                    'A good place to start, wherever you are in your journey.',
+                    style: TextStyle(color: muted, height: 1.5),
+                  ),
+                  HomeActionCard(
+                    icon: Icons.auto_stories_outlined,
+                    title: 'Find your next lesson',
+                    description:
+                        'Your mentor’s shared videos and learning materials.',
+                    action: 'Browse resources',
+                    onTap: opening
+                        ? null
+                        : () => open(() => widget.onLibrary(null)),
+                  ),
+                  const SizedBox(height: 16),
+                  if (widget.onMentorship != null) ...[
+                    HomeActionCard(
+                      icon: Icons.school_outlined,
+                      title: 'Learn together',
+                      description:
+                          'Find a mentor, offer your expertise and manage your sessions.',
+                      action: 'Open mentorship',
+                      onTap: opening ? null : () => open(widget.onMentorship!),
+                    ),
+                  ],
+                  if (session != null ||
+                      vm.busy('session') ||
+                      vm.errors.contains('session')) ...[
+                    heading('Upcoming session'),
+                    notice('session'),
+                    if (session != null)
+                      card(
+                        session.mentorId == widget.repository?.userId
+                            ? 'Learner: ${session.learnerName}'
+                            : 'Mentor: ${session.mentorName}',
+                        '${DateFormatter.calendarDate(session.start)} · ${TimeOfDay.fromDateTime(session.start).format(context)} · Confirmed',
+                        onTap: widget.onMentorship == null
+                            ? null
+                            : () => open(widget.onMentorship!),
+                      ),
+                  ],
+                ],
+              ),
             ),
           ),
         ),
       ),
-    ),
-  );
+    );
+  }
 }

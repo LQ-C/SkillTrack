@@ -1,3 +1,4 @@
+import '../../kanban/models/kanban_task.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../core/errors/app_exception.dart';
@@ -257,46 +258,54 @@ class SupabaseProjectRepository implements ProjectRepository {
   @override
   Future<List<ProjectWithProgress>> getProjectsWithProgress() =>
       _guard(() async {
-        final projects = await getUserProjects();
-        if (projects.isEmpty) return [];
-        final boards = await _client
-            .from('kanban_boards')
-            .select('id,project_id,is_archived')
-            .inFilter('project_id', projects.map((p) => p.id).toList());
-        final activeBoards = boards.where(
-          (board) => board['is_archived'] != true,
-        );
-        final boardByProject = {
-          for (final board in activeBoards)
-            board['project_id'].toString(): board['id'].toString(),
-        };
-        final boardIds = boardByProject.values.toList();
-        final taskRows = boardIds.isEmpty
-            ? <Map<String, dynamic>>[]
-            : await _client
-                  .from('kanban_tasks')
-                  .select('board_id,status,is_archived')
-                  .inFilter('board_id', boardIds)
-                  .eq('is_archived', false);
-        final counts = <String, ({int total, int completed})>{};
-        for (final task in taskRows) {
-          final boardId = task['board_id'].toString();
-          final previous = counts[boardId] ?? (total: 0, completed: 0);
-          counts[boardId] = (
-            total: previous.total + 1,
-            completed:
-                previous.completed + (task['status'] == 'completed' ? 1 : 0),
-          );
-        }
-        return projects.map((project) {
-          final boardId = boardByProject[project.id];
-          final count = counts[boardId];
-          return ProjectWithProgress(
-            project: project,
-            boardId: boardId,
-            totalTaskCount: count?.total ?? 0,
-            completedTaskCount: count?.completed ?? 0,
-          );
-        }).toList();
+        return progressForProjects(await getUserProjects());
       });
+
+  Future<List<ProjectWithProgress>> progressForProjects(
+    List<LearningProject> projects,
+  ) => _guard(() async {
+    if (projects.isEmpty) return [];
+    final boards = await _client
+        .from('kanban_boards')
+        .select('id,project_id,is_archived')
+        .inFilter('project_id', projects.map((p) => p.id).toList());
+    final activeBoards = boards.where((board) => board['is_archived'] != true);
+    final boardByProject = {
+      for (final board in activeBoards)
+        board['project_id'].toString(): board['id'].toString(),
+    };
+    final boardIds = boardByProject.values.toList();
+    final taskRows = boardIds.isEmpty
+        ? <Map<String, dynamic>>[]
+        : await _client
+              .from('kanban_tasks')
+              .select('board_id,status,is_archived,is_stalled,stagnation_score')
+              .inFilter('board_id', boardIds)
+              .eq('is_archived', false);
+    final stalled = <String, int>{};
+    final counts = <String, ({int total, int completed})>{};
+    for (final task in taskRows) {
+      final boardId = task['board_id'].toString();
+      final item = KanbanTask.fromMap(task);
+      if (!item.isCompleted && item.shouldShowStalled) {
+        stalled[boardId] = (stalled[boardId] ?? 0) + 1;
+      }
+      final previous = counts[boardId] ?? (total: 0, completed: 0);
+      counts[boardId] = (
+        total: previous.total + 1,
+        completed: previous.completed + (task['status'] == 'completed' ? 1 : 0),
+      );
+    }
+    return projects.map((project) {
+      final boardId = boardByProject[project.id];
+      final count = counts[boardId];
+      return ProjectWithProgress(
+        project: project,
+        boardId: boardId,
+        totalTaskCount: count?.total ?? 0,
+        completedTaskCount: count?.completed ?? 0,
+        stalledTaskCount: stalled[boardId] ?? 0,
+      );
+    }).toList();
+  });
 }
