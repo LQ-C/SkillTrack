@@ -1,3 +1,4 @@
+import '../../../app/widgets/category_dropdown.dart';
 import 'dart:typed_data';
 import 'package:file_picker/file_picker.dart';
 
@@ -335,23 +336,39 @@ class _ResourceEditorState extends State<ResourceEditor> {
     String value,
     List<String> options,
     void Function(String) change,
-  ) => DropdownButtonFormField<String>(
-    initialValue: value,
-    isExpanded: true,
-    validator: label == 'Skill category'
-        ? (value) => contentCategories.contains(value)
+  ) => label == 'Skill category'
+      ? categoryDropdown(
+          context: context,
+          label: label,
+          value: value,
+          options: options,
+          validator: (value) => contentCategories.contains(value)
               ? null
-              : 'Choose one of the updated skill categories.'
-        : null,
-    decoration: InputDecoration(labelText: label),
-    items: options
-        .map((v) => DropdownMenuItem(value: v, child: Text(v)))
-        .toList(),
-    onChanged: busy || picking
-        ? null
-        : (v) => setState(() {
-            change(v!);
-            dirty = true;
-          }),
-  );
+              : 'Choose one of the updated skill categories.',
+          onChanged: busy || picking
+              ? null
+              : (v) => setState(() {
+                  change(v!);
+                  dirty = true;
+                }),
+        )
+      : DropdownButtonFormField<String>(
+          initialValue: value,
+          isExpanded: true,
+          validator: label == 'Skill category'
+              ? (value) => contentCategories.contains(value)
+                    ? null
+                    : 'Choose one of the updated skill categories.'
+              : null,
+          decoration: InputDecoration(labelText: label),
+          items: options
+              .map((v) => DropdownMenuItem(value: v, child: Text(v)))
+              .toList(),
+          onChanged: busy || picking
+              ? null
+              : (v) => setState(() {
+                  change(v!);
+                  dirty = true;
+                }),
+        );
 }

@@ -1,3 +1,4 @@
+import 'package:skilltrack/features/projects/models/learning_project.dart';
 import 'dart:async';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -58,9 +59,12 @@ class _ProjectRepository extends FakeProjectRepository {
   Completer<void>? pendingSave;
   int loads = 0;
   @override
-  Future<List<ProjectWithProgress>> getProjectsWithProgress() {
+  Future<List<LearningProject>> getUserProjects() async {
     loads++;
-    return pendingLoad?.future ?? super.getProjectsWithProgress();
+    if (pendingLoad != null) {
+      return (await pendingLoad!.future).map((item) => item.project).toList();
+    }
+    return super.getUserProjects();
   }
 
   @override

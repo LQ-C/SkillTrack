@@ -1,3 +1,4 @@
+import '../../../core/utils/debug_timing.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -56,7 +57,10 @@ class _UploadedVideoPlayerState extends State<UploadedVideoPlayer>
           widget.controllerFactory?.call(Uri.parse(url)) ??
           VideoPlayerController.networkUrl(Uri.parse(url));
       _initializing = next;
-      await next.initialize().timeout(const Duration(seconds: 30));
+      await debugTimed(
+        'Video native initialization',
+        () => next!.initialize().timeout(const Duration(seconds: 30)),
+      );
       if (!mounted || version != _version) {
         await next.dispose();
         return;

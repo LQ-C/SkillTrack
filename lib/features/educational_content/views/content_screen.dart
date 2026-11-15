@@ -1,3 +1,4 @@
+import '../../../app/widgets/category_dropdown.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/app/widgets/notification_bell.dart';
 import 'package:skilltrack/features/educational_content/viewmodels/content_library_view_model.dart';
@@ -70,9 +71,9 @@ class _ContentScreenState extends State<ContentScreen> {
     super.dispose();
   }
 
-  Future<void> load({bool append = false}) {
+  Future<void> load({bool append = false, bool refreshMetadata = true}) {
     viewModel.search = search.text;
-    return viewModel.load(append: append);
+    return viewModel.load(append: append, refreshMetadata: refreshMetadata);
   }
 
   Future<void> edit([LearningResource? item]) async {
@@ -169,13 +170,13 @@ class _ContentScreenState extends State<ContentScreen> {
                 TextField(
                   controller: search,
                   textInputAction: TextInputAction.search,
-                  onSubmitted: (_) => load(),
+                  onSubmitted: (_) => load(refreshMetadata: false),
                   decoration: InputDecoration(
                     labelText: 'Search resource titles',
                     prefixIcon: const Icon(Icons.search),
                     suffixIcon: IconButton(
                       tooltip: 'Search',
-                      onPressed: () => load(),
+                      onPressed: () => load(refreshMetadata: false),
                       icon: const Icon(Icons.arrow_forward),
                     ),
                   ),
@@ -363,20 +364,35 @@ class _ContentScreenState extends State<ContentScreen> {
     String? value,
     List<String> options,
     void Function(String?) change,
-  ) => DropdownButtonFormField<String>(
-    key: ValueKey('$label:$value'),
-    initialValue: value ?? '',
-    isExpanded: true,
-    decoration: InputDecoration(labelText: label),
-    items: [
-      const DropdownMenuItem(value: '', child: Text('All')),
-      ...options.map((v) => DropdownMenuItem(value: v, child: Text(v))),
-    ],
-    onChanged: loading
-        ? null
-        : (v) {
-            setState(() => change(v == '' ? null : v));
-            load();
-          },
-  );
+  ) => label == 'Category'
+      ? categoryDropdown(
+          context: context,
+          key: ValueKey('$label:$value'),
+          label: label,
+          value: value ?? '',
+          options: options,
+          includeAll: true,
+          onChanged: loading
+              ? null
+              : (v) {
+                  setState(() => change(v == '' ? null : v));
+                  load(refreshMetadata: false);
+                },
+        )
+      : DropdownButtonFormField<String>(
+          key: ValueKey('$label:$value'),
+          initialValue: value ?? '',
+          isExpanded: true,
+          decoration: InputDecoration(labelText: label),
+          items: [
+            const DropdownMenuItem(value: '', child: Text('All')),
+            ...options.map((v) => DropdownMenuItem(value: v, child: Text(v))),
+          ],
+          onChanged: loading
+              ? null
+              : (v) {
+                  setState(() => change(v == '' ? null : v));
+                  load(refreshMetadata: false);
+                },
+        );
 }

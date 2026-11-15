@@ -306,32 +306,65 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 ),
               ],
               const SizedBox(height: 14),
-              TweenAnimationBuilder<double>(
-                tween: Tween(begin: item.progress, end: item.progress),
-                duration: AppTheme.motionDuration(context),
-                curve: AppTheme.transitionCurve,
-                builder: (context, value, child) =>
-                    LinearProgressIndicator(value: value, minHeight: 8),
-              ),
-              const SizedBox(height: 8),
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Expanded(
-                    child: Text(
-                      '${item.completedTaskCount} of ${item.totalTaskCount} tasks completed',
-                      style: theme.textTheme.bodySmall,
+              if (!_model.hasProgress(project.id))
+                if (_model.isProgressLoading)
+                  const Row(
+                    children: [
+                      SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                      SizedBox(width: 8),
+                      Expanded(child: Text('Loading progress…')),
+                    ],
+                  )
+                else
+                  TextButton.icon(
+                    onPressed: _model.retryProgress,
+                    icon: const Icon(Icons.refresh, size: 18),
+                    label: const Text('Retry progress'),
+                  )
+              else ...[
+                TweenAnimationBuilder<double>(
+                  tween: Tween(begin: item.progress, end: item.progress),
+                  duration: AppTheme.motionDuration(context),
+                  curve: AppTheme.transitionCurve,
+                  builder: (context, value, child) =>
+                      LinearProgressIndicator(value: value, minHeight: 8),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        '${item.completedTaskCount} of ${item.totalTaskCount} tasks completed',
+                        style: theme.textTheme.bodySmall,
+                      ),
                     ),
-                  ),
-                  const SizedBox(width: 8),
+                    const SizedBox(width: 8),
+                    Text(
+                      '${(item.progress * 100).round()}%',
+                      style: theme.textTheme.labelLarge?.copyWith(
+                        color: theme.colorScheme.primary,
+                      ),
+                    ),
+                  ],
+                ),
+                if (item.stalledTaskCount > 0)
                   Text(
-                    '${(item.progress * 100).round()}%',
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      color: theme.colorScheme.primary,
+                    '${item.stalledTaskCount} stalled tasks',
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: theme.colorScheme.error,
                     ),
                   ),
-                ],
-              ),
+                if (_model.isProgressLoading)
+                  const Padding(
+                    padding: EdgeInsets.only(top: 4),
+                    child: LinearProgressIndicator(minHeight: 2),
+                  ),
+              ],
             ],
           ),
         ),
@@ -457,13 +490,13 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                   action: 'Sign in',
                   onTap: _isShowingSignIn ? null : _signIn,
                 )
-              : _model.isLoading
+              : _model.isLoading && !_model.hasLoaded
               ? const CardLoadingView(
                   label: 'Loading your projects',
                   summaryCount: 3,
                   showLeading: true,
                 )
-              : _model.errorMessage != null
+              : _model.errorMessage != null && !_model.hasLoaded
               ? _state(
                   'Unable to load projects',
                   'Please check your connection and try again.',
@@ -480,6 +513,22 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                 )
               : Column(
                   children: [
+                    if (_model.isLoading)
+                      const LinearProgressIndicator(minHeight: 2),
+                    if (_model.errorMessage != null)
+                      TextButton.icon(
+                        onPressed: _model.isLoading ? null : _model.load,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('Could not refresh projects. Retry'),
+                      ),
+                    if (_model.progressError != null)
+                      TextButton.icon(
+                        onPressed: _model.isProgressLoading
+                            ? null
+                            : _model.retryProgress,
+                        icon: const Icon(Icons.refresh),
+                        label: Text('${_model.progressError} Retry progress'),
+                      ),
                     Padding(
                       padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
                       child: _summary(),

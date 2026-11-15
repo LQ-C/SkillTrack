@@ -42,3 +42,8 @@ abstract interface class MentorResourcePreviewRepository {
     required int offset,
   });
 }
+
+/// Session identity changes invalidate installation-local Library metadata.
+abstract interface class ContentSessionSource {
+  Stream<String?> get userChanges;
+}

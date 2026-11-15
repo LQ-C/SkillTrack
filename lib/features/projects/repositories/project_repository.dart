@@ -48,3 +48,14 @@ class ProjectWriteRejected extends AppException {
     super.message = AppErrorMessages.saveGeneratedTasksFailed,
   ]);
 }
+
+/// Optional staged progress API; combined loading remains available to callers.
+abstract interface class ProjectProgressSource {
+  Future<List<ProjectWithProgress>> progressForProjects(
+    List<LearningProject> projects,
+  );
+}
+
+abstract interface class ProjectSessionSource {
+  Stream<String?> get userChanges;
+}

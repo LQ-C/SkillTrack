@@ -1,3 +1,4 @@
+import '../widgets/uploaded_video_player.dart';
 import '../utils/youtube_url.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import '../viewmodels/resource_detail_view_model.dart';
@@ -90,7 +91,16 @@ class _ResourceDetailState extends State<ResourceDetail> {
                 ),
               ],
               if (!loading && r != null) ...[
-                Icon(kindIcon(r.kind), size: 48),
+                if (r.kind == 'Video' &&
+                    widget.repository is ResourceOpeningRepository &&
+                    (r.attachmentPath != null ||
+                        r.link.contains('/storage/v1/object/')))
+                  UploadedVideoPlayer(
+                    key: ValueKey(r.id),
+                    loadUrl: viewModel.videoPlaybackUrl,
+                  )
+                else
+                  Icon(kindIcon(r.kind), size: 48),
                 const SizedBox(height: 20),
                 SelectableText(
                   r.title,
@@ -132,9 +142,12 @@ class _ResourceDetailState extends State<ResourceDetail> {
                   const SizedBox(height: 20),
                   InlineYoutubeVideo(key: ValueKey(r.link), url: r.link),
                 ],
-                if (r.attachmentPath != null ||
-                    (r.link.contains('/storage/v1/object/') &&
-                        widget.repository is ResourceOpeningRepository)) ...[
+                if ((r.kind != 'Video' ||
+                        widget.repository is! ResourceOpeningRepository) &&
+                    (r.attachmentPath != null ||
+                        (r.link.contains('/storage/v1/object/') &&
+                            widget.repository
+                                is ResourceOpeningRepository))) ...[
                   const SizedBox(height: 20),
                   FilledButton.icon(
                     onPressed: busy

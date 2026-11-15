@@ -54,12 +54,15 @@ class _HomeScreenState extends State<HomeScreen> {
     super.dispose();
   }
 
-  Future<void> open(Future<void> Function() action) async {
+  Future<void> open(
+    Future<void> Function() action, {
+    String? refreshSection,
+  }) async {
     if (opening) return;
     setState(() => opening = true);
     try {
       await action();
-      if (mounted) await vm.load();
+      if (mounted && refreshSection != null) await vm.retry(refreshSection);
     } finally {
       if (mounted) setState(() => opening = false);
     }
@@ -67,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   Future<void> route(String name, {Object? arguments}) async {
     await Navigator.of(context).pushNamed(name, arguments: arguments);
+    if (mounted && name == AppRoutes.createProject) await vm.retry('projects');
   }
 
   Widget heading(String text) => Padding(
@@ -383,6 +387,7 @@ class _HomeScreenState extends State<HomeScreen> {
                                   projectStatus: item.project.status,
                                 ),
                               ),
+                              refreshSection: 'projects',
                             ),
                     ),
                   const SizedBox(height: 20),
@@ -417,7 +422,12 @@ class _HomeScreenState extends State<HomeScreen> {
                       description:
                           'Find a mentor, offer your expertise and manage your sessions.',
                       action: 'Open mentorship',
-                      onTap: opening ? null : () => open(widget.onMentorship!),
+                      onTap: opening
+                          ? null
+                          : () => open(
+                              widget.onMentorship!,
+                              refreshSection: 'session',
+                            ),
                     ),
                   ],
                   if (session != null ||
@@ -433,7 +443,10 @@ class _HomeScreenState extends State<HomeScreen> {
                         '${DateFormatter.calendarDate(session.start)} · ${TimeOfDay.fromDateTime(session.start).format(context)} · Confirmed',
                         onTap: widget.onMentorship == null
                             ? null
-                            : () => open(widget.onMentorship!),
+                            : () => open(
+                                widget.onMentorship!,
+                                refreshSection: 'session',
+                              ),
                       ),
                   ],
                 ],

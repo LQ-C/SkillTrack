@@ -1,3 +1,4 @@
+import '../../../app/widgets/category_dropdown.dart';
 import 'package:flutter/material.dart';
 import 'package:skilltrack/app/widgets/notice.dart';
 import 'package:skilltrack/core/constants/content_options.dart';
@@ -163,19 +164,11 @@ class _TutorProfileEditorState extends State<TutorProfileEditor> {
                   ),
                   const SizedBox(height: 20),
                   if (error != null) Notice(error!, error: true),
-                  DropdownButtonFormField<String>(
-                    initialValue: selectedHeadline,
-                    isExpanded: true,
-                    decoration: const InputDecoration(
-                      labelText: 'Teaching category',
-                    ),
-                    items: [
-                      for (final category in contentCategories)
-                        DropdownMenuItem(
-                          value: category,
-                          child: Text(category),
-                        ),
-                    ],
+                  categoryDropdown(
+                    context: context,
+                    label: 'Teaching category',
+                    value: selectedHeadline,
+                    options: contentCategories,
                     validator: (value) =>
                         value == null ? 'Select your teaching category.' : null,
                     onChanged: busy

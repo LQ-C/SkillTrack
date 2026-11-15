@@ -1,3 +1,4 @@
+import '../../../core/utils/debug_timing.dart';
 import 'dart:collection';
 import 'dart:convert';
 
@@ -312,18 +313,35 @@ class KanbanViewModel extends ChangeNotifier {
     }
   }
 
-  Future<void> _reload({String? taskId, bool catalogsOnly = false}) async {
+  Future<void> _reload({
+    String? taskId,
+    bool catalogsOnly = false,
+    bool includeCatalogs = true,
+  }) async {
     final board = _boardId;
     if (_disposed || board == null) return;
     final user = _repository.currentUserId;
     final focus = taskId ?? _focusedTaskId;
     final (loaded, tags, milestones, writable) = await (
-      catalogsOnly ? Future.value(_tasks) : _loadTasks(board, focus),
-      user == null ? Future.value(<TaskTag>[]) : _repository.getUserTags(user),
-      _projectRepository != null && _projectId != null
-          ? _projectRepository.getProjectMilestones(_projectId)
+      catalogsOnly
+          ? Future.value(_tasks)
+          : debugTimed('Board tasks', () => _loadTasks(board, focus)),
+      !includeCatalogs
+          ? Future.value(_tags)
+          : user == null
+          ? Future.value(<TaskTag>[])
+          : debugTimed('Board tags', () => _repository.getUserTags(user)),
+      !includeCatalogs
+          ? Future.value(_milestones)
+          : _projectRepository != null && _projectId != null
+          ? debugTimed(
+              'Board milestones',
+              () => _projectRepository.getProjectMilestones(_projectId),
+            )
           : Future.value(<ProjectMilestone>[]),
-      _projectRepository != null && _projectId != null
+      !includeCatalogs
+          ? Future.value(_milestoneBoardWritable)
+          : _projectRepository != null && _projectId != null
           ? _projectRepository.canCreateMilestone(
               projectId: _projectId,
               boardId: board,
@@ -504,25 +522,36 @@ class KanbanViewModel extends ChangeNotifier {
     String? failureMessage,
     bool reconcileOnFailure = false,
     bool reloadAfterSave = true,
+    bool reloadCatalogs = true,
   }) async {
     if (_disposed || _isSaving) return false;
     final previous = _tasks;
+    final saveUser = _repository.currentUserId;
+    final saveBoard = _boardId;
     _isSaving = true;
     _errorMessage = null;
     if (optimistic != null) _tasks = optimistic;
     notifyListeners();
     var committed = false;
     try {
-      await operation();
+      await debugTimed('Board mutation', operation);
       committed = true;
+      if (saveUser != _repository.currentUserId || saveBoard != _boardId) {
+        _tasks = [];
+        return false;
+      }
       if (_disposed) return false;
       _activityVersion++;
-      if (reloadAfterSave) await _reload();
+      if (reloadAfterSave) await _reload(includeCatalogs: reloadCatalogs);
       if (_disposed) return false;
       _feedbackMessage = feedback;
       return true;
     } catch (error) {
       if (_disposed) return false;
+      if (saveUser != _repository.currentUserId || saveBoard != _boardId) {
+        _tasks = [];
+        return false;
+      }
       if (!committed) {
         _tasks = previous;
         if (reconcileOnFailure ||
@@ -604,19 +633,23 @@ class KanbanViewModel extends ChangeNotifier {
       tags: jsonEncode(selectedTags),
       checklist: jsonEncode(items),
     );
-    return _save(() async {
-      final created = await _taskWrites.run(
-        intent,
-        (id) => _repository.saveTaskCreation(
-          task,
-          requestId: id,
-          tagIds: selectedTags,
-          checklist: items,
-        ),
-      );
-      if (_disposed) return;
-      _tasks = [..._tasks.where((item) => item.id != created.id), created];
-    }, 'Task created successfully');
+    return _save(
+      () async {
+        final created = await _taskWrites.run(
+          intent,
+          (id) => _repository.saveTaskCreation(
+            task,
+            requestId: id,
+            tagIds: selectedTags,
+            checklist: items,
+          ),
+        );
+        if (_disposed) return;
+        _tasks = [..._tasks.where((item) => item.id != created.id), created];
+      },
+      'Task created successfully',
+      reloadCatalogs: false,
+    );
   }
 
   Future<bool> updateTask(
@@ -746,6 +779,7 @@ class KanbanViewModel extends ChangeNotifier {
           : 'Task moved',
       optimistic: optimistic,
       failureMessage: 'Unable to move the task. Please try again.',
+      reloadCatalogs: false,
     );
     if (ok && original != destination) {
       _undo = _UndoAction(task.id, original, originalIndex);
@@ -770,6 +804,7 @@ class KanbanViewModel extends ChangeNotifier {
         ];
       },
       paused ? 'Timer paused' : 'Timer resumed',
+      reloadAfterSave: false,
       reconcileOnFailure: true,
     );
   }

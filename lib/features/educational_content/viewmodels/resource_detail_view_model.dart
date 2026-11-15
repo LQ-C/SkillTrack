@@ -28,6 +28,24 @@ class ResourceDetailViewModel extends ViewModel {
     }
   }
 
+  Future<String> videoPlaybackUrl() async {
+    final owner = repository.userId;
+    final value = await repository.get(id);
+    if (!isActive ||
+        repository.userId != owner ||
+        value.kind != 'Video' ||
+        repository is! ResourceOpeningRepository) {
+      throw StateError('Video unavailable.');
+    }
+    final url = await (repository as ResourceOpeningRepository).primaryFileUrl(
+      value,
+    );
+    if (!isActive || repository.userId != owner) {
+      throw StateError('Session changed.');
+    }
+    return url;
+  }
+
   Future<void> action(Future<void> Function() work) async {
     if (busy) return;
     update(() {

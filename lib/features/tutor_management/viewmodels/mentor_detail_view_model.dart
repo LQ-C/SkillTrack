@@ -1,3 +1,4 @@
+import '../../../core/utils/debug_timing.dart';
 import 'dart:async';
 import '../../../core/utils/view_model.dart';
 import '../../educational_content/models/learning_resource.dart';
@@ -177,7 +178,10 @@ class MentorDetailViewModel extends ViewModel {
       throw StateError('Video unavailable.');
     }
     if (!own) {
-      final latest = await repository.paymentAccess(mentorId);
+      final latest = await debugTimed(
+        'Video entitlement',
+        () => repository.paymentAccess(mentorId),
+      );
       if (!valid()) throw StateError('Session changed.');
       update(() {
         if (access.materials && !latest.materials) invalidatePlayback();
@@ -187,7 +191,10 @@ class MentorDetailViewModel extends ViewModel {
     if (!valid() || !unlocked) {
       throw StateError('Materials access is required.');
     }
-    final resource = await content!.get(id);
+    final resource = await debugTimed(
+      'Video resource availability',
+      () => content!.get(id),
+    );
     if (!valid() ||
         resource.id != id ||
         resource.kind != 'Video' ||
@@ -196,8 +203,9 @@ class MentorDetailViewModel extends ViewModel {
         resource.hidden) {
       throw StateError('Video unavailable.');
     }
-    final url = await (content as ResourceOpeningRepository).primaryFileUrl(
-      resource,
+    final url = await debugTimed(
+      'Video signed URL',
+      () => (content as ResourceOpeningRepository).primaryFileUrl(resource),
     );
     if (!valid() || !unlocked) throw StateError('Session changed.');
     return url;

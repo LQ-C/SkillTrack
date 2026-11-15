@@ -1,3 +1,5 @@
+import 'package:skilltrack/features/projects/models/learning_project.dart';
+import 'package:skilltrack/features/projects/repositories/supabase_project_repository.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
@@ -13,6 +15,54 @@ class FixtureRepository extends SupabaseDashboardRepository {
 }
 
 void main() {
+  test('project task counts start while board metadata is pending', () async {
+    final release = Completer<void>();
+    final taskStarted = Completer<void>();
+    final client = SupabaseClient(
+      'https://fixture.invalid',
+      'fixture-key',
+      httpClient: MockClient((r) async {
+        Object rows = [];
+        if (r.url.path.endsWith('/kanban_boards')) {
+          await release.future;
+          rows = [
+            {'id': 'b', 'project_id': 'p', 'is_archived': false},
+          ];
+        }
+        if (r.url.path.endsWith('/kanban_tasks')) {
+          taskStarted.complete();
+          rows = [
+            {'board_id': 'b', 'status': 'completed', 'is_archived': false},
+          ];
+        }
+        return http.Response(
+          jsonEncode(rows),
+          200,
+          request: r,
+          headers: {'content-type': 'application/json'},
+        );
+      }),
+    );
+    final pending = SupabaseProjectRepository(client).progressForProjects([
+      const LearningProject(
+        id: 'p',
+        ownerId: 'u',
+        name: 'Project',
+        status: 'active',
+      ),
+    ]);
+    try {
+      await taskStarted.future.timeout(const Duration(seconds: 2));
+    } finally {
+      release.complete();
+    }
+    final result = await pending;
+    expect(result.single.totalTaskCount, 1);
+    expect(result.single.completedTaskCount, 1);
+    expect(result.single.progress, 1);
+    await client.dispose();
+  });
+
   test(
     'project progress starts before a slow overview count finishes',
     () async {

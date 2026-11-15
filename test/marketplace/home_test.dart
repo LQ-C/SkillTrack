@@ -1,8 +1,38 @@
+import '../dashboard_view_model_test.dart' show FakeDashboard;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/features/dashboard/views/home_screen.dart';
 
 void main() {
+  testWidgets('read-only Library navigation does not reload Home sections', (
+    tester,
+  ) async {
+    final repo = FakeDashboard();
+    var profiles = 0;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: HomeScreen(
+          repository: repo,
+          loadProfile: () async {
+            profiles++;
+            return {'full_name': 'Alex'};
+          },
+          onProfile: () async {},
+          onLibrary: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(repo.calls, 1);
+    expect(profiles, 1);
+    await tester.tap(find.text('Explore the library'));
+    await tester.pumpAndSettle();
+    expect(repo.calls, 1);
+    expect(profiles, 1);
+    await tester.pumpWidget(const SizedBox());
+    await repo.changes.close();
+  });
+
   testWidgets('home greets the user and opens the library and profile', (
     tester,
   ) async {

@@ -1,4 +1,3 @@
-import '../../educational_content/widgets/uploaded_video_player.dart';
 import '../../educational_content/repositories/content_repository.dart';
 import '../../educational_content/models/learning_resource.dart';
 import '../viewmodels/mentor_detail_view_model.dart';
@@ -77,8 +76,6 @@ class MentorDetailScreen extends StatefulWidget {
 }
 
 class _MentorDetailScreenState extends State<MentorDetailScreen> {
-  String? _playingVideoId;
-  int _playbackVersion = 0;
   late final vm = MentorDetailViewModel(
     widget.repository,
     widget.mentor.id,
@@ -107,10 +104,6 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
   }
 
   void changed() {
-    if (vm.playbackVersion != _playbackVersion || !vm.unlocked) {
-      _playbackVersion = vm.playbackVersion;
-      _playingVideoId = null;
-    }
     if (mounted) setState(() {});
   }
 
@@ -173,7 +166,6 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
     });
     try {
       vm.invalidatePlayback();
-      setState(() => _playingVideoId = null);
       await widget.repository.cancelMentorPackage(widget.mentor.id);
       if (!mounted || !vm.current) return;
       setState(() {
@@ -344,78 +336,6 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
     }
   }
 
-  Widget videoPreview(LearningResource resource) {
-    final unlocked = vm.unlocked;
-    final canTap =
-        !busy &&
-        !vm.loadingAccount &&
-        (unlocked ||
-            (accountRole == 'student' &&
-                !vm.loadingMaterials &&
-                offer != null &&
-                vm.paymentError == null));
-    return Semantics(
-      button: true,
-      label: unlocked
-          ? 'Play ${resource.title}'
-          : 'Unlock to Watch ${resource.title}',
-      enabled: canTap,
-      child: Material(
-        color: Theme.of(context).colorScheme.primaryContainer,
-        borderRadius: BorderRadius.circular(12),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          key: ValueKey('video-preview-${resource.id}'),
-          onTap: !canTap
-              ? null
-              : () {
-                  if (!unlocked) {
-                    pay();
-                    return;
-                  }
-                  if (_playingVideoId == resource.id) return;
-                  vm.invalidatePlayback();
-                  _playbackVersion = vm.playbackVersion;
-                  setState(() => _playingVideoId = resource.id);
-                },
-          child: AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: FittedBox(
-                  fit: BoxFit.scaleDown,
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Icon(
-                        unlocked ? Icons.play_circle_fill : Icons.lock_outline,
-                        size: 56,
-                        color: Theme.of(context).colorScheme.onPrimaryContainer,
-                      ),
-                      if (!unlocked) ...[
-                        const SizedBox(height: 12),
-                        Text(
-                          'Unlock to Watch',
-                          style: Theme.of(context).textTheme.titleMedium
-                              ?.copyWith(
-                                color: Theme.of(
-                                  context,
-                                ).colorScheme.onPrimaryContainer,
-                              ),
-                        ),
-                      ],
-                    ],
-                  ),
-                ),
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
   Widget materialCard(LearningResource r) => Card(
     child: Padding(
       padding: const EdgeInsets.all(16),
@@ -448,21 +368,19 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
           ),
           Text(r.summary),
           const SizedBox(height: 12),
-          if (r.kind == 'Video')
-            if (vm.unlocked && _playingVideoId == r.id)
-              UploadedVideoPlayer(
-                key: ValueKey(r.id),
-                loadUrl: () => vm.videoPlaybackUrl(r.id),
-              )
-            else
-              videoPreview(r)
-          else if (vm.unlocked)
+          if (vm.unlocked)
             FilledButton.icon(
               onPressed: busy || vm.loadingAccount
                   ? null
                   : () => openResource(r),
               icon: const Icon(Icons.menu_book_outlined),
-              label: Text(r.kind == 'Reading' ? 'Read' : 'View'),
+              label: Text(
+                r.kind == 'Video'
+                    ? 'View details'
+                    : r.kind == 'Reading'
+                    ? 'Read'
+                    : 'View',
+              ),
             )
           else if (accountRole == 'student')
             FilledButton.icon(
@@ -480,11 +398,6 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
           else
             const Text(
               'Materials are available to enrolled learners and their author.',
-            ),
-          if (vm.unlocked && r.kind == 'Video')
-            TextButton(
-              onPressed: busy ? null : () => openResource(r),
-              child: const Text('Details'),
             ),
         ],
       ),
@@ -608,10 +521,8 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
                     onTap: (i) {
                       if (tab == i) return;
                       vm.invalidatePlayback();
-                      _playbackVersion = vm.playbackVersion;
                       setState(() {
                         tab = i;
-                        _playingVideoId = null;
                       });
                     },
                     tabs: const [

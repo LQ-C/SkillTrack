@@ -8,11 +8,15 @@ import 'package:skilltrack/features/educational_content/repositories/content_rep
 class SupabaseContentRepository
     implements
         ContentRepository,
+        ContentSessionSource,
         MentorResourcePreviewRepository,
         ResourceFileRepository,
         ResourceOpeningRepository {
   SupabaseContentRepository(this.client);
   final SupabaseClient client;
+  @override
+  Stream<String?> get userChanges =>
+      client.auth.onAuthStateChange.map((e) => e.session?.user.id).distinct();
   static const resourceFilesBucket = 'mentor-reading-files';
   static const videoFilesBucket = 'mentor-video-files';
 

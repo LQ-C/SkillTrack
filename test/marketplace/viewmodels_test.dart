@@ -130,6 +130,7 @@ void main() {
       final vm = ContentLibraryViewModel(repository);
       final oldRequest = vm.load();
       await Future<void>.delayed(Duration.zero);
+      vm.search = 'different query';
       final freshRequest = vm.load();
       await Future<void>.delayed(Duration.zero);
       expect(repository.requests.length, 2);

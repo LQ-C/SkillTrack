@@ -1,3 +1,4 @@
+import '../../../core/utils/debug_timing.dart';
 import '../../kanban/models/kanban_task.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
@@ -10,7 +11,11 @@ import '../models/project_milestone.dart';
 import '../models/project_with_progress.dart';
 import 'project_repository.dart';
 
-class SupabaseProjectRepository implements ProjectRepository {
+class SupabaseProjectRepository
+    implements ProjectRepository, ProjectProgressSource, ProjectSessionSource {
+  @override
+  Stream<String?> get userChanges =>
+      _client.auth.onAuthStateChange.map((e) => e.session?.user.id).distinct();
   SupabaseProjectRepository(this._client);
   final SupabaseClient _client;
 
@@ -261,27 +266,42 @@ class SupabaseProjectRepository implements ProjectRepository {
         return progressForProjects(await getUserProjects());
       });
 
+  @override
   Future<List<ProjectWithProgress>> progressForProjects(
     List<LearningProject> projects,
   ) => _guard(() async {
     if (projects.isEmpty) return [];
-    final boards = await _client
-        .from('kanban_boards')
-        .select('id,project_id,is_archived')
-        .inFilter('project_id', projects.map((p) => p.id).toList());
+    final ids = projects.map((p) => p.id).toList();
+    final results = await Future.wait<dynamic>([
+      debugTimed(
+        'Project boards',
+        () => _client
+            .from('kanban_boards')
+            .select('id,project_id,is_archived')
+            .inFilter('project_id', ids),
+      ),
+      debugTimed(
+        'Project task counts',
+        () => _client
+            .from('kanban_tasks')
+            .select(
+              'board_id,status,is_archived,is_stalled,stagnation_score,kanban_boards!inner(project_id,is_archived)',
+            )
+            .inFilter('kanban_boards.project_id', ids)
+            .eq('kanban_boards.is_archived', false)
+            .eq('is_archived', false),
+      ),
+    ]);
+    final boards = (results[0] as List).cast<Map<String, dynamic>>();
     final activeBoards = boards.where((board) => board['is_archived'] != true);
     final boardByProject = {
       for (final board in activeBoards)
         board['project_id'].toString(): board['id'].toString(),
     };
     final boardIds = boardByProject.values.toList();
-    final taskRows = boardIds.isEmpty
-        ? <Map<String, dynamic>>[]
-        : await _client
-              .from('kanban_tasks')
-              .select('board_id,status,is_archived,is_stalled,stagnation_score')
-              .inFilter('board_id', boardIds)
-              .eq('is_archived', false);
+    final taskRows = (results[1] as List).cast<Map<String, dynamic>>().where(
+      (row) => boardIds.contains(row['board_id']),
+    );
     final stalled = <String, int>{};
     final counts = <String, ({int total, int completed})>{};
     for (final task in taskRows) {

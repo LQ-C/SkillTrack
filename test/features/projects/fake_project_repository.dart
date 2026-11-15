@@ -183,8 +183,13 @@ class FakeProjectRepository implements ProjectRepository {
   }
 
   @override
-  Future<List<LearningProject>> getUserProjects() async =>
-      (await getProjectsWithProgress()).map((item) => item.project).toList();
+  Future<List<LearningProject>> getUserProjects() async {
+    if (failLoad) throw StateError('offline');
+    return stored
+        .where((item) => item.project.ownerId == userId)
+        .map((item) => item.project)
+        .toList();
+  }
 
   @override
   Future<LearningProject?> getProject(String projectId) async => stored

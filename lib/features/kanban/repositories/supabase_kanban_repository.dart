@@ -71,20 +71,14 @@ class SupabaseKanbanRepository
     if (userId == null) {
       throw const AppException('Sign in to view your project board.');
     }
-    final projects = await _client
-        .from('projects')
-        .select('id')
-        .eq('owner_id', userId);
-    if (projects.isEmpty) return null;
     final boards = await _client
         .from('kanban_boards')
-        .select('id')
-        .inFilter(
-          'project_id',
-          projects.map((project) => project['id']).toList(),
-        )
+        .select('id,projects!inner(owner_id)')
+        .eq('projects.owner_id', userId)
         .eq('is_archived', archived)
+        .order('id')
         .limit(1);
+
     return boards.isEmpty ? null : boards.first['id'].toString();
   });
 
