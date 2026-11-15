@@ -1,4 +1,4 @@
-# Cloud semantic recommendations (CLQ)
+# Cloud semantic recommendations 
 
 ## Scope and actual contracts
 

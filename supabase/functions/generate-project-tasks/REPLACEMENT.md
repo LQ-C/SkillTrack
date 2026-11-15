@@ -1,4 +1,4 @@
-# Regenerate Task List (CLQ)
+# Regenerate Task List 
 
 The Kanban menu exposes a separate Regenerate Task List action. Feedback is
 required (1–1000 trimmed characters). Saved project fields, constraints, dates,
