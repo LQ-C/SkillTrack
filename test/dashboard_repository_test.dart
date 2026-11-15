@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -12,6 +13,56 @@ class FixtureRepository extends SupabaseDashboardRepository {
 }
 
 void main() {
+  test(
+    'project progress starts before a slow overview count finishes',
+    () async {
+      final releaseCount = Completer<void>();
+      final boardStarted = Completer<void>();
+      final client = SupabaseClient(
+        'https://fixture.invalid',
+        'fixture-key',
+        httpClient: MockClient((r) async {
+          Object rows = [];
+          if (r.url.path.endsWith('/projects') && r.method == 'HEAD') {
+            await releaseCount.future;
+          }
+          if (r.url.path.endsWith('/projects') && r.method != 'HEAD') {
+            rows = [
+              {
+                'id': 'p',
+                'owner_id': 'fixture-owner',
+                'name': 'Project',
+                'status': 'active',
+              },
+            ];
+          }
+          if (r.url.path.endsWith('/kanban_boards') &&
+              !boardStarted.isCompleted) {
+            boardStarted.complete();
+          }
+          return http.Response(
+            jsonEncode(rows),
+            200,
+            request: r,
+            headers: {
+              'content-type': 'application/json',
+              'content-range': '*/0',
+            },
+          );
+        }),
+      );
+      final pending = FixtureRepository(client).projects(DateTime.now());
+      try {
+        await boardStarted.future.timeout(const Duration(seconds: 2));
+      } finally {
+        releaseCount.complete();
+      }
+      final result = await pending;
+      expect(result.items.single.project.id, 'p');
+      await client.dispose();
+    },
+  );
+
   test('queries are scoped, bounded and reuse session authorization', () async {
     final requests = <http.Request>[];
     final client = SupabaseClient(

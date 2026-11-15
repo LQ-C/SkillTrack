@@ -16,10 +16,19 @@ class AccountService implements AccountRepository, ProfileRepository {
 
   @override
   Future<void> signIn(String email, String password) async {
-    await client.auth.signInWithPassword(
-      email: email.trim(),
-      password: password,
-    );
+    final timer = Stopwatch()..start();
+    try {
+      await client.auth.signInWithPassword(
+        email: email.trim(),
+        password: password,
+      );
+    } finally {
+      if (kDebugMode) {
+        debugPrint(
+          '[Loading] Sign-in request: ${timer.elapsedMilliseconds} ms',
+        );
+      }
+    }
   }
 
   @override

@@ -113,10 +113,8 @@ void main() {
         OutlinedButton,
         credits == 0 ? 'Choose session · RM3.00' : 'Choose session time',
       );
-      expect(
-        find.text('Pay RM50.00'),
-        materials ? findsNothing : findsOneWidget,
-      );
+      await tester.tap(find.text('Sessions'));
+      await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
         button,
         200,

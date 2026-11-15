@@ -137,6 +137,21 @@ class KanbanViewModel extends ChangeNotifier {
     );
   }
 
+  ({int completed, int total, double fraction, bool isComplete})
+  milestoneCompletion(String id) {
+    final counts = milestoneProgress(id);
+    return (
+      completed: counts.completed,
+      total: counts.total,
+      fraction: counts.total == 0 ? 0 : counts.completed / counts.total,
+      isComplete: counts.total > 0 && counts.completed == counts.total,
+    );
+  }
+
+  int get completedMilestoneCount => availableMilestones
+      .where((m) => milestoneCompletion(m.id).isComplete)
+      .length;
+
   final KanbanRepository _repository;
   static const _sortOrderStep = 1000;
   bool _disposed = false;

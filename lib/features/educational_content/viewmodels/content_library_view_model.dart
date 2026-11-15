@@ -34,15 +34,19 @@ class ContentLibraryViewModel extends ViewModel {
         publisher = access.publisher;
         accessLoaded = true;
       });
-      final saved = await repository.bookmarks();
-      final rows = await repository.list(
-        mine: mine,
-        search: search,
-        category: category,
-        level: level,
-        kind: kind,
-        offset: offset,
-      );
+      final results = await Future.wait<dynamic>([
+        repository.bookmarks(),
+        repository.list(
+          mine: mine,
+          search: search,
+          category: category,
+          level: level,
+          kind: kind,
+          offset: offset,
+        ),
+      ]);
+      final saved = results[0] as Set<String>;
+      final rows = results[1] as List<LearningResource>;
       var hasMaterials = rows.isNotEmpty;
       final filtered =
           search.trim().isNotEmpty ||

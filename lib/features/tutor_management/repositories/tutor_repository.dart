@@ -49,3 +49,7 @@ abstract class TutorRepository {
   Future<void> respond(String requestId, String status);
   Future<void> review(String requestId, int rating, String review);
 }
+
+abstract interface class TutorSessionSource {
+  Stream<String?> get userChanges;
+}

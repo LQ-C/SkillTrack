@@ -180,11 +180,17 @@ class AppRouter {
       case '/marketplace/explore':
         page = marketplace == null
             ? const _RouteUnavailable()
-            : ExploreMentorsScreen(repository: marketplace!.tutors);
+            : ExploreMentorsScreen(
+                repository: marketplace!.tutors,
+                content: marketplace!.content,
+              );
       case '/marketplace/mentorship':
         page = marketplace == null
             ? const _RouteUnavailable()
-            : MentorshipScreen(repository: marketplace!.tutors);
+            : MentorshipScreen(
+                repository: marketplace!.tutors,
+                content: marketplace!.content,
+              );
       case '/marketplace/profile':
         page = marketplace == null
             ? const _RouteUnavailable()

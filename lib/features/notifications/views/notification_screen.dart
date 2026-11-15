@@ -35,7 +35,6 @@ class NotificationScreen extends StatefulWidget {
 
 class _NotificationScreenState extends State<NotificationScreen> {
   String? _openingNotificationId;
-  bool _isOpeningPreferences = false;
   final Set<String> _knownNotificationIds = {};
   final Set<String> _enteringNotificationIds = {};
   bool _hasNotificationBaseline = false;
@@ -101,7 +100,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
   }
 
   Future<void> _open(AppNotification? item, {String? notificationId}) async {
-    if (_openingNotificationId != null || _isOpeningPreferences) return;
+    if (_openingNotificationId != null) return;
     setState(() => _openingNotificationId = item?.id ?? notificationId);
     try {
       final destination = item != null
@@ -144,16 +143,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
       if (mounted) await widget.viewModel.refresh();
     } finally {
       if (mounted) setState(() => _openingNotificationId = null);
-    }
-  }
-
-  Future<void> _openPreferences() async {
-    if (_isOpeningPreferences || _openingNotificationId != null) return;
-    setState(() => _isOpeningPreferences = true);
-    try {
-      await AppRouter.notificationPreferences(context);
-    } finally {
-      if (mounted) setState(() => _isOpeningPreferences = false);
     }
   }
 
@@ -218,13 +207,6 @@ class _NotificationScreenState extends State<NotificationScreen> {
         appBar: AppBar(
           title: const Text('Notifications'),
           actions: [
-            IconButton(
-              tooltip: 'Notification preferences',
-              onPressed: _isOpeningPreferences || _openingNotificationId != null
-                  ? null
-                  : _openPreferences,
-              icon: const Icon(Icons.settings_outlined),
-            ),
             PopupMenuButton<String>(
               tooltip: 'Notification actions',
               onSelected: (_) => _markAll(),
@@ -378,9 +360,7 @@ class _NotificationScreenState extends State<NotificationScreen> {
                                         NotificationTile(
                                           key: Key('notification-${item.id}'),
                                           notification: item,
-                                          onTap:
-                                              _openingNotificationId != null ||
-                                                  _isOpeningPreferences
+                                          onTap: _openingNotificationId != null
                                               ? null
                                               : () => _open(item),
                                         ),

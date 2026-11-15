@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:skilltrack/core/utils/view_model.dart';
 import '../../tutor_management/models/tutor_models.dart';
@@ -45,6 +46,7 @@ class DashboardViewModel extends ViewModel {
     final owner = repository?.userId;
     bool valid() => isActive && epoch == _epoch && owner == repository?.userId;
     final future = Future<void>(() async {
+      final timer = Stopwatch()..start();
       try {
         switch (section) {
           case 'profile':
@@ -67,6 +69,11 @@ class DashboardViewModel extends ViewModel {
       } catch (_) {
         if (valid()) errors.add(section);
       } finally {
+        if (kDebugMode) {
+          debugPrint(
+            '[Loading] Home $section: ${timer.elapsedMilliseconds} ms',
+          );
+        }
         if (valid()) update(() => _pending.remove(section));
       }
     });

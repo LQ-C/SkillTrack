@@ -22,6 +22,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       birth = TextEditingController(),
       bio = TextEditingController();
   String role = 'student';
+  bool _openingNotificationSettings = false;
   late final viewModel = ProfileViewModel(widget.service, widget.service);
   String? get message => viewModel.message;
   bool get loading => viewModel.loading;
@@ -55,6 +56,16 @@ class _ProfileScreenState extends State<ProfileScreen> {
     birth.text = profile.birthDate;
     bio.text = profile.bio;
     setState(() => role = profile.role);
+  }
+
+  Future<void> openNotificationSettings() async {
+    if (busy || _openingNotificationSettings) return;
+    setState(() => _openingNotificationSettings = true);
+    try {
+      await AppRouter.notificationPreferences(context);
+    } finally {
+      if (mounted) setState(() => _openingNotificationSettings = false);
+    }
   }
 
   Future<void> securityDialog({required bool delete}) async {
@@ -180,6 +191,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
             fontSize: 20,
             fontWeight: FontWeight.bold,
             color: ink,
+          ),
+        ),
+        const SizedBox(height: 12),
+        Card(
+          child: ListTile(
+            leading: Icon(
+              Icons.notifications_outlined,
+              color: Theme.of(context).colorScheme.primary,
+            ),
+            title: const Text('Notification Settings'),
+            trailing: const Icon(Icons.chevron_right),
+            enabled: !busy && !_openingNotificationSettings,
+            onTap: busy || _openingNotificationSettings
+                ? null
+                : openNotificationSettings,
           ),
         ),
         const SizedBox(height: 12),

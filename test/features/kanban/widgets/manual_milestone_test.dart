@@ -427,10 +427,10 @@ void main() {
       expect(tasks.stored, isEmpty);
       expect(model.availableMilestones.single.title, 'Board milestone');
       expect(find.byType(MilestoneProgressSection), findsOneWidget);
-      await tester.tap(find.text('Milestones'));
+      await tester.tap(find.textContaining('Milestones ·'));
       await tester.pumpAndSettle();
       expect(find.text('Board milestone'), findsOneWidget);
-      expect(find.text('No tasks'), findsOneWidget);
+      expect(find.text('0/0 tasks · No tasks'), findsOneWidget);
       await tester.pumpWidget(
         MaterialApp(
           theme: AppTheme.light,

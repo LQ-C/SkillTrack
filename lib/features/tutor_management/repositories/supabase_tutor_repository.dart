@@ -6,7 +6,10 @@ import '../models/tutor_models.dart';
 import '../models/mentor_payment.dart';
 import 'tutor_repository.dart';
 
-class SupabaseTutorRepository implements TutorRepository {
+class SupabaseTutorRepository implements TutorRepository, TutorSessionSource {
+  @override
+  Stream<String?> get userChanges =>
+      client.auth.onAuthStateChange.map((e) => e.session?.user.id).distinct();
   SupabaseTutorRepository(this.client);
   final SupabaseClient client;
   @override

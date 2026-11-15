@@ -553,10 +553,10 @@ void main() {
         );
         await tester.pumpAndSettle();
         expect(find.text('Milestone · Authentication'), findsWidgets);
-        await tester.tap(find.text('Milestones'));
+        await tester.tap(find.textContaining('Milestones ·'));
         await tester.pumpAndSettle();
-        expect(find.text('0/1 completed'), findsOneWidget);
-        expect(find.text('No tasks'), findsOneWidget);
+        expect(find.text('0/1 tasks'), findsOneWidget);
+        expect(find.text('0/0 tasks · No tasks'), findsOneWidget);
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(
           MaterialApp(

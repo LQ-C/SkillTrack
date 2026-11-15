@@ -34,3 +34,11 @@ abstract interface class ResourceFileRepository {
 abstract interface class ResourceOpeningRepository {
   Future<String> primaryFileUrl(LearningResource resource);
 }
+
+/// Metadata only: returned models have no body, media URL or attachment path.
+abstract interface class MentorResourcePreviewRepository {
+  Future<List<LearningResource>> mentorPreviews(
+    String mentorId, {
+    required int offset,
+  });
+}

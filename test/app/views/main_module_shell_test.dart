@@ -1,3 +1,4 @@
+import 'package:skilltrack/features/profile/views/profile_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:skilltrack/app/skill_track_app.dart';
@@ -32,6 +33,7 @@ class Accounts extends AccountService {
 Future<void> showShell(WidgetTester tester) async {
   final notifications = FakeNotificationRepository();
   final projects = FakeProjectRepository();
+  await projects.createProject(name: 'Search fixture');
   final kanban = FakeKanbanRepository();
   final badge = NotificationBadgeController(notifications);
   final marketplace = MarketplaceDependencies.inject(
@@ -73,6 +75,53 @@ Future<void> tab(WidgetTester tester, String label) async {
 }
 
 void main() {
+  testWidgets(
+    'Profile opens existing notification settings once and back returns to Profile',
+    (tester) async {
+      await showShell(tester);
+      await tab(tester, 'Profile');
+      await tester.scrollUntilVisible(
+        find.text('Notification Settings'),
+        250,
+        scrollable: find.byType(Scrollable).last,
+      );
+      final row = find.widgetWithText(ListTile, 'Notification Settings');
+      final open = tester.widget<ListTile>(row).onTap!;
+      open();
+      open();
+      await tester.pumpAndSettle();
+      expect(find.text('Notification Preferences'), findsOneWidget);
+      expect(find.byType(SwitchListTile), findsNWidgets(4));
+      await tester.tap(
+        find.widgetWithText(SwitchListTile, 'Stalled task alerts'),
+      );
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.widgetWithText(SwitchListTile, 'Stalled task alerts'),
+            )
+            .value,
+        false,
+      );
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.byType(ProfileScreen).hitTestable(), findsOneWidget);
+      expect(find.text('Notification Preferences'), findsNothing);
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+      expect(
+        tester
+            .widget<SwitchListTile>(
+              find.widgetWithText(SwitchListTile, 'Stalled task alerts'),
+            )
+            .value,
+        false,
+      );
+      expect(find.text('Enable Notifications'), findsNothing);
+    },
+  );
+
   testWidgets('five real tabs retain one shell and project search', (
     tester,
   ) async {
@@ -84,8 +133,8 @@ void main() {
       expect(find.byTooltip('Notifications').hitTestable(), findsOneWidget);
     }
     await tab(tester, 'Project');
-    await tester.tap(find.byTooltip('Search projects'));
-    await tester.pumpAndSettle();
+    expect(find.byTooltip('Search projects'), findsNothing);
+    expect(find.byType(TextField), findsOneWidget);
     await tester.enterText(find.byType(TextField), 'Retained query');
     await tab(tester, 'Home');
     await tab(tester, 'Project');

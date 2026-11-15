@@ -49,6 +49,7 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
     _required(payload, "resource_id")
     _required(payload, "source_file_id")
     _required(payload, "source_version")
+    print("Job claimed; starting processing", flush=True)
 
     stop = threading.Event()
     lost_claim = threading.Event()
@@ -57,9 +58,11 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
         while not stop.wait(renew_seconds):
             try:
                 if not gateway.renew(transcript_id, token, lease_seconds):
+                    print("Lease renewal rejected; job claim lost", flush=True)
                     lost_claim.set()
                     return
             except Exception:
+                print("Lease renewal failed; job claim lost", flush=True)
                 lost_claim.set()
                 return
 
@@ -72,20 +75,27 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
             if suffix not in {".mp4", ".mov", ".mkv", ".webm", ".m4v", ".avi", ".pdf"}:
                 suffix = ".video"
             video = Path(temp) / f"source{suffix}"
+            print("Downloading source file", flush=True)
             gateway.download(bucket, storage_path, video)
+            print("Download complete", flush=True)
             if lost_claim.is_set():
                 return "lease_lost"
             phase = "transcription_failed"
             if payload.get("extraction_type", "video_transcript") == "pdf_text":
                 phase = "pdf_extraction_failed"
+                print("Extracting PDF text (OCR if needed)", flush=True)
                 text, language, segments = extract_pdf(video)
             else:
+                print("Transcribing video with Whisper", flush=True)
                 text, language, segments = transcriber.transcribe(video)
             if lost_claim.is_set():
                 return "lease_lost"
+            print("Extraction complete; saving result", flush=True)
             phase = "save_failed"
             if not gateway.complete(transcript_id, token, text, language, segments):
+                print("Save rejected; job claim or source changed", flush=True)
                 return "lease_lost"
+            print("Result saved; job ready", flush=True)
             return "ready"
     except Exception as error:
         if isinstance(error, PDFWorkError):
@@ -93,6 +103,7 @@ def process_one(gateway: Gateway, transcriber: Transcriber, *,
         # Do not persist or print raw exception text: it may contain a signed URL or path.
         if lost_claim.is_set():
             return "lease_lost"
+        print(f"Processing failed: {phase}", flush=True)
         gateway.fail(transcript_id, token, phase)
         return phase
     finally:
@@ -117,9 +128,10 @@ class LazyWhisper:
 def run_forever(config: Config, draft_resource_id: str | None = None) -> None:
     gateway = SupabaseGateway(config)
     transcriber = LazyWhisper(config)
-    print("Extraction worker running locally; Ctrl+C to stop")
+    print("Extraction worker running locally; Ctrl+C to stop", flush=True)
     while True:
         try:
+            print("Checking for new resources and pending jobs", flush=True)
             gateway.discover(draft_resource_id)
             outcome = process_one(
                 gateway, transcriber,
@@ -127,7 +139,9 @@ def run_forever(config: Config, draft_resource_id: str | None = None) -> None:
                 renew_seconds=config.renew_seconds,
             )
             if outcome is not None:
-                print(f"Transcription job outcome: {outcome}")
+                print(f"Extraction job outcome: {outcome}", flush=True)
+            else:
+                print("No claimable job; waiting for next check", flush=True)
             if outcome == "ready":
                 continue
         except KeyboardInterrupt:
@@ -154,6 +168,7 @@ def main() -> int:
     try:
         if args.once:
             gateway = SupabaseGateway(config)
+            print("Checking for new resources and pending jobs", flush=True)
             gateway.discover(draft_resource_id)
             outcome = process_one(
                 gateway,

@@ -1,3 +1,4 @@
+import 'package:skilltrack/app/widgets/skilltrack_logo.dart';
 import '../widgets/project_carousel.dart';
 import '../../../app/app_colors.dart';
 import '../widgets/home_action_card.dart';
@@ -107,19 +108,9 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         backgroundColor: Colors.transparent,
-        title: const Row(
-          children: [
-            Icon(Icons.spa_outlined, color: forest),
-            SizedBox(width: 9),
-            Flexible(
-              child: Text(
-                'SkillTrack',
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(fontWeight: FontWeight.w800, color: forest),
-              ),
-            ),
-          ],
-        ),
+        centerTitle: false,
+        titleSpacing: 8,
+        title: const SkillTrackLogo(),
 
         actions: [
           const NotificationBell(),

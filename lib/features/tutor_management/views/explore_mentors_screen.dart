@@ -1,3 +1,4 @@
+import '../../educational_content/repositories/content_repository.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/app/widgets/notification_bell.dart';
 import 'package:flutter/material.dart';
@@ -10,8 +11,13 @@ import '../widgets/tutor_forms.dart';
 import 'mentor_payments_screen.dart';
 
 class ExploreMentorsScreen extends StatefulWidget {
-  const ExploreMentorsScreen({super.key, required this.repository});
+  const ExploreMentorsScreen({
+    super.key,
+    required this.repository,
+    this.content,
+  });
   final TutorRepository repository;
+  final ContentRepository? content;
 
   @override
   State<ExploreMentorsScreen> createState() => _ExploreMentorsScreenState();
@@ -256,6 +262,7 @@ class _ExploreMentorsScreenState extends State<ExploreMentorsScreen> {
                                             AppRouter.featureRoute(
                                               builder: (_) =>
                                                   MentorDetailScreen(
+                                                    content: widget.content,
                                                     repository:
                                                         widget.repository,
                                                     mentor: mentor,

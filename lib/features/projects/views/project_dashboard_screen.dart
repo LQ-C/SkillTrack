@@ -33,7 +33,6 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
   late final ProjectDashboardViewModel _model;
   NotificationBadgeController? _fallbackBadge;
   final _search = TextEditingController();
-  bool _showSearch = false;
   String? _openingProjectId;
   bool _isOpeningForm = false;
   bool _isShowingDeleteDialog = false;
@@ -447,30 +446,8 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
       final visible = _model.visibleProjects;
       return Scaffold(
         appBar: AppBar(
-          title: _showSearch
-              ? TextField(
-                  controller: _search,
-                  autofocus: true,
-                  onChanged: _model.search,
-                  decoration: const InputDecoration(
-                    hintText: 'Search projects',
-                  ),
-                )
-              : const Text('My Projects'),
-          actions: [
-            const NotificationBell(),
-            IconButton(
-              tooltip: _showSearch ? 'Close search' : 'Search projects',
-              onPressed: () => setState(() {
-                _showSearch = !_showSearch;
-                if (!_showSearch) {
-                  _search.clear();
-                  _model.search('');
-                }
-              }),
-              icon: Icon(_showSearch ? Icons.close : Icons.search),
-            ),
-          ],
+          title: const Text('My Projects'),
+          actions: const [NotificationBell()],
         ),
         body: AppContent(
           child: !_model.isSignedIn
@@ -531,6 +508,27 @@ class _ProjectDashboardScreenState extends State<ProjectDashboardScreen> {
                               ),
                             ),
                         ],
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 12),
+                      child: TextField(
+                        controller: _search,
+                        onChanged: _model.search,
+                        textInputAction: TextInputAction.search,
+                        decoration: InputDecoration(
+                          hintText: 'Search projects',
+                          suffixIcon: _search.text.isEmpty
+                              ? null
+                              : IconButton(
+                                  tooltip: 'Clear search',
+                                  onPressed: () {
+                                    _search.clear();
+                                    _model.search('');
+                                  },
+                                  icon: const Icon(Icons.close),
+                                ),
+                        ),
                       ),
                     ),
                     Expanded(

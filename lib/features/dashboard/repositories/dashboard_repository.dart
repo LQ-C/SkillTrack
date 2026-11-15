@@ -53,25 +53,28 @@ class SupabaseDashboardRepository implements DashboardRepository {
           .eq('status', 'active'),
       tasks().gte('deadline', start).lt('deadline', end).limit(0).count(),
       tasks().or('is_stalled.eq.true,stagnation_score.gte.70').limit(0).count(),
-      client
-          .from('projects')
-          .select()
-          .eq('owner_id', owner)
-          .eq('status', 'active')
-          .order('created_at', ascending: false)
-          .order('id')
-          .limit(3),
+      _projectCards(),
     ]);
-    final items = await SupabaseProjectRepository(client).progressForProjects(
-      (results[3] as List)
-          .map((row) => LearningProject.fromMap(Map<String, dynamic>.from(row)))
-          .toList(),
-    );
+    final items = results[3] as List<ProjectWithProgress>;
     return DashboardProjects(
       results[0] as int,
       results[1].count as int,
       results[2].count as int,
       items,
+    );
+  }
+
+  Future<List<ProjectWithProgress>> _projectCards() async {
+    final rows = await client
+        .from('projects')
+        .select()
+        .eq('owner_id', owner)
+        .eq('status', 'active')
+        .order('created_at', ascending: false)
+        .order('id')
+        .limit(3);
+    return SupabaseProjectRepository(client).progressForProjects(
+      rows.map((row) => LearningProject.fromMap(row)).toList(),
     );
   }
 

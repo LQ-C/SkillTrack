@@ -1,3 +1,4 @@
+import 'package:skilltrack/app/widgets/skilltrack_logo.dart';
 import 'package:skilltrack/app/widgets/notification_bell.dart';
 import 'package:flutter/material.dart';
 import 'package:skilltrack/app/app_colors.dart';
@@ -17,17 +18,9 @@ class PageShell extends StatelessWidget {
   Widget build(BuildContext context) => Scaffold(
     appBar: AppBar(
       backgroundColor: Colors.transparent,
-      title: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.spa_outlined, color: green),
-          SizedBox(width: 10),
-          Text(
-            'SkillTrack',
-            style: TextStyle(fontWeight: FontWeight.w800, color: ink),
-          ),
-        ],
-      ),
+      centerTitle: false,
+      titleSpacing: 8,
+      title: const SkillTrackLogo(),
       actions: [...?actions, const NotificationBell()],
     ),
     body: SafeArea(

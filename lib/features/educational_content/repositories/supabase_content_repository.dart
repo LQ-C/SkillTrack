@@ -8,6 +8,7 @@ import 'package:skilltrack/features/educational_content/repositories/content_rep
 class SupabaseContentRepository
     implements
         ContentRepository,
+        MentorResourcePreviewRepository,
         ResourceFileRepository,
         ResourceOpeningRepository {
   SupabaseContentRepository(this.client);
@@ -154,17 +155,34 @@ class SupabaseContentRepository
   String get userId => client.auth.currentUser!.id;
   @override
   Future<({bool mentor, bool publisher})> permissions() async {
-    final profile = await client
-        .from('profiles')
-        .select('role')
-        .eq('id', userId)
-        .single();
-    final approval = await client
-        .from('content_publishers')
-        .select('user_id')
-        .eq('user_id', userId)
-        .maybeSingle();
-    return (mentor: profile['role'] == 'mentor', publisher: approval != null);
+    final owner = userId;
+    final results = await Future.wait<dynamic>([
+      client.from('profiles').select('role').eq('id', owner).single(),
+      client
+          .from('content_publishers')
+          .select('user_id')
+          .eq('user_id', owner)
+          .maybeSingle(),
+    ]);
+    if (userId != owner) throw StateError('Session changed');
+    return (
+      mentor: results[0]['role'] == 'mentor',
+      publisher: results[1] != null,
+    );
+  }
+
+  @override
+  Future<List<LearningResource>> mentorPreviews(
+    String mentorId, {
+    required int offset,
+  }) async {
+    final rows = await client.rpc(
+      'mentor_resource_previews',
+      params: {'p_mentor': mentorId, 'p_offset': offset},
+    );
+    return (rows as List)
+        .map((r) => LearningResource.fromJson(Map<String, dynamic>.from(r)))
+        .toList();
   }
 
   @override

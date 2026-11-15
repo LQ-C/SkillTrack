@@ -97,37 +97,13 @@ void main() {
     },
   );
 
-  testWidgets('repeated settings callback opens one preference route', (
+  testWidgets('notification settings entry is absent from inbox', (
     tester,
   ) async {
     await showApp(tester, FakeNotificationRepository());
-    final open = tester
-        .widget<IconButton>(
-          find.byWidgetPredicate(
-            (widget) =>
-                widget is IconButton &&
-                widget.tooltip == 'Notification preferences',
-          ),
-        )
-        .onPressed!;
-    open();
-    open();
-    await tester.pumpAndSettle();
-    expect(find.text('Notification Preferences'), findsOneWidget);
-    await tester.pageBack();
-    await tester.pumpAndSettle();
-    expect(
-      tester
-          .widget<IconButton>(
-            find.byWidgetPredicate(
-              (widget) =>
-                  widget is IconButton &&
-                  widget.tooltip == 'Notification preferences',
-            ),
-          )
-          .onPressed,
-      isNotNull,
-    );
+    expect(find.byTooltip('Notification preferences'), findsNothing);
+    expect(find.byIcon(Icons.settings_outlined), findsNothing);
+    expect(find.byTooltip('Notification actions'), findsOneWidget);
   });
 
   testWidgets(
@@ -199,27 +175,12 @@ void main() {
     },
   );
 
-  testWidgets('notification tab opens empty state and preferences', (
+  testWidgets('notification tab preserves empty state without settings entry', (
     tester,
   ) async {
-    final repo = FakeNotificationRepository();
-    await showApp(tester, repo);
+    await showApp(tester, FakeNotificationRepository());
     expect(find.text('No notifications yet'), findsOneWidget);
-    await tester.tap(
-      find.byWidgetPredicate(
-        (widget) =>
-            widget is IconButton &&
-            widget.tooltip == 'Notification preferences',
-      ),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Notification Preferences'), findsOneWidget);
-    expect(find.byType(SwitchListTile), findsNWidgets(4));
-    await tester.tap(
-      find.widgetWithText(SwitchListTile, 'Stalled task alerts'),
-    );
-    await tester.pumpAndSettle();
-    expect((await repo.getPreferences()).stalledTaskEnabled, isFalse);
+    expect(find.byTooltip('Notification preferences'), findsNothing);
   });
 
   testWidgets('unread tile, filter, mark all, and badge update', (

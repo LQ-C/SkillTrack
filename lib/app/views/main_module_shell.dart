@@ -75,7 +75,7 @@ class _MainModuleShellState extends State<MainModuleShell> {
         onLibrary: (_) async => select(2),
         onMentorship: () => AppRouter.openMentorship(context, m.accounts),
       ),
-      1 => ExploreMentorsScreen(repository: m.tutors),
+      1 => ExploreMentorsScreen(repository: m.tutors, content: m.content),
       2 => ContentScreen(repository: m.content),
       _ => ProfileScreen(service: m.accounts),
     };
