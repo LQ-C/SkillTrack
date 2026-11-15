@@ -359,6 +359,9 @@ flutter build apk --debug
 
 Output: `build/app/outputs/flutter-apk/app-debug.apk`.
 
+Uploaded PDF learning resources use the in-app `pdfrx` reader (resolved version 2.4.7, MIT licence). It opens an authorised in-memory download, supports vertical scrolling/zoom and page numbers, and has no sharing/export/offline feature. The reader limits a download to 25 MB; encrypted PDFs requiring a password are reported as unavailable and should be replaced with an unlocked copy. Restart and rebuild/reinstall after adding the native PDFium dependency; hot reload is insufficient. The first native-assets build may need network access to download PDFium. New 10 MiB upload limits remain unchanged, and already-issued signed URLs/downloaded bytes do not provide immediate revocation.
+
+
 For release distribution, configure your private keystore through `android/key.properties` (`storePassword`, `keyPassword`, `keyAlias`, `storeFile`) before `flutter build apk --release` or `flutter build appbundle --release`. Without private release signing configuration, the Gradle setup produces an unsigned release artifact. Never commit signing keys/passwords. A hot reload cannot install missing native plugin code; stop and rebuild/reinstall when plugins or Firebase/native configuration change.
 
 ### First-use checks
@@ -403,7 +406,7 @@ Pop-Location
 
 These Node/PGlite fixtures use isolated in-memory database data; they are different from applying SQL to hosted Supabase. Run worker offline/native commands from section 8 separately. A successful Flutter build does not prove deployed RLS, email delivery, Gemini quota, scheduled execution, real private-file playback, or device push delivery.
 
-Latest local media validation: Flutter analysis and Android debug build passed; the full Flutter suite had **698 passing tests and 4 existing failing Mentor-card inline-preview tests** in `test/marketplace/mentor_video_access_test.dart`. Those tests expect preview UI absent from the current Mentor page. This is a known test/UI mismatch, not a requirement to disable paid access. Media smoke checks used local fixtures on an Android emulator; physical-device and hosted-service acceptance checks remain separate.
+Latest local media validation: Flutter analysis and Android debug build passed; the full Flutter suite had **710 passing tests and 4 existing failing Mentor-card inline-preview tests** in `test/marketplace/mentor_video_access_test.dart`. Those tests expect preview UI absent from the current Mentor page. This is a known test/UI mismatch, not a requirement to disable paid access. Media smoke checks used local fixtures on an Android emulator; physical-device and hosted-service acceptance checks remain separate.
 
 ## 11. Troubleshooting
 

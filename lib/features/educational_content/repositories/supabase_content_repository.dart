@@ -1,4 +1,6 @@
 import 'dart:math';
+import 'dart:convert';
+import 'package:http/http.dart' as http;
 import 'dart:typed_data';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -11,8 +13,13 @@ class SupabaseContentRepository
         ContentSessionSource,
         MentorResourcePreviewRepository,
         ResourceFileRepository,
-        ResourceOpeningRepository {
-  SupabaseContentRepository(this.client);
+        ResourceOpeningRepository,
+        ResourcePdfRepository {
+  SupabaseContentRepository(
+    this.client, {
+    http.Client Function()? pdfClientFactory,
+  }) : _pdfClientFactory = pdfClientFactory ?? http.Client.new;
+  final http.Client Function() _pdfClientFactory;
   final SupabaseClient client;
   @override
   Stream<String?> get userChanges =>
@@ -121,6 +128,87 @@ class SupabaseContentRepository
       }.contains(file.path.split('.').last.toLowerCase());
     } on FormatException {
       return false;
+    }
+  }
+
+  @override
+  bool isPdfFile(LearningResource resource) {
+    if (resource.kind != 'Reading') return false;
+    try {
+      return _primaryFileReference(
+        resource,
+      ).path.toLowerCase().endsWith('.pdf');
+    } on FormatException {
+      return false;
+    }
+  }
+
+  @override
+  Future<Uint8List> downloadPdf(String id) async {
+    final owner = userId;
+    var sameSession = true;
+    final transport = _pdfClientFactory();
+    final session = userChanges.listen((id) {
+      if (id != owner) {
+        sameSession = false;
+        transport.close();
+      }
+    });
+    bool current() => sameSession && client.auth.currentUser?.id == owner;
+    Future<Uint8List> fetch() async {
+      // The fresh full-row read uses resource RLS; signing also uses Storage RLS.
+      final resource = await get(id);
+      if (!current() ||
+          resource.id != id ||
+          !isPdfFile(resource) ||
+          (resource.authorId != owner &&
+              (resource.status != 'published' || resource.hidden))) {
+        throw const FormatException('This PDF is no longer available.');
+      }
+      final url = await primaryFileUrl(resource);
+      if (!current()) throw StateError('Session changed.');
+      final uri = Uri.parse(url);
+      if (uri.scheme != 'https' ||
+          uri.origin != Uri.parse(client.rest.url).origin) {
+        throw const FormatException('Invalid PDF download reference.');
+      }
+      final response = await transport.send(
+        http.Request('GET', uri)..followRedirects = false,
+      );
+      if (response.statusCode != 200) {
+        throw const FormatException(
+          'Could not download this PDF. Retry to refresh access.',
+        );
+      }
+      const limit = 25 * 1024 * 1024;
+      if ((response.contentLength ?? 0) > limit) {
+        throw const FormatException('This PDF exceeds the 25 MB reader limit.');
+      }
+      final data = BytesBuilder(copy: false);
+      await for (final chunk in response.stream) {
+        if (!current()) throw StateError('Session changed.');
+        if (data.length + chunk.length > limit) {
+          throw const FormatException(
+            'This PDF exceeds the 25 MB reader limit.',
+          );
+        }
+        data.add(chunk);
+      }
+      final bytes = data.takeBytes();
+      if (!current()) throw StateError('Session changed.');
+      if (!latin1.decode(bytes.take(1024).toList()).contains('%PDF-')) {
+        throw const FormatException(
+          'The uploaded file is not a supported PDF.',
+        );
+      }
+      return bytes;
+    }
+
+    try {
+      return await fetch().timeout(const Duration(seconds: 45));
+    } finally {
+      transport.close();
+      await session.cancel();
     }
   }
 

@@ -49,3 +49,9 @@ abstract interface class MentorResourcePreviewRepository {
 abstract interface class ContentSessionSource {
   Stream<String?> get userChanges;
 }
+
+/// In-memory PDF access. Implementations revalidate the row before signing.
+abstract interface class ResourcePdfRepository {
+  bool isPdfFile(LearningResource resource);
+  Future<Uint8List> downloadPdf(String id);
+}

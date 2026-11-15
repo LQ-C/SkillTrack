@@ -1,5 +1,7 @@
+import '../../features/educational_content/repositories/content_repository.dart';
 import '../../features/notifications/widgets/push_permission_onboarding.dart';
 import 'package:flutter/material.dart';
+import '../../features/educational_content/views/pdf_reader_screen.dart';
 import 'package:skilltrack/features/tutor_management/views/explore_mentors_screen.dart';
 import 'package:skilltrack/features/authentication/services/account_service.dart';
 import 'package:skilltrack/features/tutor_management/views/mentorship_screen.dart';
@@ -289,6 +291,18 @@ class AppRouter {
 
   // Feature screens retain their constructor dependencies and workflows. All
   // nested detail/editor/booking/payment routes use the same route factory.
+  static Future<void> readPdf(
+    BuildContext context, {
+    required ContentRepository repository,
+    required String id,
+    required String title,
+  }) => Navigator.of(context).push<void>(
+    featureRoute<void>(
+      builder: (_) =>
+          PdfReaderScreen(repository: repository, id: id, title: title),
+    ),
+  );
+
   static MaterialPageRoute<T> featureRoute<T>({
     required WidgetBuilder builder,
     RouteSettings? settings,

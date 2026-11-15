@@ -31,6 +31,7 @@ class ResourceDetail extends StatefulWidget {
 
 class _ResourceDetailState extends State<ResourceDetail> {
   late ResourceDetailViewModel viewModel;
+  bool openingPdf = false;
   void createModel() {
     viewModel = ResourceDetailViewModel(
       widget.repository,
@@ -163,7 +164,31 @@ class _ResourceDetailState extends State<ResourceDetail> {
                   const SizedBox(height: 20),
                   InlineYoutubeVideo(key: ValueKey(r.link), url: r.link),
                 ],
-                if (!viewModel.isImage &&
+                if (viewModel.isPdf) ...[
+                  const SizedBox(height: 20),
+                  FilledButton.icon(
+                    onPressed: busy || openingPdf
+                        ? null
+                        : () async {
+                            if (openingPdf || busy) return;
+                            setState(() => openingPdf = true);
+                            try {
+                              await AppRouter.readPdf(
+                                context,
+                                repository: widget.repository,
+                                id: r.id,
+                                title: r.title,
+                              );
+                            } finally {
+                              if (mounted) setState(() => openingPdf = false);
+                            }
+                          },
+                    icon: const Icon(Icons.picture_as_pdf_outlined),
+                    label: const Text('Read PDF'),
+                  ),
+                ],
+                if (!viewModel.isPdf &&
+                    !viewModel.isImage &&
                     (r.kind != 'Video' ||
                         widget.repository is! ResourceOpeningRepository) &&
                     (r.attachmentPath != null ||

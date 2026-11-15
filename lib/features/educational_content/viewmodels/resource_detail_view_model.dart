@@ -51,6 +51,10 @@ class ResourceDetailViewModel extends ViewModel {
   bool _current(int epoch) =>
       isActive && epoch == _epoch && _owner != null && _user == _owner;
   bool get ownsResource => resource != null && resource!.authorId == _user;
+  bool get isPdf =>
+      resource != null &&
+      repository is ResourcePdfRepository &&
+      (repository as ResourcePdfRepository).isPdfFile(resource!);
   bool get isImage =>
       resource != null &&
       repository is ResourceOpeningRepository &&
