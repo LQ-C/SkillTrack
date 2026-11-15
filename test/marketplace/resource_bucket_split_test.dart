@@ -76,6 +76,52 @@ void main() {
     repo = Repo(client);
   });
   tearDown(() => client.dispose());
+  test(
+    'image classification reuses validated private references and never fetches bytes',
+    () {
+      const root =
+          'https://fixture.supabase.co/storage/v1/object/authenticated';
+      for (final ext in ['png', 'jpg', 'jpeg', 'PNG']) {
+        expect(
+          repo.isImageFile(
+            resource(
+              'Reading',
+              '$root/mentor-reading-files/$path.$ext',
+              attachment: '$path.$ext',
+            ),
+          ),
+          true,
+        );
+        expect(
+          repo.isImageFile(resource('Reading', '', attachment: '$path.$ext')),
+          true,
+        );
+        expect(
+          repo.isImageFile(
+            resource('Reading', '$root/marketplace-documents/$path.$ext'),
+          ),
+          true,
+        );
+      }
+      for (final item in [
+        resource('Reading', '', attachment: '$path.pdf'),
+        resource('Guide', '', attachment: '$path.png'),
+        resource('Video', '', attachment: '$path.mp4'),
+        resource('Reading', 'https://outside.invalid/preview.png'),
+        resource('Reading', '$root/mentor-video-files/$path.png'),
+        resource(
+          'Reading',
+          '$root/mentor-reading-files/$path.png',
+          attachment: '$path-other.png',
+        ),
+        resource('Reading', '$root/mentor-reading-files/../private.png'),
+        resource('Reading', ''),
+      ]) {
+        expect(repo.isImageFile(item), false);
+      }
+      expect(requests, isEmpty);
+    },
+  );
   for (final ext in ['pdf', 'png', 'jpg', 'jpeg', 'mp4']) {
     test(
       'new $ext upload uses typed private bucket and stable reference',

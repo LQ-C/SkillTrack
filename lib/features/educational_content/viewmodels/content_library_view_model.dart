@@ -1,3 +1,4 @@
+import '../../profile/repositories/profile_repository.dart';
 import 'dart:async';
 import '../../../core/utils/debug_timing.dart';
 import 'package:skilltrack/core/utils/view_model.dart';
@@ -6,7 +7,17 @@ import '../models/learning_resource.dart';
 import '../repositories/content_repository.dart';
 
 class ContentLibraryViewModel extends ViewModel {
-  ContentLibraryViewModel(this.repository) {
+  ContentLibraryViewModel(this.repository, {ProfileChangeSource? profiles}) {
+    _profileChanges = profiles?.profileChanges.listen((user) {
+      if (!isActive || profiles.userId != user) return;
+      try {
+        if (repository.userId != user) return;
+      } catch (_) {
+        return;
+      }
+      _invalidate();
+      unawaited(load());
+    });
     if (repository is ContentSessionSource) {
       _sessionUser = repository.userId;
       _session = (repository as ContentSessionSource).userChanges.listen((
@@ -14,26 +25,34 @@ class ContentLibraryViewModel extends ViewModel {
       ) {
         if (user == _sessionUser) return;
         _sessionUser = user;
-        request++;
-        _pending.clear();
-        _metadataUser = null;
-        update(() {
-          resources = [];
-          bookmarks = {};
-          accessLoaded = false;
-          mentor = false;
-          mine = false;
-          publisher = false;
-          loading = false;
-        });
+        _invalidate();
       });
     }
   }
+  void _invalidate() {
+    request++;
+    _pending.clear();
+    _metadataUser = null;
+    update(() {
+      resources = [];
+      bookmarks = {};
+      accessLoaded = false;
+      mentor = false;
+      mine = false;
+      publisher = false;
+      more = false;
+      loading = false;
+      error = null;
+    });
+  }
+
+  StreamSubscription<String>? _profileChanges;
   String? _sessionUser;
   StreamSubscription<String?>? _session;
   @override
   void dispose() {
     _session?.cancel();
+    _profileChanges?.cancel();
     super.dispose();
   }
 

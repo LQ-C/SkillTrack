@@ -60,15 +60,18 @@ class SupabaseContentRepository
         .createSignedUrl(path, path.toLowerCase().endsWith('.mp4') ? 900 : 120);
   }
 
-  @override
-  Future<String> primaryFileUrl(LearningResource resource) async {
+  /// Shared validation for classification and private URL signing.
+  ({String bucket, String path}) _primaryFileReference(
+    LearningResource resource,
+  ) {
     if (resource.link.isEmpty && resource.attachmentPath != null) {
       _validateKind(
         resourceFilesBucket,
         resource.attachmentPath!,
         resource.kind,
       );
-      return resourceFileUrl(resource.attachmentPath!);
+      _validatePath(resource.attachmentPath!);
+      return (bucket: resourceFilesBucket, path: resource.attachmentPath!);
     }
     if (resource.link
         .split('/')
@@ -103,9 +106,30 @@ class SupabaseContentRepository
       );
     }
     _validateKind(parts[4], path, resource.kind);
+    return (bucket: parts[4], path: path);
+  }
+
+  @override
+  bool isImageFile(LearningResource resource) {
+    if (resource.kind != 'Reading') return false;
+    try {
+      final file = _primaryFileReference(resource);
+      return {
+        'png',
+        'jpg',
+        'jpeg',
+      }.contains(file.path.split('.').last.toLowerCase());
+    } on FormatException {
+      return false;
+    }
+  }
+
+  @override
+  Future<String> primaryFileUrl(LearningResource resource) async {
+    final file = _primaryFileReference(resource);
     return client.storage
-        .from(parts[4])
-        .createSignedUrl(path, resource.kind == 'Video' ? 900 : 120);
+        .from(file.bucket)
+        .createSignedUrl(file.path, resource.kind == 'Video' ? 900 : 120);
   }
 
   @override

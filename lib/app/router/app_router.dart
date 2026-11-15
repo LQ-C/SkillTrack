@@ -181,6 +181,7 @@ class AppRouter {
         page = marketplace == null
             ? const _RouteUnavailable()
             : ExploreMentorsScreen(
+                profiles: marketplace!.accounts,
                 repository: marketplace!.tutors,
                 content: marketplace!.content,
               );
@@ -199,6 +200,7 @@ class AppRouter {
         page = marketplace == null
             ? const _RouteUnavailable()
             : ContentScreen(
+                profiles: marketplace!.accounts,
                 repository: marketplace!.content,
                 initialCategory: arguments is String ? arguments : null,
               );

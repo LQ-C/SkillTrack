@@ -12,6 +12,8 @@ import 'package:skilltrack/features/tutor_management/viewmodels/mentor_detail_vi
 import 'mentor_detail_test.dart' show Previews, AccountTutors;
 
 class VideoContent extends Previews implements ResourceOpeningRepository {
+  @override
+  bool isImageFile(LearningResource resource) => false;
   int urls = 0;
   Completer<String>? pendingUrl;
   @override

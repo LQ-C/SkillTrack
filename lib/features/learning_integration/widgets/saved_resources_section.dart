@@ -25,7 +25,23 @@ class BookmarkButton extends StatelessWidget {
               model.isLoading ||
               model.busy(resource.resourceId)
           ? null
-          : () => model.toggle(resource),
+          : () async {
+              final wasSaved = model.contains(resource.resourceId);
+              await model.toggle(resource);
+              if (context.mounted &&
+                  model.active &&
+                  model.contains(resource.resourceId) != wasSaved) {
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      wasSaved
+                          ? 'Removed from this task'
+                          : 'Saved to this task',
+                    ),
+                  ),
+                );
+              }
+            },
       icon: model.busy(resource.resourceId)
           ? const SizedBox(
               width: 20,

@@ -246,13 +246,13 @@ void main() {
       await tester.tap(find.text('Resume Task'));
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Refresh Recommendations'),
+        find.byTooltip('Refresh recommendations'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
       expect(find.text('Learning resources'), findsOneWidget);
-      expect(find.text('Refresh Recommendations'), findsOneWidget);
+      expect(find.byTooltip('Refresh recommendations'), findsOneWidget);
       expect(find.text(recommendation.title), findsOneWidget);
     },
   );
@@ -438,30 +438,33 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Get Recommendations'),
+        find.byTooltip('Refresh recommendations'),
         200,
         scrollable: find.byType(Scrollable).first,
       );
       await tester.pumpAndSettle();
-      expect(find.text('Get Recommendations'), findsOneWidget);
+      expect(find.byTooltip('Refresh recommendations'), findsOneWidget);
       expect(
         find.text('No relevant learning resources found yet.'),
         findsNothing,
       );
       expect(f.repo.calls, 0);
       f.repo.pending = Completer();
-      await tester.tap(find.text('Get Recommendations'));
+      await tester.tap(find.byTooltip('Refresh recommendations'));
       await tester.pump();
       expect(find.byType(LinearProgressIndicator), findsOneWidget);
       expect(
         tester
-            .widget<OutlinedButton>(
-              find.widgetWithText(OutlinedButton, 'Get Recommendations'),
+            .widget<IconButton>(
+              find.byWidgetPredicate(
+                (w) =>
+                    w is IconButton && w.tooltip == 'Refresh recommendations',
+              ),
             )
             .onPressed,
         isNull,
       );
-      await tester.tap(find.text('Get Recommendations'));
+      await tester.tap(find.byTooltip('Refresh recommendations'));
       expect(f.repo.calls, 1);
       f.repo.pending!.complete([]);
       await tester.pumpAndSettle();
@@ -471,7 +474,7 @@ void main() {
       );
       f.repo.pending = null;
       f.repo.fail = true;
-      await tester.tap(find.text('Refresh Recommendations'));
+      await tester.tap(find.byTooltip('Refresh recommendations'));
       await tester.pumpAndSettle();
       expect(find.text('Retry'), findsOneWidget);
       f.repo.fail = false;
@@ -480,7 +483,7 @@ void main() {
       await tester.tap(find.text('Retry'));
       await tester.pumpAndSettle();
       expect(find.text(recommendation.title), findsOneWidget);
-      expect(find.text('Refresh Recommendations'), findsOneWidget);
+      expect(find.byTooltip('Refresh recommendations'), findsOneWidget);
       expect(find.text('Open'), findsNothing);
       expect(
         f.repo.modes.every((mode) => mode == RecommendationRequestMode.manual),

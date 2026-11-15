@@ -378,7 +378,7 @@ class _MentorDetailScreenState extends State<MentorDetailScreen> {
                 r.kind == 'Video'
                     ? 'View details'
                     : r.kind == 'Reading'
-                    ? 'Read'
+                    ? 'View details'
                     : 'View',
               ),
             )

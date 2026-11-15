@@ -18,6 +18,10 @@ import '../../marketplace/tutor_management_test.dart' show MemoryTutors;
 
 class Accounts extends AccountService {
   @override
+  String? get userId => 'fixture';
+  @override
+  Stream<String?> get userChanges => const Stream.empty();
+  @override
   bool get emailVerified => true;
   @override
   String? get email => "fixture@example.test";

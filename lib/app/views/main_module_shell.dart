@@ -68,6 +68,7 @@ class _MainModuleShellState extends State<MainModuleShell> {
       0 => HomeScreen(
         showBottomNavigation: false,
         repository: m.dashboard,
+        profiles: m.accounts,
         onProjects: () async => select(3),
         loadProfile: m.accounts.loadProfile,
         onProfile: () async => select(4),
@@ -75,8 +76,12 @@ class _MainModuleShellState extends State<MainModuleShell> {
         onLibrary: (_) async => select(2),
         onMentorship: () => AppRouter.openMentorship(context, m.accounts),
       ),
-      1 => ExploreMentorsScreen(repository: m.tutors, content: m.content),
-      2 => ContentScreen(repository: m.content),
+      1 => ExploreMentorsScreen(
+        repository: m.tutors,
+        content: m.content,
+        profiles: m.accounts,
+      ),
+      2 => ContentScreen(repository: m.content, profiles: m.accounts),
       _ => ProfileScreen(service: m.accounts),
     };
   }

@@ -1,3 +1,5 @@
+import '../../profile/repositories/profile_repository.dart';
+import '../viewmodels/explore_mentors_view_model.dart';
 import '../../educational_content/repositories/content_repository.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/app/widgets/notification_bell.dart';
@@ -15,8 +17,10 @@ class ExploreMentorsScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.content,
+    this.profiles,
   });
   final TutorRepository repository;
+  final ProfileChangeSource? profiles;
   final ContentRepository? content;
 
   @override
@@ -24,46 +28,37 @@ class ExploreMentorsScreen extends StatefulWidget {
 }
 
 class _ExploreMentorsScreenState extends State<ExploreMentorsScreen> {
-  List<Mentor> mentors = [];
-  TutorProfile? ownProfile;
+  late final model = ExploreMentorsViewModel(
+    widget.repository,
+    profiles: widget.profiles,
+  );
+  List<Mentor> get mentors => model.mentors;
+  TutorProfile? get ownProfile => model.ownProfile;
+  bool get loading => model.loading;
+  String? get role => model.role;
+  String? get error => model.error;
+  set error(String? value) => model.error = value;
   bool editing = false;
-  bool loading = true;
-  String? role, error;
-  String query = '';
-
+  final searchController = TextEditingController();
   @override
   void initState() {
     super.initState();
+    model.addListener(changed);
     load();
   }
 
-  Future<void> load() async {
-    setState(() {
-      loading = true;
-      error = null;
-      mentors = [];
-    });
-    try {
-      final accountRole = await widget.repository.role();
-      final results = accountRole == 'student'
-          ? await widget.repository.directory()
-          : <Mentor>[];
-      final own = accountRole == 'mentor'
-          ? await widget.repository.profile()
-          : null;
-      if (mounted) {
-        setState(() {
-          role = accountRole;
-          mentors = results;
-          ownProfile = own;
-        });
-      }
-    } catch (e) {
-      if (mounted) setState(() => error = tutorError(e));
-    } finally {
-      if (mounted) setState(() => loading = false);
-    }
+  void changed() {
+    if (mounted) setState(() {});
   }
+
+  @override
+  void dispose() {
+    searchController.dispose();
+    model.dispose();
+    super.dispose();
+  }
+
+  Future<void> load() => model.load();
 
   Future<void> publishProfile() async {
     if (editing || loading || role != 'mentor') return;
@@ -72,19 +67,8 @@ class _ExploreMentorsScreenState extends State<ExploreMentorsScreen> {
       error = null;
     });
     try {
-      // Check again before opening a write form, in case the role changed.
-      if (await widget.repository.role() != 'mentor') {
-        await load();
-        return;
-      }
-      if (ownProfile == null) await widget.repository.enable();
-      final profile = await widget.repository.profile();
-      if (profile == null) {
-        throw const FormatException(
-          'Could not create your mentor profile. Try again.',
-        );
-      }
-      if (!mounted) return;
+      final profile = await model.prepareProfileEditor();
+      if (!mounted || !model.current || profile == null) return;
       await Navigator.of(context).push<bool>(
         AppRouter.featureRoute(
           builder: (_) => TutorProfileEditor(
@@ -103,13 +87,7 @@ class _ExploreMentorsScreenState extends State<ExploreMentorsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final matches = mentors
-        .where(
-          (m) => '${m.name} ${m.headline} ${m.expertise}'
-              .toLowerCase()
-              .contains(query.trim().toLowerCase()),
-        )
-        .toList();
+    final matches = model.matches;
     return Scaffold(
       appBar: AppBar(
         actions: const [NotificationBell()],
@@ -142,15 +120,18 @@ class _ExploreMentorsScreenState extends State<ExploreMentorsScreen> {
                             : 'Explore mentors, compare their skills and reviews, then choose a session that suits you.',
                       ),
                       const SizedBox(height: 20),
-                      if (loading)
-                        const Center(child: CircularProgressIndicator())
-                      else if (error != null) ...[
+                      if (loading && !model.hasLoaded)
+                        const Center(child: CircularProgressIndicator()),
+                      if (loading && model.hasLoaded)
+                        const LinearProgressIndicator(minHeight: 2),
+                      if (error != null) ...[
                         Text(error!),
                         TextButton(
-                          onPressed: load,
+                          onPressed: loading ? null : load,
                           child: const Text('Try again'),
                         ),
-                      ] else if (role == 'mentor') ...[
+                      ],
+                      if (model.hasLoaded && role == 'mentor') ...[
                         Card(
                           child: Padding(
                             padding: const EdgeInsets.all(20),
@@ -209,13 +190,14 @@ class _ExploreMentorsScreenState extends State<ExploreMentorsScreen> {
                             ),
                           ),
                         ),
-                      ] else if (role != 'student')
+                      ] else if (model.hasLoaded && role != 'student')
                         const Text(
                           'Mentor discovery is available to student accounts.',
                         )
-                      else ...[
+                      else if (model.hasLoaded) ...[
                         TextField(
-                          onChanged: (value) => setState(() => query = value),
+                          controller: searchController,
+                          onChanged: model.search,
                           decoration: const InputDecoration(
                             labelText: 'Search names or skills',
                             prefixIcon: Icon(Icons.search),

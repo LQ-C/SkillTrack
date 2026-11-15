@@ -1,4 +1,5 @@
 import '../../../core/utils/debug_timing.dart';
+import '../../../app/app_theme.dart';
 import 'package:flutter/services.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
@@ -211,7 +212,10 @@ class _UploadedVideoPlayerState extends State<UploadedVideoPlayer>
           ),
         ),
       );
-      final controls = Padding(
+      Widget controls({
+        VoidCallback? menuOpened,
+        VoidCallback? menuClosed,
+      }) => Padding(
         padding: const EdgeInsets.all(8),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -294,6 +298,8 @@ class _UploadedVideoPlayerState extends State<UploadedVideoPlayer>
                       ),
                     PopupMenuButton<String>(
                       tooltip: 'Video options',
+                      onOpened: menuOpened,
+                      onCanceled: menuClosed,
                       enabled: enabled,
                       itemBuilder: (_) => [
                         if (!wide)
@@ -320,6 +326,7 @@ class _UploadedVideoPlayerState extends State<UploadedVideoPlayer>
                           ),
                       ],
                       onSelected: (action) {
+                        menuClosed?.call();
                         if (action == 'back') {
                           _seek(controller, -10);
                         } else if (action == 'forward') {
@@ -359,30 +366,219 @@ class _UploadedVideoPlayerState extends State<UploadedVideoPlayer>
         ),
       );
       if (fullscreen) {
-        return Stack(
-          children: [
-            Positioned.fill(child: Center(child: video)),
-            Positioned(
-              left: 0,
-              right: 0,
-              bottom: 0,
-              child: SafeArea(
-                top: false,
-                child: ColoredBox(
-                  color: Colors.black.withValues(alpha: 0.7),
-                  child: controls,
-                ),
-              ),
-            ),
-          ],
+        return _FullscreenVideoSurface(
+          controller: controller,
+          video: video,
+          controlsBuilder: (opened, closed) =>
+              controls(menuOpened: opened, menuClosed: closed),
         );
       }
+
       return Column(
         mainAxisSize: MainAxisSize.min,
-        children: [video, controls],
+        children: [video, controls()],
       );
     },
   );
   String _time(Duration d) =>
       '${d.inMinutes}:${(d.inSeconds % 60).toString().padLeft(2, '0')}';
+}
+
+/// Presentation-only fullscreen chrome. The original player owns the controller.
+class _FullscreenVideoSurface extends StatefulWidget {
+  const _FullscreenVideoSurface({
+    required this.controller,
+    required this.video,
+    required this.controlsBuilder,
+  });
+  final VideoPlayerController controller;
+  final Widget video;
+  final Widget Function(VoidCallback opened, VoidCallback closed)
+  controlsBuilder;
+  @override
+  State<_FullscreenVideoSurface> createState() =>
+      _FullscreenVideoSurfaceState();
+}
+
+class _FullscreenVideoSurfaceState extends State<_FullscreenVideoSurface>
+    with RouteAware {
+  ModalRoute<dynamic>? _route;
+  Timer? _hideTimer;
+  bool _visible = true,
+      _menuOpen = false,
+      _accessible = false,
+      _focused = false;
+  final _pointers = <int>{};
+  bool get _keepVisible {
+    final value = widget.controller.value;
+    return !value.isPlaying ||
+        value.hasError ||
+        value.isCompleted ||
+        (value.duration > Duration.zero && value.position >= value.duration) ||
+        _menuOpen ||
+        _pointers.isNotEmpty ||
+        _accessible ||
+        (_focused &&
+            FocusManager.instance.highlightMode ==
+                FocusHighlightMode.traditional);
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    widget.controller.addListener(_playbackChanged);
+    FocusManager.instance.addHighlightModeListener(_highlightChanged);
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (_route != route) {
+      videoRouteObserver.unsubscribe(this);
+      _route = route;
+      if (route != null) videoRouteObserver.subscribe(this, route);
+    }
+    _accessible = MediaQuery.accessibleNavigationOf(context);
+    _playbackChanged();
+  }
+
+  @override
+  void didUpdateWidget(covariant _FullscreenVideoSurface oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.controller != widget.controller) {
+      oldWidget.controller.removeListener(_playbackChanged);
+      widget.controller.addListener(_playbackChanged);
+      _show();
+    }
+  }
+
+  @override
+  void didPushNext() {
+    if (!_menuOpen) unawaited(widget.controller.pause());
+  }
+
+  void _highlightChanged(FocusHighlightMode _) => _playbackChanged();
+  void _playbackChanged() {
+    if (_keepVisible) {
+      _hideTimer?.cancel();
+      _hideTimer = null;
+      if (!_visible) setState(() => _visible = true);
+    } else if (_visible && _hideTimer == null) {
+      _scheduleHide();
+    }
+  }
+
+  void _scheduleHide() {
+    _hideTimer?.cancel();
+    _hideTimer = null;
+    if (_keepVisible || !_visible) return;
+    _hideTimer = Timer(const Duration(seconds: 3), () {
+      _hideTimer = null;
+      if (mounted && !_keepVisible) setState(() => _visible = false);
+    });
+  }
+
+  void _show() {
+    if (!_visible) setState(() => _visible = true);
+    _scheduleHide();
+  }
+
+  void _toggle() {
+    if (_keepVisible || !_visible) {
+      _show();
+      return;
+    }
+    _hideTimer?.cancel();
+    _hideTimer = null;
+    setState(() => _visible = false);
+  }
+
+  void _menu(bool open) {
+    _menuOpen = open;
+    _show();
+  }
+
+  @override
+  void dispose() {
+    _hideTimer?.cancel();
+    videoRouteObserver.unsubscribe(this);
+    widget.controller.removeListener(_playbackChanged);
+    FocusManager.instance.removeHighlightModeListener(_highlightChanged);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    children: [
+      Positioned.fill(
+        child: Semantics(
+          button: true,
+          label: _visible ? 'Hide video controls' : 'Show video controls',
+          onTap: _toggle,
+          child: GestureDetector(
+            key: const ValueKey('fullscreen-video-surface'),
+            excludeFromSemantics: true,
+            behavior: HitTestBehavior.opaque,
+            onTap: _toggle,
+            child: Center(child: widget.video),
+          ),
+        ),
+      ),
+      Positioned(
+        left: 0,
+        right: 0,
+        bottom: 0,
+        child: SafeArea(
+          top: false,
+          child: ExcludeSemantics(
+            excluding: !_visible,
+            child: IgnorePointer(
+              ignoring: !_visible,
+              child: AnimatedOpacity(
+                key: const ValueKey('fullscreen-video-controls'),
+                opacity: _visible ? 1 : 0,
+                duration: AppTheme.motionDuration(
+                  context,
+                  const Duration(milliseconds: 180),
+                ),
+                child: Focus(
+                  canRequestFocus: false,
+                  onFocusChange: (focus) {
+                    _focused = focus;
+                    _playbackChanged();
+                  },
+                  onKeyEvent: (_, _) {
+                    _show();
+                    return KeyEventResult.ignored;
+                  },
+                  child: Listener(
+                    onPointerDown: (event) {
+                      _pointers.add(event.pointer);
+                      _show();
+                    },
+                    onPointerUp: (event) {
+                      _pointers.remove(event.pointer);
+                      _scheduleHide();
+                    },
+                    onPointerCancel: (event) {
+                      _pointers.remove(event.pointer);
+                      _scheduleHide();
+                    },
+                    child: ColoredBox(
+                      color: Colors.black.withValues(alpha: 0.7),
+                      child: widget.controlsBuilder(
+                        () => _menu(true),
+                        () => _menu(false),
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ],
+  );
 }

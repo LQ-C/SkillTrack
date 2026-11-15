@@ -167,7 +167,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      final action = find.text(paid ? 'Read' : 'Unlock Materials');
+      final action = find.text(paid ? 'View details' : 'Unlock Materials');
       await tester.scrollUntilVisible(
         action,
         150,
@@ -221,7 +221,7 @@ void main() {
       tester.state<NavigatorState>(find.byType(Navigator)).pop(true);
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Read'),
+        find.text('View details'),
         150,
         scrollable: find.byWidgetPredicate(
           (w) => w is Scrollable && w.axisDirection == AxisDirection.down,
@@ -306,7 +306,7 @@ void main() {
       );
       await tester.pumpAndSettle();
       await tester.scrollUntilVisible(
-        find.text('Read'),
+        find.text('View details'),
         200,
         scrollable: find.byWidgetPredicate(
           (w) => w is Scrollable && w.axisDirection == AxisDirection.down,

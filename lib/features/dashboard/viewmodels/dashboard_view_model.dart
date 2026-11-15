@@ -1,3 +1,4 @@
+import '../../profile/repositories/profile_repository.dart';
 import 'package:flutter/foundation.dart';
 import 'dart:async';
 import 'package:skilltrack/core/utils/view_model.dart';
@@ -5,7 +6,26 @@ import '../../tutor_management/models/tutor_models.dart';
 import '../repositories/dashboard_repository.dart';
 
 class DashboardViewModel extends ViewModel {
-  DashboardViewModel(this.loadProfile, {this.repository}) {
+  DashboardViewModel(
+    this.loadProfile, {
+    this.repository,
+    ProfileChangeSource? profiles,
+  }) {
+    _profileChanges = profiles?.profileChanges.listen((user) {
+      if (!isActive ||
+          user != profiles.userId ||
+          (repository != null && user != repository!.userId)) {
+        return;
+      }
+      _profileVersion++;
+      _pending.remove('profile');
+      update(() {
+        name = null;
+        role = null;
+        errors.remove('profile');
+      });
+      unawaited(retry('profile'));
+    });
     _owner = repository?.userId;
     _subscription = repository?.userChanges.listen((id) {
       if (id == _owner) return;
@@ -25,6 +45,8 @@ class DashboardViewModel extends ViewModel {
   final Future<Map<String, dynamic>> Function() loadProfile;
   final DashboardRepository? repository;
   StreamSubscription<String?>? _subscription;
+  StreamSubscription<String>? _profileChanges;
+  int _profileVersion = 0;
   String? _owner, name, role;
   int _epoch = 0;
   final _pending = <String, Future<void>>{};
@@ -43,8 +65,13 @@ class DashboardViewModel extends ViewModel {
   Future<void> retry(String section) {
     if (_pending.containsKey(section)) return _pending[section]!;
     final epoch = _epoch;
+    final profileVersion = _profileVersion;
     final owner = repository?.userId;
-    bool valid() => isActive && epoch == _epoch && owner == repository?.userId;
+    bool valid() =>
+        isActive &&
+        epoch == _epoch &&
+        owner == repository?.userId &&
+        (section != 'profile' || profileVersion == _profileVersion);
     final future = Future<void>(() async {
       final timer = Stopwatch()..start();
       try {
@@ -86,6 +113,7 @@ class DashboardViewModel extends ViewModel {
   void dispose() {
     _epoch++;
     _subscription?.cancel();
+    _profileChanges?.cancel();
     super.dispose();
   }
 }

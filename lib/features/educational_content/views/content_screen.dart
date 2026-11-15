@@ -1,3 +1,4 @@
+import '../../profile/repositories/profile_repository.dart';
 import '../../../app/widgets/category_dropdown.dart';
 import 'package:skilltrack/app/router/app_router.dart';
 import 'package:skilltrack/app/widgets/notification_bell.dart';
@@ -16,8 +17,10 @@ class ContentScreen extends StatefulWidget {
     super.key,
     required this.repository,
     this.initialCategory,
+    this.profiles,
   });
   final ContentRepository repository;
+  final ProfileChangeSource? profiles;
   final String? initialCategory;
   @override
   State<ContentScreen> createState() => _ContentScreenState();
@@ -25,7 +28,10 @@ class ContentScreen extends StatefulWidget {
 
 class _ContentScreenState extends State<ContentScreen> {
   final search = TextEditingController();
-  late final viewModel = ContentLibraryViewModel(widget.repository);
+  late final viewModel = ContentLibraryViewModel(
+    widget.repository,
+    profiles: widget.profiles,
+  );
   List<LearningResource> get resources => viewModel.resources;
   set resources(List<LearningResource> value) => viewModel.resources = value;
   Set<String> get bookmarks => viewModel.bookmarks;
@@ -246,7 +252,7 @@ class _ContentScreenState extends State<ContentScreen> {
                   ),
                 if (mine && mentor && !publisher)
                   const ContentNotice(
-                    'You can prepare drafts now. Publishing requires mentor approval from the platform administrator.',
+                    'You can prepare drafts now. Publishing is unavailable. Refresh and check the mentor-role setup if this continues.',
                   ),
                 if (error != null) ...[
                   ContentNotice(error!, error: true),

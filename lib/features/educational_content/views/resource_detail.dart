@@ -1,3 +1,4 @@
+import '../widgets/resource_image_preview.dart';
 import '../widgets/uploaded_video_player.dart';
 import '../utils/youtube_url.dart';
 import 'package:skilltrack/app/router/app_router.dart';
@@ -29,11 +30,17 @@ class ResourceDetail extends StatefulWidget {
 }
 
 class _ResourceDetailState extends State<ResourceDetail> {
-  late final viewModel = ResourceDetailViewModel(
-    widget.repository,
-    widget.id,
-    bookmarked: widget.bookmarked,
-  );
+  late ResourceDetailViewModel viewModel;
+  void createModel() {
+    viewModel = ResourceDetailViewModel(
+      widget.repository,
+      widget.id,
+      bookmarked: widget.bookmarked,
+    );
+    viewModel.addListener(refresh);
+    load();
+  }
+
   LearningResource? get resource => viewModel.resource;
   bool get loading => viewModel.loading;
   bool get busy => viewModel.busy;
@@ -50,8 +57,17 @@ class _ResourceDetailState extends State<ResourceDetail> {
   @override
   void initState() {
     super.initState();
-    viewModel.addListener(refresh);
-    load();
+    createModel();
+  }
+
+  @override
+  void didUpdateWidget(covariant ResourceDetail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.repository != widget.repository ||
+        oldWidget.id != widget.id) {
+      viewModel.dispose();
+      createModel();
+    }
   }
 
   @override
@@ -66,7 +82,7 @@ class _ResourceDetailState extends State<ResourceDetail> {
   @override
   Widget build(BuildContext context) {
     final r = resource;
-    final own = r?.authorId == widget.repository.userId;
+    final own = viewModel.ownsResource;
     return Scaffold(
       appBar: AppBar(title: const Text('Learning resource')),
       body: Center(
@@ -91,7 +107,12 @@ class _ResourceDetailState extends State<ResourceDetail> {
                 ),
               ],
               if (!loading && r != null) ...[
-                if (r.kind == 'Video' &&
+                if (viewModel.isImage)
+                  ResourceImagePreview(
+                    key: ValueKey((r.id, viewModel)),
+                    model: viewModel,
+                  )
+                else if (r.kind == 'Video' &&
                     widget.repository is ResourceOpeningRepository &&
                     (r.attachmentPath != null ||
                         r.link.contains('/storage/v1/object/')))
@@ -142,7 +163,8 @@ class _ResourceDetailState extends State<ResourceDetail> {
                   const SizedBox(height: 20),
                   InlineYoutubeVideo(key: ValueKey(r.link), url: r.link),
                 ],
-                if ((r.kind != 'Video' ||
+                if (!viewModel.isImage &&
+                    (r.kind != 'Video' ||
                         widget.repository is! ResourceOpeningRepository) &&
                     (r.attachmentPath != null ||
                         (r.link.contains('/storage/v1/object/') &&

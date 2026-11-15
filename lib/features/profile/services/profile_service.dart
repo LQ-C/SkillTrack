@@ -11,13 +11,14 @@ class ProfileService implements ProfileRepository {
       .eq('id', client.auth.currentUser!.id)
       .single();
   @override
-  Future<void> saveProfile(
+  Future<Map<String, dynamic>> saveProfile(
     String name,
     String birthDate,
     String role,
     String bio,
   ) async {
-    await client
+    final owner = client.auth.currentUser!.id;
+    return await client
         .from('profiles')
         .update({
           'full_name': name.trim(),
@@ -25,7 +26,7 @@ class ProfileService implements ProfileRepository {
           'role': role,
           'bio': bio.trim(),
         })
-        .eq('id', client.auth.currentUser!.id)
+        .eq('id', owner)
         .select()
         .single();
   }

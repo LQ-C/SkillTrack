@@ -1,3 +1,4 @@
+import '../../profile/repositories/profile_repository.dart';
 import 'package:skilltrack/app/widgets/skilltrack_logo.dart';
 import '../widgets/project_carousel.dart';
 import '../../../app/app_colors.dart';
@@ -19,6 +20,7 @@ class HomeScreen extends StatefulWidget {
     this.onExplore,
     this.onProjects,
     this.repository,
+    this.profiles,
     this.showBottomNavigation = true,
   });
   final Future<Map<String, dynamic>> Function() loadProfile;
@@ -26,6 +28,7 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function(String?) onLibrary;
   final Future<void> Function()? onMentorship, onExplore, onProjects;
   final DashboardRepository? repository;
+  final ProfileChangeSource? profiles;
   final bool showBottomNavigation;
   @override
   State<HomeScreen> createState() => _HomeScreenState();
@@ -35,6 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
   late final vm = DashboardViewModel(
     widget.loadProfile,
     repository: widget.repository,
+    profiles: widget.profiles,
   );
   bool opening = false;
   @override

@@ -9,6 +9,10 @@ import 'package:skilltrack/features/educational_content/repositories/content_rep
 import 'package:skilltrack/features/educational_content/viewmodels/content_library_view_model.dart';
 
 class MemoryAccountService extends AccountService {
+  @override
+  String? get userId => 'fixture';
+  @override
+  Stream<String?> get userChanges => const Stream.empty();
   Map<String, dynamic> profile = {
     'full_name': 'Liau',
     'date_of_birth': '2004-01-08',
@@ -19,7 +23,7 @@ class MemoryAccountService extends AccountService {
   @override
   Future<Map<String, dynamic>> loadProfile() async => profile;
   @override
-  Future<void> saveProfile(
+  Future<Map<String, dynamic>> saveProfile(
     String name,
     String birthDate,
     String role,
@@ -32,6 +36,7 @@ class MemoryAccountService extends AccountService {
       'role': role,
       'bio': bio,
     };
+    return profile;
   }
 }
 

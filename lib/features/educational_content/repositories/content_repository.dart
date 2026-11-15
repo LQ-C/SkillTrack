@@ -32,6 +32,8 @@ abstract interface class ResourceFileRepository {
 }
 
 abstract interface class ResourceOpeningRepository {
+  /// Classifies only validated uploaded references; does not fetch any media.
+  bool isImageFile(LearningResource resource);
   Future<String> primaryFileUrl(LearningResource resource);
 }
 

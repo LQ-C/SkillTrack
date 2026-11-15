@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:skilltrack/features/profile/services/profile_service.dart';
 import 'package:skilltrack/features/profile/repositories/profile_repository.dart';
 import 'package:skilltrack/features/authentication/models/auth_registration.dart';
@@ -6,9 +7,18 @@ import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/mentor_registration.dart';
 
-class AccountService implements AccountRepository, ProfileRepository {
+class AccountService
+    implements AccountRepository, ProfileRepository, ProfileChangeSource {
   AccountService([this._client]);
   final SupabaseClient? _client;
+  final _profileChanges = StreamController<String>.broadcast(sync: true);
+  @override
+  Stream<String> get profileChanges => _profileChanges.stream;
+  @override
+  String? get userId => client.auth.currentUser?.id;
+  @override
+  Stream<String?> get userChanges =>
+      client.auth.onAuthStateChange.map((e) => e.session?.user.id).distinct();
   SupabaseClient get client => _client ?? Supabase.instance.client;
   String get redirect => kIsWeb
       ? Uri.base.replace(fragment: '', query: '').toString()
@@ -77,12 +87,29 @@ class AccountService implements AccountRepository, ProfileRepository {
   Future<Map<String, dynamic>> loadProfile() =>
       ProfileService(client).loadProfile();
   @override
-  Future<void> saveProfile(
+  Future<Map<String, dynamic>> saveProfile(
     String name,
     String birthDate,
     String role,
     String bio,
-  ) => ProfileService(client).saveProfile(name, birthDate, role, bio);
+  ) async {
+    final owner = userId;
+    var sameSession = true;
+    final session = userChanges.listen((id) {
+      if (id != owner) sameSession = false;
+    });
+    try {
+      final row = await ProfileService(
+        client,
+      ).saveProfile(name, birthDate, role, bio);
+      if (sameSession && owner != null && userId == owner) {
+        _profileChanges.add(owner);
+      }
+      return row;
+    } finally {
+      await session.cancel();
+    }
+  }
 
   @override
   Future<void> changePassword(String current, String replacement) async {
